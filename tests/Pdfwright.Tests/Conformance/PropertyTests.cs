@@ -53,6 +53,8 @@ public class PropertyTests
         return text.ToString();
     }
 
+    private const double Margin = 20;
+
     private static PdfDocument RandomDocument(int seed, double width, double height)
     {
         Random random = new(seed);
@@ -117,6 +119,12 @@ public class PropertyTests
                         box.Left >= -0.01 && box.Right <= width + 0.01 && box.Bottom >= -0.01 && box.Top <= height + 0.01
                         && letter.StartBaseLine.X >= -0.01 && letter.EndBaseLine.X <= width + 0.01,
                         $"seed {seed}, page {page.Number}: '{letter.Value}' at ({box.Left:0.##}, {box.Bottom:0.##})-({box.Right:0.##}, {box.Top:0.##}) is outside {width} x {height}");
+                    // The text sits in the margins' box: a glyph may stand out of it by the descent of its line or a mark's overhang (half an em), not more, so a mark pushed
+                    // an em below its base on the last line of a page is caught here although the page itself still contains it.
+                    double overhang = 0.5 * letter.PointSize;
+                    Assert.True(
+                        box.Left >= Margin - overhang && box.Right <= width - Margin + overhang && box.Bottom >= Margin - overhang && box.Top <= height - Margin + overhang,
+                        $"seed {seed}, page {page.Number}: '{letter.Value}' at ({box.Left:0.##}, {box.Bottom:0.##})-({box.Right:0.##}, {box.Top:0.##}) is more than {overhang:0.##} outside the margins of {Margin}");
                 }
             }
         }
@@ -145,12 +153,13 @@ public class PropertyTests
     private static readonly Regex Marker = new(@"[hr]\d+c\d+w\d+", RegexOptions.Compiled);
 
     /// <summary>A table of rows whose words are numbered r{row}c{column}w{n}, so a reader can say which row a word belongs to and how often it was drawn.</summary>
-    private static (PdfDocument Document, bool[] Tall, int Columns, string[] Pages) RandomTable(int seed, out byte[] pdf)
+    private static (PdfDocument Document, bool[] Tall, int Columns, string[] Pages, int[][] Words) RandomTable(int seed, out byte[] pdf)
     {
         Random random = new(seed);
         int columns = random.Next(2, 5);
         int rowCount = random.Next(30, 90);
         bool[] tall = new bool[rowCount];
+        int[][] wordCounts = new int[rowCount][];
         for (int r = 0; r < rowCount; r++)
         {
             tall[r] = r > 3 && random.Next(40) == 0;
@@ -162,10 +171,12 @@ public class PropertyTests
         TableRow Row(int row)
         {
             TableCell[] cells = new TableCell[columns];
+            wordCounts[row] = new int[columns];
             for (int c = 0; c < columns; c++)
             {
                 // A tall row has far more text than a page of 300 points holds in a column of this width; the others stay far below it.
                 int words = tall[row] ? (c == 0 ? 90 : 3) : random.Next(1, 7);
+                wordCounts[row][c] = words;
                 cells[c] = new TableCell(Cell("r", row, c, words));
             }
 
@@ -183,7 +194,7 @@ public class PropertyTests
         document.Add(new Paragraph("Intro paragraph before the table."));
         document.Add(new Table(Enumerable.Range(0, columns).Select(_ => new TableColumn()), header, rows));
         pdf = DocumentTestKit.Save(document);
-        return (document, tall, columns, DocumentTestKit.PageTexts(pdf));
+        return (document, tall, columns, DocumentTestKit.PageTexts(pdf), wordCounts);
     }
 
     [Fact]
@@ -192,7 +203,7 @@ public class PropertyTests
         int splitRows = 0;
         for (int seed = 1; seed <= Seeds(12); seed++)
         {
-            (_, bool[] tall, int columns, string[] pages) = RandomTable(seed, out byte[] pdf);
+            (_, bool[] tall, int columns, string[] pages, int[][] words) = RandomTable(seed, out byte[] pdf);
             Assert.True(pages.Length >= 3, $"seed {seed}: {pages.Length} pages");
 
             // For each marker, the pages it was drawn on.
@@ -210,13 +221,17 @@ public class PropertyTests
                 }
             }
 
-            // Every row appears exactly once: each of its words is drawn on one page, once.
+            // Every word of every cell is drawn exactly once (a row that is cut between lines must lose nothing and repeat nothing).
             for (int r = 0; r < tall.Length; r++)
             {
                 for (int c = 0; c < columns; c++)
                 {
-                    string first = $"r{r}c{c}w0";
-                    Assert.True(where.TryGetValue(first, out List<int>? seen) && seen.Count == 1, $"seed {seed}: {first} was drawn {(where.TryGetValue(first, out List<int>? s) ? s.Count : 0)} times");
+                    for (int w = 0; w < words[r][c]; w++)
+                    {
+                        string word = $"r{r}c{c}w{w}";
+                        int times = where.TryGetValue(word, out List<int>? seen) ? seen.Count : 0;
+                        Assert.True(times == 1, $"seed {seed}: {word} was drawn {times} times");
+                    }
                 }
             }
 

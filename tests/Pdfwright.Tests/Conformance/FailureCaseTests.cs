@@ -16,6 +16,15 @@ public class FailureCaseTests
 
     public static TheoryData<string> Fonts() => [.. DocumentTestKit.AllFonts];
 
+    /// <summary>The distinct code points of <paramref name="text"/> that the font has no glyph for, read from its cmap with HarfBuzz and not with the library.</summary>
+    private static int[] Lacking(string text, string file)
+    {
+        using HarfBuzzSharp.Blob blob = HarfBuzzSharp.Blob.FromFile(TestPaths.Font(file))!;
+        using HarfBuzzSharp.Face face = new(blob, 0);
+        using HarfBuzzSharp.Font font = new(face);
+        return [.. text.EnumerateRunes().Select(r => r.Value).Distinct().Where(cp => !char.IsWhiteSpace(char.ConvertFromUtf32(cp), 0) && (!font.TryGetGlyph((uint)cp, out uint glyph) || glyph == 0)).Order()];
+    }
+
     private static PageCorpus Corpus(string group) => PageCorpus.LoadAll().Single(c => c.Group == group);
 
     [Theory]
@@ -47,6 +56,9 @@ public class FailureCaseTests
             Assert.Contains(m.Character, text, StringComparison.Ordinal);
         });
         Assert.Equal(missing.Count, missing.Select(m => m.CodePoint).Distinct().Count());
+
+        // Exactly the characters of the text that the only font of the collection has no glyph for: not the first one, not a subset, not more.
+        Assert.Equal(string.Join(" ", Lacking(text, "NotoSans-Regular.ttf")), string.Join(" ", missing.Select(m => m.CodePoint).Order()));
         Assert.Equal(2, document.Diagnostics.PageCount);
         Assert.Empty(document.Diagnostics.MissingFamilies);
         DocumentTestKit.AssertValid(pdf, $"failure-glyph-{group}");
@@ -84,7 +96,8 @@ public class FailureCaseTests
 
         Assert.Equal(["Absent Sans"], document.Diagnostics.MissingFamilies);
         Assert.Empty(document.Diagnostics.MissingGlyphs);
-        Assert.Equal(Extraction.Normalize(item.Cells[0]), Extraction.Normalize(string.Concat(DocumentTestKit.PageTexts(pdf))));
+        Extraction.Result read = Extraction.Match(string.Join(Extraction.Line, ScriptConformanceTests.PageTexts(pdf)), [item.Cells[0]], []);
+        Assert.True(read.Failures.Count == 0 && read.Trailing.Length == 0, string.Join(Environment.NewLine, read.Failures) + read.Trailing);
         DocumentTestKit.AssertValid(pdf, $"failure-family-{group}");
     }
 

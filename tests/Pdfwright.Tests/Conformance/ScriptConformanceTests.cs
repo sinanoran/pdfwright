@@ -59,8 +59,8 @@ public class ScriptConformanceTests
     {
         byte[] pdf = Make(group, isLong, out PageCorpus.Built built);
 
-        string[] pages = DocumentTestKit.PageTexts(pdf);
-        Extraction.Result result = Extraction.Match(string.Concat(pages), built.Expected, built.Header);
+        string[] pages = PageTexts(pdf);
+        Extraction.Result result = Extraction.Match(string.Join(Extraction.Line, pages), built.Expected, built.Header);
         Record(group, isLong, pdf, built, result, pages.Length);
 
         Assert.Empty(built.Document.Diagnostics.MissingGlyphs);
@@ -86,6 +86,80 @@ public class ScriptConformanceTests
         byte[] pdf = Make(group, isLong, out _);
 
         DocumentTestKit.AssertValid(pdf, $"corpus-{group}-{(isLong ? "long" : "short")}");
+    }
+
+    /// <summary>The text of each page with the line and gap markers of <see cref="Extraction.Read"/>.</summary>
+    internal static string[] PageTexts(byte[] pdf)
+    {
+        using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(pdf);
+        return [.. read.GetPages().Select(Extraction.Read)];
+    }
+
+    [Theory]
+    [MemberData(nameof(Pages))]
+    public void Letters_of_right_to_left_runs_fall_and_of_left_to_right_runs_rise_in_the_order_of_the_stream(string group, bool isLong)
+    {
+        byte[] pdf = Make(group, isLong, out _);
+
+        int rtl = 0;
+        int ltr = 0;
+        List<string> violations = [];
+        using (UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(pdf))
+        {
+            foreach (UglyToad.PdfPig.Content.Page page in read.GetPages())
+            {
+                Directions.Report report = Directions.Check(page);
+                rtl += report.RightToLeftPairs;
+                ltr += report.LeftToRightPairs;
+                violations.AddRange(report.Violations.Select(v => $"page {page.Number}: {v}"));
+            }
+        }
+
+        Assert.True(violations.Count == 0, $"{group} {(isLong ? "long" : "short")}: {violations.Count} of {rtl + ltr} pairs of letters run the wrong way\n" + string.Join('\n', violations.Take(8)));
+
+        // The check must have looked at something: a script that is right to left has right-to-left pairs, the Latin, Greek and Cyrillic groups have left-to-right ones.
+        if (group is "arabic" or "hebrew" or "mixed")
+        {
+            Assert.True(rtl >= 100, $"{group}: only {rtl} right-to-left pairs were checked");
+        }
+
+        if (group is "latin-extended" or "greek" or "cyrillic" or "mixed")
+        {
+            Assert.True(ltr >= 100, $"{group}: only {ltr} left-to-right pairs were checked");
+        }
+    }
+
+    [Fact]
+    public void The_comparison_notices_a_moved_space_a_lost_space_and_a_character_moved_into_the_next_string()
+    {
+        string L = Extraction.Line.ToString();
+        string G = Extraction.Gap.ToString();
+
+        // A moved space, a lost space.
+        Assert.NotEmpty(Extraction.Match("a bcd", ["ab cd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("abcd", ["ab cd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("ab  c d", ["ab cd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("ab cd", ["abcd"], []).Failures);
+
+        // A character moved into the next string, with or without the gap of the next table cell between them.
+        Assert.NotEmpty(Extraction.Match("abc d", ["ab", "cd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("abc" + G + "d", ["ab", "cd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("abc" + G + "de", ["ab", "cde"], []).Failures);
+        Assert.Empty(Extraction.Match("ab" + G + "cd", ["ab", "cd"], []).Failures);
+        Assert.Empty(Extraction.Match("ab" + L + "cd", ["ab", "cd"], []).Failures);
+
+        // Equal after the normalisation: any run of white space is one space, a grapheme joiner is nothing.
+        Assert.Empty(Extraction.Match("ab \n\t cd" + (char)0x034F, ["ab cd"], []).Failures);
+
+        // A line break stands for a space, and may fall inside a string only between grapheme clusters; a gap only inside a string (a jump between runs).
+        Assert.Empty(Extraction.Match("ab" + L + "cd", ["ab cd"], []).Failures);
+        Assert.Empty(Extraction.Match("ab " + L + "cd", ["ab cd"], []).Failures);
+        Assert.Empty(Extraction.Match("ab" + L + "cd", ["abcd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("ab " + L + "cd", ["abcd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("a" + L + "́b", ["áb"], []).Failures);
+        Assert.Empty(Extraction.Match("á" + L + "b", ["áb"], []).Failures);
+        Assert.Empty(Extraction.Match("ab" + G + "cd", ["abcd"], []).Failures);
+        Assert.NotEmpty(Extraction.Match("ab" + G, ["abcd"], []).Failures);
     }
 
     [Fact]

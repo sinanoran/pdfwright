@@ -36,10 +36,19 @@ internal static partial class Program
             }
         }
 
-        if (files.Count != 2 || files.Any(f => !File.Exists(f)))
+        if (files.Count != 2)
         {
             Console.Error.WriteLine("Usage: Pdfwright.GoldenDiff <expected.pdf> <actual.pdf> [--context N] [--max-lines N]");
             return 2;
+        }
+
+        for (int i = 0; i < 2; i++)
+        {
+            if (!File.Exists(files[i]))
+            {
+                Console.Error.WriteLine($"Pdfwright.GoldenDiff: the {(i == 0 ? "expected" : "actual")} file '{files[i]}' does not exist.");
+                return 2;
+            }
         }
 
         byte[] expected = File.ReadAllBytes(files[0]);
