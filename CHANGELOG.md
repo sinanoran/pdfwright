@@ -35,4 +35,10 @@ All notable changes to this project are recorded here. The format follows
   an itemizer after UAX #24 that splits text into runs of one script (common and inherited characters join their run, a closing bracket
   returns to the script of its opening bracket, a character used with several scripts stays in the run it is in).
 
+- Slice S5a of the plan, the public API and the simple block flow: `Length`, `PageSize`, `Margins`, `Color`, `FontCollection` (thread-safe, family,
+  weight and style read from the font, fonts that forbid embedding refused with `FontNotEmbeddableException`), `TextStyle`, `TextDirection`, `TextAlignment`,
+  the blocks `Heading`, `Paragraph` (with styled runs), `Spacer` and `PageBreak`, `PdfDocumentOptions`, `PdfDocument` (`Save`, `SaveAsync`),
+  `TextMeasurer`, `DocumentDiagnostics` and the limits `MaxPages` and `MaxBytes` (`PdfLimitExceededException`). The paragraph layout now takes
+  runs of different size, font, language and colour in one line. The public surface is recorded in `tests/Pdfwright.Tests/PublicApi/`.
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

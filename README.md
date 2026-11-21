@@ -5,10 +5,10 @@
 
 **Pdfwright writes PDF reports: paragraphs, tables that paginate, vector charts, in every script.**
 
-> **Status: pre-release, nothing is published.** This repository holds the skeleton of slice S0
-> (see [`docs/plan-0.1.md`](docs/plan-0.1.md)): the build, the CI and release workflows, a corpus of
-> text in nine scripts and mixed-direction text with the fonts it is drawn with, and the measuring tools. There is no writer yet
-> and no public API; the package id `Pdfwright` is not on nuget.org.
+> **Status: pre-release, nothing is published.** The writer, the text engine, the drawing canvas and (since slice S5a)
+> the first public API are in the repository: lengths, page sizes, fonts, text styles, headings, paragraphs with styled runs, spacers
+> and page breaks, `PdfDocument`, the text measurer and the diagnostics. Tables, columns, callouts, drawings, keep-together and
+> headers and footers are the next slices (see [`docs/plan-0.1.md`](docs/plan-0.1.md)); the package id `Pdfwright` is not on nuget.org.
 
 ## Why it will exist
 
@@ -29,6 +29,43 @@ headers and footers with page numbers, embedded font subsets, right-to-left and 
 Arabic, Indic and Thai shaping. **Not in 0.1:** CJK, emoji and colour fonts, forms, encryption, PDF/A,
 tagged PDF (the design carries it; it is 0.2). The whole design, the public API sketch, the targets and
 the test strategy are in [`docs/plan-0.1.md`](docs/plan-0.1.md).
+
+## Usage (what exists today)
+
+```csharp
+using Pdfwright;
+
+// Fonts are supplied, never discovered. A collection is parsed once and can be shared by every document.
+FontCollection fonts = new FontCollection()
+    .Add(File.ReadAllBytes("NotoSans-Regular.ttf"))
+    .Add(File.ReadAllBytes("NotoSans-Bold.ttf"))
+    .Add(File.ReadAllBytes("NotoSansArabic-Regular.ttf"));
+
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
+    PageSize = PageSize.A4,
+    Margins = Margins.Mm(top: 20, right: 15, bottom: 20, left: 15),
+    Title = "Monthly report",
+    Deterministic = true, // no clock: the same document is the same bytes
+});
+
+document.Add(new Heading(1, "Monthly report"));
+document.Add(new Paragraph(
+[
+    new TextRun("Sales rose "),
+    new TextRun("12 %", new TextStyle { Weight = 700, Color = Color.Green }),
+    new TextRun(" over the quarter."),
+]));
+document.Add(new Paragraph("تقرير المبيعات الشهري") { Style = new TextStyle { Language = "ar" } });
+
+await document.SaveAsync(stream, cancellationToken);
+DocumentDiagnostics report = document.Diagnostics; // missing glyphs by language and page, page count, bytes
+```
+
+`TextMeasurer` measures text with the engine that draws it, for placing labels. `Length` has no implicit
+conversion from a number, so a unit is never guessed.
 
 ## Build and test
 

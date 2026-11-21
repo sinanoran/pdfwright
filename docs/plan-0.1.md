@@ -294,7 +294,7 @@ Devanagari conjunct are not correct by then, the contingency of section 3 is cho
 asynchronous save of S5 must buffer (or write through a pipe) rather than call it from an async method; the page tree is flat (one `/Pages` node holding
 every page), which viewers handle well into the thousands of pages and which a balanced tree would improve; and a page's content stream is held in
 memory, with a few copies while it is compressed, so one very large page costs several times its own size at completion.
-A document's other pages are written as they end and cost nothing more.
+A document's other pages are written as they end and cost nothing more. (S5a: `SaveAsync` buffers the whole file in memory and copies it asynchronously; see the S5a status.)
 
 ### Go or stop assessment (21 November 2026, interim: after S1 and S2, before S3)
 
@@ -420,6 +420,42 @@ are refused). A PNG is read by an own decoder (every chunk CRC checked; all five
 the document's compression turns into `FlateDecode`, with alpha (or a `tRNS`) as an `/SMask`, and a palette as `/Indexed` unless it has transparency. Limits: 65,535 pixels on a side and 100 million in all, checked
 before anything is allocated; damage is an `ImageFormatException`. Left out of the brief: there is no `TextStyle` yet (the canvas takes a size, a brush and a language), and `ArcTo` (tangent arcs) was not built, only `Arc` by centre and angles.
 The colour management of a PNG is ignored (`docs/known-limitations.md`).
+
+### S5a status: the public API and the simple block flow (21 November 2026)
+
+Public now, all in the root namespace `Pdfwright`, every member documented (the documentation warning is an error again, `CS1591` is no longer suppressed) and the surface written out in
+`tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt`, which a test compares with the assembly, so a change of the surface shows in a diff: `Length` (Pt, Mm, Cm, In; arithmetic, comparison, `IsFinite`; no implicit conversion),
+`PageSize` (A4, A5, Letter, Legal, custom, `Landscape()`), `Margins` (physical: top, right, bottom, left; Mm, Pt, Uniform), `Color` (the S4d value made public: RGB, gray, `FromHex`, a few constants), `TextStyle`, `TextDirection`,
+`TextAlignment` (logical), `FontCollection` and `FontNotEmbeddableException`, the blocks `Heading`, `Paragraph` (with `TextRun`s), `Spacer` and `PageBreak`, `PdfDocumentOptions`, `PdfDocument`, `TextMeasurer` and `TextMeasurement`,
+`DocumentDiagnostics` with `MissingGlyph`, and `DocumentLimits` with `PdfLimitExceededException`.
+
+**What it does.** `Block` is an abstract record with an internal constructor, so the set is closed and the flow's `switch` has no fallback arm; the table, columns, callout and drawing blocks of S5b and S5c are added as further sealed records.
+The flow (`Document/DocumentRenderer`) lays blocks from the top of the content area down; a paragraph that does not fit is split between its lines (no widow or orphan control yet); a heading is kept with the first line of the block after it
+(it moves to the next page when it and that line do not fit; at the top of a page it is not moved, and space before is dropped there); a spacer is dropped at the top of a page and cut at the bottom; a page break ends the page, two in a row leave a blank one.
+A line break of any kind inside a run (`\n`, `\r\n`, U+2028, U+2029, U+0085) is a line break inside the paragraph. An empty document is one blank page.
+
+**Runs of different styles in one line** needed the layout engine to change, not only the block layer: `ParagraphOptions` takes `Styles` and `Spans` (internal). `TextShaper` chooses fonts for each grapheme cluster from the font order of the style the cluster
+is in (a cluster takes the style of its first character), ends a run where the style changes, and shapes each run with its style's language; `ParagraphLayouter` measures each run at its style's size, takes a line's ascent and descent from its largest run, and
+`ParagraphLayout.Draw` writes each run at its size and sets the fill colour when it changes, and can draw a range of lines (the flow uses it to split a paragraph). A paragraph with no styles behaves exactly as before: the 61 corpus lines and all earlier tests are unchanged.
+
+**Fonts.** `FontCollection.Add` parses once (family from name id 16 then 1, weight from OS/2 `usWeightClass`, italic from `fsSelection` bit 0, else `head.macStyle`), refuses fonts whose `fsType` forbids a subset (a typed `ArgumentException`), refuses CFF fonts, keeps a font added twice once,
+and is thread-safe by copy on write: a save works from the snapshot taken when it began. The order of fonts for a style is the family first, then the others, each group ordered by italic match, then by nearest weight, then by the order added; per cluster the first font that covers it draws it.
+There is no synthetic bold or italic.
+
+**Saving.** `Save` and `SaveAsync` take a stream that need not seek and is not closed. The writer's output goes through a 64 KB buffer to the stream. `SaveAsync` makes the whole file in memory on a thread-pool thread and then copies it asynchronously with the token, so the synchronous writer never touches the caller's
+stream and the memory held is about the size of the file (the pipe alternative would hold one page, but needs a thread blocked on the pipe; it can replace the buffer later without changing the API). The token is checked between blocks and pages and while copying. A document is not thread-safe: adding or saving while a save runs throws
+`InvalidOperationException`; a document can be saved again, and with `Deterministic` the second file is the same bytes as the first. `Limits.MaxPages` is checked before a page is started and `MaxBytes` after each page; both throw `PdfLimitExceededException` (what was written to the stream is then incomplete, and `SaveAsync` writes nothing).
+
+**Deterministic output.** No clock is read: the date is `Creation` or absent, and the `/ID` is the hash of the content. The Flate bytes depend on the runtime's zlib, so the option `Compress` (default on) exists: off, a file is the same bytes on every .NET version, which is what a golden file needs.
+
+**Deviations from the sketch of section 5, and why.**
+
+1. `TextMeasurer` is an instance made over a `FontCollection` (`new TextMeasurer(fonts, defaultStyle).Measure(text, style, maxWidth, direction)`), not a static method: a `TextStyle` names a family, not a font, so the measurer needs the collection. It uses `BlockText.Layout`, the function the flow uses.
+2. `TextStyle` has all properties nullable (an unset property is inherited from the paragraph, then the document's default style, then the library's defaults) so that a run can say "bold" and nothing else; `Size` is a `Length`.
+3. `Limits` is the type `DocumentLimits` and the option is `PdfDocumentOptions.Limits`; `Creation` is the sketch's "dates from Creation"; `Compress` and `HeadingStyles` are added (the headings' size and weight come from the options, as asked, with a default scale of 2.0, 1.6, 1.3, 1.15, 1.0, 1.0 bold).
+4. The internal `TextMeasurer` of S4 is now `ParagraphMeasurer` and the writer's `PdfDocumentOptions` is `PdfWriterOptions`, because the public names are the sketch's; the internal `Color`, `TextDirection` and `TextAlignment` became the public types.
+5. `Header`, `Footer` and `PageContext` (and `Table`, `Columns`, `Callout`, `Drawing`, keep-together) are not here: S5b and S5c.
+6. Diagnostics report each missing character once for each language and page (at most 1,000 entries); a font that forbids embedding is refused at `Add` with an exception rather than being a diagnostic, as section 4(h) says "refused".
 
 ## 10. Repository, release and name
 
