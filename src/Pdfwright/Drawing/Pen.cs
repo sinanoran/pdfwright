@@ -1,20 +1,4 @@
-namespace Pdfwright.Drawing;
-
-/// <summary>How the end of an open line is drawn (<c>J</c>).</summary>
-internal enum LineCap
-{
-    Butt = 0,
-    Round = 1,
-    Square = 2,
-}
-
-/// <summary>How two lines of a path meet (<c>j</c>).</summary>
-internal enum LineJoin
-{
-    Miter = 0,
-    Round = 1,
-    Bevel = 2,
-}
+namespace Pdfwright.Graphics;
 
 /// <summary>What a stroke is drawn with: a colour, a width, the shapes of its ends and corners, a dash pattern and an opacity.</summary>
 internal sealed class Pen

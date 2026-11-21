@@ -1,4 +1,4 @@
-using Pdfwright.Drawing;
+using Pdfwright.Graphics;
 using Pdfwright.Pdf;
 using Pdfwright.Text;
 using Pdfwright.Tests.Pdf;

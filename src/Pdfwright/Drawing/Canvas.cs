@@ -2,7 +2,7 @@ using Pdfwright.Images;
 using Pdfwright.Pdf;
 using Pdfwright.Text;
 
-namespace Pdfwright.Drawing;
+namespace Pdfwright.Graphics;
 
 /// <summary>
 /// A drawing surface over a box of a page. Its origin is the top left corner of the box and its y axis points down, as the authors of charts expect;
@@ -68,6 +68,20 @@ internal sealed class Canvas : IDisposable
 
     /// <summary>The number of <see cref="Save"/> calls that no <see cref="Restore"/> has answered yet.</summary>
     internal int SaveDepth => _saved.Count;
+
+    /// <summary>Told of every character of drawn text that no font has a glyph for (its code point and the language of the text), so that the caller can report it. Optional.</summary>
+    internal Action<int, string?>? OnMissingGlyph { get; set; }
+
+    /// <summary>
+    /// Writes the fill colour the canvas thinks is in force (black) so that it is true when a page has set another colour outside a save (text does, and its colour is not restored). The document layer calls
+    /// it right after making a canvas on a page that has had text drawn on it.
+    /// </summary>
+    internal void ResetFillColor()
+    {
+        RequireOpen();
+        _ = _content.FillGray(0);
+        _state = _state with { Fill = Color.Black };
+    }
 
     // ---- state
 
@@ -236,6 +250,15 @@ internal sealed class Canvas : IDisposable
                     _ => Pdfwright.Unicode.UnicodeBidi.AutoLevel,
                 },
             });
+
+        if (OnMissingGlyph is { } sink)
+        {
+            foreach (int index in layout.Missing)
+            {
+                string shaped = layout.Text;
+                sink(char.IsHighSurrogate(shaped[index]) && index + 1 < shaped.Length ? char.ConvertToUtf32(shaped[index], shaped[index + 1]) : shaped[index], language);
+            }
+        }
 
         if (text.Length == 0 || layout.Lines.All(l => l.Runs.Count == 0))
         {

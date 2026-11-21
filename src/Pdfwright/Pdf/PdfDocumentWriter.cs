@@ -49,6 +49,7 @@ internal sealed class PdfDocumentWriter : IDisposable
     private readonly List<Action<PdfDocumentWriter>> _onComplete = [];
     private readonly Dictionary<object, object> _shared = new(ReferenceEqualityComparer.Instance);
     private PdfPageWriter? _open;
+    private int _unfinished;
     private bool _completed;
 
     internal PdfDocumentWriter(Stream output, PdfWriterOptions options)
@@ -125,7 +126,61 @@ internal sealed class PdfDocumentWriter : IDisposable
 
         PdfReference contents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
         PdfReference pageReference = _file.Allocate();
+        _file.Write(pageReference, BuildPage(page, contents));
+        _pages.Add(pageReference);
+        _open = null;
+    }
 
+    /// <summary>
+    /// Writes the page's content stream and keeps the page open for a header (a stream before the body) and a footer (a stream after it), drawn when the number of pages is known: the page's
+    /// place in the page tree is fixed now, its dictionary is written by <see cref="FinishPage"/>. What the page holds in memory afterwards is its resources and annotations, not its content.
+    /// </summary>
+    internal void EndPageBody(PdfPageWriter page, bool header, bool footer)
+    {
+        if (!ReferenceEquals(page, _open))
+        {
+            throw new InvalidOperationException("That page is not the open one.");
+        }
+
+        page.BodyContents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
+        page.Reference = _file.Allocate();
+        page.HeaderContents = header ? _file.Allocate() : null;
+        page.FooterContents = footer ? _file.Allocate() : null;
+        _pages.Add(page.Reference);
+        _open = null;
+        _unfinished++;
+        page.DropBody();
+    }
+
+    /// <summary>Writes the header and footer streams and the dictionary of a page whose body was written by <see cref="EndPageBody"/>.</summary>
+    internal void FinishPage(PdfPageWriter page)
+    {
+        if (page.Reference is null || page.BodyContents is null || page.Finished)
+        {
+            throw new InvalidOperationException("That page is not waiting for its header and footer.");
+        }
+
+        PdfArray contents = new();
+        if (page.HeaderContents is { } headerReference)
+        {
+            _file.Write(headerReference, new PdfStream(new PdfDictionary(), page.HeaderContent.ToMemory()));
+            contents.Add(headerReference);
+        }
+
+        contents.Add(page.BodyContents);
+        if (page.FooterContents is { } footerReference)
+        {
+            _file.Write(footerReference, new PdfStream(new PdfDictionary(), page.FooterContent.ToMemory()));
+            contents.Add(footerReference);
+        }
+
+        _file.Write(page.Reference, BuildPage(page, contents));
+        page.Finished = true;
+        _unfinished--;
+    }
+
+    private PdfDictionary BuildPage(PdfPageWriter page, PdfObject contents)
+    {
         PdfDictionary dictionary = new PdfDictionary()
             .Set("Type", "Page")
             .Set("Parent", _pagesRoot)
@@ -153,9 +208,7 @@ internal sealed class PdfDocumentWriter : IDisposable
             dictionary.Set("Annots", annotations);
         }
 
-        _file.Write(pageReference, dictionary);
-        _pages.Add(pageReference);
-        _open = null;
+        return dictionary;
     }
 
     /// <summary>Writes the page tree, the annotations that point at pages, the metadata and the catalog, and ends the file.</summary>
@@ -169,6 +222,11 @@ internal sealed class PdfDocumentWriter : IDisposable
         if (_open is not null)
         {
             throw new InvalidOperationException("A page is still open.");
+        }
+
+        if (_unfinished > 0)
+        {
+            throw new InvalidOperationException("A page is still waiting for its header and footer.");
         }
 
         if (_pages.Count == 0)
@@ -390,7 +448,35 @@ internal sealed class PdfPageWriter
 
     internal double Height { get; }
 
-    internal ContentStreamBuilder Content { get; } = new();
+    internal ContentStreamBuilder Content { get; private set; } = new();
+
+    /// <summary>The content stream written by <see cref="End"/>'s sibling <see cref="EndBody"/>, while the page waits for its header and footer.</summary>
+    internal PdfReference? BodyContents { get; set; }
+
+    /// <summary>The reference reserved for the header's content stream, which comes before the body's, or <see langword="null"/> for a page with no header.</summary>
+    internal PdfReference? HeaderContents { get; set; }
+
+    /// <summary>The reference reserved for the footer's content stream, which comes after the body's, or <see langword="null"/> for a page with no footer.</summary>
+    internal PdfReference? FooterContents { get; set; }
+
+    internal ContentStreamBuilder HeaderContent { get; } = new();
+
+    internal ContentStreamBuilder FooterContent { get; } = new();
+
+    /// <summary>The page's own reference, reserved when its body was written.</summary>
+    internal PdfReference? Reference { get; set; }
+
+    /// <summary>The page's header and footer have been written and so has its dictionary.</summary>
+    internal bool Finished { get; set; }
+
+    /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the header's stream (drawn before the body).</summary>
+    internal void UseHeader() => Content = HeaderContent;
+
+    /// <summary>Lets go of the body's content once it is written, so that a page waiting for its header and footer holds no more than its resources.</summary>
+    internal void DropBody() => Content = new ContentStreamBuilder();
+
+    /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the footer's stream (drawn after the body).</summary>
+    internal void UseFooter() => Content = FooterContent;
 
     internal List<PdfDictionary> Links { get; } = [];
 
@@ -518,4 +604,10 @@ internal sealed class PdfPageWriter
     }
 
     internal void End() => _document.EndPage(this);
+
+    /// <summary>Writes the content so far and keeps the page for a header and a footer (each a stream of its own, before and after the body); choose which with <see cref="UseHeader"/> and <see cref="UseFooter"/>. Finish it with <see cref="Finish"/>.</summary>
+    internal void EndBody(bool header, bool footer) => _document.EndPageBody(this, header, footer);
+
+    /// <summary>Writes the header and footer streams and the page's dictionary (after <see cref="EndBody"/>).</summary>
+    internal void Finish() => _document.FinishPage(this);
 }
