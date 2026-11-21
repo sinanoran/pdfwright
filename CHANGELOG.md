@@ -50,5 +50,6 @@ All notable changes to this project are recorded here. The format follows
   `Drawing` (a box and a callback on the public `DrawingCanvas`: points as `double`, origin top left; paths, fills, strokes with dashes, clip, transforms, opacity, text through the document's fonts with missing glyphs reported, images) and `Image` (with the new `PdfImage.FromBytes` for JPEG and PNG),
   `Paragraph.KeepTogether`, and `PdfDocumentOptions.Header` and `Footer` built per page from a `PageContext` (number, count, first and last page) and drawn inside the margins after the body, in one pass: the count is always known and a streamed table is still enumerated once.
   The internal namespace `Pdfwright.Drawing` is now `Pdfwright.Graphics`. Links on text are not public yet (`docs/known-limitations.md`).
+  After review: a heading is kept with the whole of a `KeepTogether` block that follows; a callout whose padding leaves no room, a gap that leaves a cell under 4 points, and a header or footer that cannot be laid out (naming the page) fail the save with an `InvalidOperationException`; `Image.Source` is the picture; `DrawingPen` has value equality and read-only dashes; a `Drawing` draws text in the direction of its `Columns` or `Callout`.
 
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

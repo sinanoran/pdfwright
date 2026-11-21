@@ -174,8 +174,13 @@ sealed class DrawingPathBuilder
   method DrawingPathBuilder QuadraticTo(Double x1, Double y1, Double x2, Double y2)
   method DrawingPathBuilder Rectangle(Double x, Double y, Double width, Double height)
   method DrawingPathBuilder RoundedRectangle(Double x, Double y, Double width, Double height, Double radiusX, Double radiusY)
-sealed class DrawingPen
+sealed class DrawingPen : IEquatable<DrawingPen>
   ctor(Color color, Double width = 1, LineCap cap = LineCap.Butt, LineJoin join = LineJoin.Miter, Double miterLimit = 10, IEnumerable<Double>? dashes = null, Double dashPhase = 0, Double opacity = 1)
+  method Boolean Equals(DrawingPen? other)
+  method Boolean Equals(Object? obj)
+  method Int32 GetHashCode()
+  operator static Boolean op_Equality(DrawingPen? left, DrawingPen? right)
+  operator static Boolean op_Inequality(DrawingPen? left, DrawingPen? right)
   property Color Color { get; }
   property Double DashPhase { get; }
   property Double MiterLimit { get; }
@@ -217,7 +222,7 @@ sealed class Heading : Block, IEquatable<Block>, IEquatable<Heading>
   property TextDirection? Direction { get; init; }
   property Type EqualityContract { get; }
 sealed class Image : Block, IEquatable<Block>, IEquatable<Image>
-  ctor(PdfImage picture)
+  ctor(PdfImage source)
   method Boolean Equals(Block? other)
   method Boolean Equals(Image? other)
   method Boolean Equals(Object? obj)
@@ -230,7 +235,7 @@ sealed class Image : Block, IEquatable<Block>, IEquatable<Image>
   property Length? SpaceAfter { get; init; }
   property Length? SpaceBefore { get; init; }
   property Length? Width { get; init; }
-  property PdfImage Picture { get; }
+  property PdfImage Source { get; }
   property String? AltText { get; init; }
   property TextAlignment Alignment { get; init; }
   property Type EqualityContract { get; }

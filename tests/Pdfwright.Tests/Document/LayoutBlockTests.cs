@@ -808,7 +808,8 @@ public class LayoutBlockTests
         ArgumentException truncated = Assert.Throws<ArgumentException>(() => PdfImage.FromBytes(cut.AsSpan(0, cut.Length / 2)));
 
         Assert.Equal("bytes", notAnImage.ParamName);
-        Assert.NotNull(notAnImage.InnerException);
+        Assert.Null(notAnImage.InnerException);
+        Assert.Contains("JPEG or PNG", notAnImage.Message);
         Assert.Equal("bytes", truncated.ParamName);
     }
 

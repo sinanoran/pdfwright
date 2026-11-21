@@ -103,7 +103,7 @@ public sealed record Columns : Block
     /// <summary>The blocks of each cell, in logical order.</summary>
     public IReadOnlyList<IReadOnlyList<Block>> Cells => _cells;
 
-    /// <summary>The space between two cells; 12 points by default. The cells share what is left of the width equally.</summary>
+    /// <summary>The space between two cells; 12 points by default. The cells share what is left of the width equally; a gap that leaves a cell less than 4 points fails the save with an <see cref="InvalidOperationException"/> that names the gap.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
     public Length Gap
     {
@@ -174,7 +174,7 @@ public sealed record Columns : Block
 /// A note: blocks on a filled background with a border, padding and, optionally, rounded corners. It holds paragraphs, headings, spacers, drawings, images, columns and other callouts (not a table or a page break).
 /// A callout <b>may be split between pages</b> between the lines of its paragraphs (and between its blocks); each page's part is drawn as a complete box with its own fill, border and padding.
 /// Set <see cref="KeepTogether"/> to move a callout that would be split to the next page instead; one taller than a page is split anyway. A drawing, an image or a row of columns inside is never split:
-/// it moves to the next part, and one taller than a page fails the save with an <see cref="InvalidOperationException"/>. A callout inside a column cell or another callout is not split. Two callouts are equal when their content (block by block) and settings are equal.
+/// it moves to the next part, and one taller than a page fails the save with an <see cref="InvalidOperationException"/>, as does a callout inside a column cell or another callout that is taller than a page (those are never split), and one whose border and padding leave less than 4 points of width or no room for its first block on a page. A callout inside a column cell or another callout is not split. Two callouts are equal when their content (block by block) and settings are equal.
 /// </summary>
 public sealed record Callout : Block
 {
@@ -234,7 +234,7 @@ public sealed record Callout : Block
         init => _padding = Check.Padding(value, nameof(Padding));
     }
 
-    /// <summary>The radius of the corners of the box; zero (square corners) by default. Each page's part of a split callout has the rounded corners.</summary>
+    /// <summary>The radius of the corners of the box; zero (square corners) by default. A radius larger than half the shorter side of the box (of each page's part, for a split callout) is cut to that half, so the corners stay round and the box is at most a pill. Each page's part of a split callout has the rounded corners.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
     public Length CornerRadius
     {
@@ -306,7 +306,7 @@ public sealed record Callout : Block
 /// <summary>
 /// A figure drawn with code, usually a chart: a box of a fixed size and a callback that draws on a <see cref="DrawingCanvas"/> inside it. The callback runs while the document is saved, once each time the drawing is placed
 /// (a drawing in a header runs once for each page), so it should be a pure function of its data. The drawing is never split and never scaled: it moves to the next page when it does not fit, and one wider than the space
-/// it is in, or taller than a page, fails the save with an <see cref="InvalidOperationException"/>. It is placed at the start edge of the available width. <see cref="AltText"/> is kept for tagged output, which does not exist yet:
+/// it is in, or taller than a page, fails the save with an <see cref="InvalidOperationException"/>. It is placed at the start edge of the available width. <see cref="DrawingCanvas.DrawText"/> uses the direction of the <see cref="Columns"/> or <see cref="Callout"/> the drawing is in (their <c>Direction</c>, else the document's) when it is not given one. <see cref="AltText"/> is kept for tagged output, which does not exist yet:
 /// it is written nowhere in the file today. Two drawings are equal when their size, callback (the same delegate) and settings are equal.
 /// </summary>
 public sealed record Drawing : Block
@@ -369,9 +369,9 @@ public sealed record Drawing : Block
 
 /// <summary>
 /// A picture in the flow of blocks. With neither a <see cref="Width"/> nor a <see cref="Height"/> it has its natural size (a pixel is 0.75 point, 96 pixels to the inch); with one, the other follows the picture's proportions;
-/// with both, the picture is stretched to them. It is never wider than the space it is in or taller than a page: it is scaled down, in proportion, to fit. It is never split, and moves to the next page when it does not fit.
+/// with both, the picture is stretched to them (<see cref="DrawingCanvas.DrawImage"/> always stretches a picture to its rectangle). It is never wider than the space it is in or taller than a page: it is scaled down, in proportion, to fit. It is never split, and moves to the next page when it does not fit.
 /// <see cref="Alignment"/> places a picture that is narrower than the space (logical: start is the left edge in a left-to-right document). <see cref="AltText"/> is kept for tagged output, which does not exist yet,
-/// and is written nowhere in the file today. Two images are equal when they are the same <see cref="PdfImage"/> object and their settings are equal.
+/// and is written nowhere in the file today. The names <c>Image</c> and <c>Drawing</c> are also in <c>System.Drawing</c>: where both namespaces are imported, write <c>using Image = Pdfwright.Image;</c>. Two images are equal when they are the same <see cref="PdfImage"/> object and their settings are equal.
 /// </summary>
 public sealed record Image : Block
 {
@@ -382,23 +382,23 @@ public sealed record Image : Block
     private Length? _spaceAfter;
 
     /// <summary>An image block for a picture.</summary>
-    /// <param name="picture">The picture.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="picture"/> is <see langword="null"/>.</exception>
-    public Image(PdfImage picture)
+    /// <param name="source">The picture.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is <see langword="null"/>.</exception>
+    public Image(PdfImage source)
     {
-        ArgumentNullException.ThrowIfNull(picture);
-        Picture = picture;
+        ArgumentNullException.ThrowIfNull(source);
+        Source = source;
     }
 
     /// <summary>The picture.</summary>
-    public PdfImage Picture { get; }
+    public PdfImage Source { get; }
 
     /// <summary>The width, or <see langword="null"/> to take it from the height or the picture's natural size.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is not a finite length greater than zero.</exception>
     public Length? Width
     {
         get => _width;
-        init => _width = Check.Size(value, nameof(Width));
+        init => _width = Check.Size(value, nameof(Width), "An image width");
     }
 
     /// <summary>The height, or <see langword="null"/> to take it from the width or the picture's natural size.</summary>
@@ -406,7 +406,7 @@ public sealed record Image : Block
     public Length? Height
     {
         get => _height;
-        init => _height = Check.Size(value, nameof(Height));
+        init => _height = Check.Size(value, nameof(Height), "An image height");
     }
 
     /// <summary>Where a picture narrower than the space sits: <see cref="TextAlignment.Start"/> (the default), centre or end. Logical, so start is the right edge in a right-to-left document.</summary>

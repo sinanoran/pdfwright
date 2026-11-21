@@ -32,6 +32,7 @@ public sealed class DrawingPathBuilder
     /// <exception cref="ArgumentException">A number is not finite.</exception>
     public DrawingPathBuilder MoveTo(double x, double y)
     {
+        Finite((x, nameof(x)), (y, nameof(y)));
         _ = _inner.MoveTo(x, y);
         return this;
     }
@@ -44,6 +45,7 @@ public sealed class DrawingPathBuilder
     /// <exception cref="InvalidOperationException">There is no current point (no <see cref="MoveTo"/> yet).</exception>
     public DrawingPathBuilder LineTo(double x, double y)
     {
+        Finite((x, nameof(x)), (y, nameof(y)));
         _ = _inner.LineTo(x, y);
         return this;
     }
@@ -60,6 +62,7 @@ public sealed class DrawingPathBuilder
     /// <exception cref="InvalidOperationException">There is no current point.</exception>
     public DrawingPathBuilder CubicTo(double x1, double y1, double x2, double y2, double x3, double y3)
     {
+        Finite((x1, nameof(x1)), (y1, nameof(y1)), (x2, nameof(x2)), (y2, nameof(y2)), (x3, nameof(x3)), (y3, nameof(y3)));
         _ = _inner.CubicTo(x1, y1, x2, y2, x3, y3);
         return this;
     }
@@ -74,6 +77,7 @@ public sealed class DrawingPathBuilder
     /// <exception cref="InvalidOperationException">There is no current point.</exception>
     public DrawingPathBuilder QuadraticTo(double x1, double y1, double x2, double y2)
     {
+        Finite((x1, nameof(x1)), (y1, nameof(y1)), (x2, nameof(x2)), (y2, nameof(y2)));
         _ = _inner.QuadTo(x1, y1, x2, y2);
         return this;
     }
@@ -92,6 +96,8 @@ public sealed class DrawingPathBuilder
     /// <exception cref="ArgumentException">A number is not finite or a radius is negative.</exception>
     public DrawingPathBuilder Arc(double cx, double cy, double rx, double ry, double startDegrees, double sweepDegrees)
     {
+        Finite((cx, nameof(cx)), (cy, nameof(cy)), (rx, nameof(rx)), (ry, nameof(ry)), (startDegrees, nameof(startDegrees)), (sweepDegrees, nameof(sweepDegrees)));
+        NotNegative((rx, nameof(rx)), (ry, nameof(ry)));
         _ = _inner.Arc(cx, cy, rx, ry, startDegrees, sweepDegrees);
         return this;
     }
@@ -105,6 +111,7 @@ public sealed class DrawingPathBuilder
     /// <exception cref="ArgumentException">A number is not finite.</exception>
     public DrawingPathBuilder Rectangle(double x, double y, double width, double height)
     {
+        Finite((x, nameof(x)), (y, nameof(y)), (width, nameof(width)), (height, nameof(height)));
         _ = _inner.Rectangle(x, y, width, height);
         return this;
     }
@@ -120,6 +127,8 @@ public sealed class DrawingPathBuilder
     /// <exception cref="ArgumentException">A number is not finite, or a radius is negative.</exception>
     public DrawingPathBuilder RoundedRectangle(double x, double y, double width, double height, double radiusX, double radiusY)
     {
+        Finite((x, nameof(x)), (y, nameof(y)), (width, nameof(width)), (height, nameof(height)), (radiusX, nameof(radiusX)), (radiusY, nameof(radiusY)));
+        NotNegative((radiusX, nameof(radiusX)), (radiusY, nameof(radiusY)));
         _ = _inner.RoundedRectangle(x, y, width, height, radiusX, radiusY);
         return this;
     }
@@ -133,6 +142,8 @@ public sealed class DrawingPathBuilder
     /// <exception cref="ArgumentException">A number is not finite or a radius is negative.</exception>
     public DrawingPathBuilder Ellipse(double cx, double cy, double rx, double ry)
     {
+        Finite((cx, nameof(cx)), (cy, nameof(cy)), (rx, nameof(rx)), (ry, nameof(ry)));
+        NotNegative((rx, nameof(rx)), (ry, nameof(ry)));
         _ = _inner.Ellipse(cx, cy, rx, ry);
         return this;
     }
@@ -148,12 +159,34 @@ public sealed class DrawingPathBuilder
     /// <summary>The path so far. The builder can go on, and a path already built does not change.</summary>
     /// <returns>The path.</returns>
     public DrawingPath Build() => new(_inner.Build());
+
+    private static void Finite(params (double Value, string Name)[] values)
+    {
+        foreach ((double value, string name) in values)
+        {
+            if (!double.IsFinite(value))
+            {
+                throw new ArgumentException($"A coordinate is a finite number, not {value}.", name);
+            }
+        }
+    }
+
+    private static void NotNegative(params (double Value, string Name)[] values)
+    {
+        foreach ((double value, string name) in values)
+        {
+            if (value < 0)
+            {
+                throw new ArgumentException($"A radius is not negative, not {value}.", name);
+            }
+        }
+    }
 }
 
-/// <summary>What a stroke is drawn with: a colour, a width in points, the shapes of its ends and corners, a dash pattern and an opacity. Immutable.</summary>
-public sealed class DrawingPen
+/// <summary>What a stroke is drawn with: a colour, a width in points, the shapes of its ends and corners, a dash pattern and an opacity. Immutable. Two pens are equal when their settings and their dashes (element by element) are equal.</summary>
+public sealed class DrawingPen : IEquatable<DrawingPen>
 {
-    private readonly double[] _dashes;
+    private readonly System.Collections.ObjectModel.ReadOnlyCollection<double> _dashes;
 
     /// <summary>A pen.</summary>
     /// <param name="color">The colour of the line.</param>
@@ -177,7 +210,7 @@ public sealed class DrawingPen
         double opacity = 1)
     {
         Pen = new Pen(color, width, cap, join, miterLimit, dashes, dashPhase, opacity);
-        _dashes = [.. Pen.Dashes];
+        _dashes = Array.AsReadOnly([.. Pen.Dashes]);
     }
 
     /// <summary>The colour of the line.</summary>
@@ -195,7 +228,7 @@ public sealed class DrawingPen
     /// <summary>The miter limit.</summary>
     public double MiterLimit => Pen.MiterLimit;
 
-    /// <summary>The dashes and gaps in turn; empty for a solid line.</summary>
+    /// <summary>The dashes and gaps in turn; empty for a solid line. A read-only view: it cannot be changed through a cast.</summary>
     public IReadOnlyList<double> Dashes => _dashes;
 
     /// <summary>How far into the dash pattern the line starts.</summary>
@@ -205,4 +238,50 @@ public sealed class DrawingPen
     public double Opacity => Pen.Opacity;
 
     internal Pen Pen { get; }
+
+    /// <summary>Whether two pens are the same: equal settings, and the same dashes and gaps in the same order.</summary>
+    /// <param name="left">A pen or <see langword="null"/>.</param>
+    /// <param name="right">A pen or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when they are equal.</returns>
+    public static bool operator ==(DrawingPen? left, DrawingPen? right) => left is null ? right is null : left.Equals(right);
+
+    /// <summary>Whether two pens differ.</summary>
+    /// <param name="left">A pen or <see langword="null"/>.</param>
+    /// <param name="right">A pen or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when they are not equal.</returns>
+    public static bool operator !=(DrawingPen? left, DrawingPen? right) => !(left == right);
+
+    /// <inheritdoc/>
+    public bool Equals(DrawingPen? other) =>
+        other is not null
+        && Color == other.Color
+        && Width == other.Width
+        && Cap == other.Cap
+        && Join == other.Join
+        && MiterLimit == other.MiterLimit
+        && DashPhase == other.DashPhase
+        && Opacity == other.Opacity
+        && _dashes.SequenceEqual(other._dashes);
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) => Equals(obj as DrawingPen);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        HashCode hash = new();
+        hash.Add(Color);
+        hash.Add(Width);
+        hash.Add(Cap);
+        hash.Add(Join);
+        hash.Add(MiterLimit);
+        hash.Add(DashPhase);
+        hash.Add(Opacity);
+        foreach (double dash in _dashes)
+        {
+            hash.Add(dash);
+        }
+
+        return hash.ToHashCode();
+    }
 }

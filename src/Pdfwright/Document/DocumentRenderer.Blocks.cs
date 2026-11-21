@@ -11,6 +11,9 @@ internal sealed partial class DocumentRenderer
 {
     private const double Epsilon = 1e-9;
 
+    /// <summary>The least width, in points, that a column cell or the inside of a callout may have; less fails the save.</summary>
+    private const double MinimumWidth = 4;
+
     private readonly List<PdfPageWriter> _pending = [];
 
     private abstract class Item
@@ -215,14 +218,14 @@ internal sealed partial class DocumentRenderer
             Height = h,
             Before = Space(drawing.SpaceBefore, 0),
             After = AfterDefault(drawing.SpaceAfter),
-            Draw = (x, y) => DrawDrawing(drawing, x + offset, y, w, h),
+            Draw = (x, y) => DrawDrawing(drawing, x + offset, y, w, h, direction),
         };
     }
 
     private FixedItem BuildImage(Image image, double width, double maxHeight, TextDirection direction)
     {
-        double pixelsWide = image.Picture.PixelWidth;
-        double pixelsHigh = image.Picture.PixelHeight;
+        double pixelsWide = image.Source.PixelWidth;
+        double pixelsHigh = image.Source.PixelHeight;
         double w;
         double h;
         if (image.Width is { } givenWidth && image.Height is { } givenHeight)
@@ -256,7 +259,7 @@ internal sealed partial class DocumentRenderer
             Height = h,
             Before = Space(image.SpaceBefore, 0),
             After = AfterDefault(image.SpaceAfter),
-            Draw = (x, y) => DrawPicture(image.Picture, x + offset, y, w, h),
+            Draw = (x, y) => DrawPicture(image.Source, x + offset, y, w, h),
         };
     }
 
@@ -265,7 +268,12 @@ internal sealed partial class DocumentRenderer
         TextDirection own = columns.Direction ?? direction;
         int count = columns.Cells.Count;
         double gap = columns.Gap.Points;
-        double cell = Math.Max(1, (width - (gap * (count - 1))) / count);
+        double cell = (width - (gap * (count - 1))) / count;
+        if (cell < MinimumWidth)
+        {
+            throw new InvalidOperationException($"The columns' gap of {gap:0.##} pt leaves {Math.Max(0, cell):0.##} pt for each of {count} cells in the {width:0.##} pt available: a cell is at least {MinimumWidth:0.##} pt wide (make the gap smaller).");
+        }
+
         Stack[] stacks = [.. columns.Cells.Select(blocks => BuildStack(blocks, cell, maxHeight, own))];
         double height = stacks.Max(s => s.Height);
         bool rtl = IsRightToLeft(own);
@@ -294,9 +302,34 @@ internal sealed partial class DocumentRenderer
         double bottom = border + pad.Bottom.Points;
         double left = border + pad.Left.Points;
         double right = border + pad.Right.Points;
-        double inner = Math.Max(1, width - left - right);
-        double innerMax = Math.Max(1, maxHeight - top - bottom);
+        double inner = width - left - right;
+        if (inner < MinimumWidth)
+        {
+            throw new InvalidOperationException($"The callout's border and padding take {left + right:0.##} pt of the {width:0.##} pt available and leave {Math.Max(0, inner):0.##} pt for its content: it is at least {MinimumWidth:0.##} pt wide (make the padding smaller).");
+        }
+
+        double innerMax = maxHeight - top - bottom;
+        if (innerMax <= 0)
+        {
+            throw new InvalidOperationException($"The callout's border and padding take {top + bottom:0.##} pt of the {maxHeight:0.##} pt a page can hold here and leave nothing for its content (make the padding smaller).");
+        }
+
         Stack stack = BuildStack(callout.Content, inner, innerMax, callout.Direction ?? direction);
+        if (stack.Items.Count > 0)
+        {
+            Item head = stack.Items[0];
+            double need = FirstUnit(head);
+            if (head is TextItem && need > innerMax)
+            {
+                need = 0; // a line taller than a page is drawn anyway
+            }
+
+            if (top + bottom + need > maxHeight + 1e-6)
+            {
+                throw new InvalidOperationException($"The callout's border and padding take {top + bottom:0.##} pt and its first block {need:0.##} pt, more than the {maxHeight:0.##} pt a page can hold here (make the padding smaller).");
+            }
+        }
+
         return new CalloutPlan
         {
             Block = callout,
@@ -355,7 +388,8 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
-        double radius = callout.CornerRadius.Points;
+        // A radius is cut to half the shorter side of what it is drawn on, so that the corners stay circular (a box is a pill at the most) and the same for the fill and the border.
+        double radius = Math.Min(callout.CornerRadius.Points, Math.Min(plan.Width, height) / 2);
         using Canvas canvas = new(_page!, x, _pageHeight - _top - y, plan.Width, height);
         canvas.ResetFillColor();
         if (callout.Fill is { } fill)
@@ -367,22 +401,24 @@ internal sealed partial class DocumentRenderer
         {
             double w = line.Width.Points;
             double inset = w / 2;
-            double r = Math.Max(0, radius - inset);
-            canvas.Stroke(new PathBuilder().RoundedRectangle(inset, inset, Math.Max(0, plan.Width - w), Math.Max(0, height - w), r, r).Build(), new Pen(line.Color, w));
+            double boxWidth = Math.Max(0, plan.Width - w);
+            double boxHeight = Math.Max(0, height - w);
+            double r = Math.Min(Math.Max(0, radius - inset), Math.Min(boxWidth, boxHeight) / 2);
+            canvas.Stroke(new PathBuilder().RoundedRectangle(inset, inset, boxWidth, boxHeight, r, r).Build(), new Pen(line.Color, w));
         }
     }
 
-    private DrawingServices Services(int pageNumber) => new(
+    private DrawingServices Services(int pageNumber, TextDirection direction) => new(
         _fonts,
         _base,
-        _options.Direction,
+        direction,
         (codePoint, language) => AddMissing(codePoint, language, pageNumber),
         NoteFamily);
 
-    private void DrawDrawing(Drawing drawing, double x, double y, double width, double height)
+    private void DrawDrawing(Drawing drawing, double x, double y, double width, double height, TextDirection direction)
     {
         PdfPageWriter page = _page!;
-        DrawingServices services = Services(page.Index + 1);
+        DrawingServices services = Services(page.Index + 1, direction);
         using Canvas inner = new(page, x, _pageHeight - _top - y, width, height) { OnMissingGlyph = services.MissingGlyph };
         inner.ResetFillColor();
         inner.Clip(new PathBuilder().Rectangle(0, 0, width, height).Build());
@@ -413,7 +449,7 @@ internal sealed partial class DocumentRenderer
             {
                 CalloutPlan plan = PlanCallout(callout, _contentWidth, _contentHeight, _options.Direction);
                 double first = plan.Stack.Items.Count == 0 ? 0 : FirstUnit(plan.Stack.Items[0]);
-                return new Prepared { Callout = plan, Before = plan.Before, After = plan.After, FirstUnit = plan.InsetTop + first };
+                return new Prepared { Callout = plan, Before = plan.Before, After = plan.After, FirstUnit = plan.InsetTop + first, WholeHeight = callout.KeepTogether && plan.Height <= _contentHeight ? plan.Height : null };
             }
 
             case Drawing or Image or Columns:
@@ -648,7 +684,7 @@ internal sealed partial class DocumentRenderer
             {
                 double room = _options.Margins.Top.Points - headerOffset;
                 page.UseHeader();
-                Item item = BuildItem(header, _contentWidth, room, _options.Direction);
+                Item item = BuildOverlay(header, room, "header", n + 1);
                 CheckFits(item, room, "header", "top", n + 1);
                 DrawItem(item, _left, headerOffset - _top);
             }
@@ -657,7 +693,7 @@ internal sealed partial class DocumentRenderer
             {
                 double room = _options.Margins.Bottom.Points - footerOffset;
                 page.UseFooter();
-                Item item = BuildItem(footer, _contentWidth, room, _options.Direction);
+                Item item = BuildOverlay(footer, room, "footer", n + 1);
                 double height = CheckFits(item, room, "footer", "bottom", n + 1);
                 DrawItem(item, _left, _pageHeight - footerOffset - height - _top);
             }
@@ -668,6 +704,19 @@ internal sealed partial class DocumentRenderer
         }
 
         _pending.Clear();
+    }
+
+    /// <summary>Lays out the header or the footer of a page; a block that cannot be laid out there fails with the page and which of the two it was (the original exception is the inner one).</summary>
+    private Item BuildOverlay(Block block, double room, string what, int pageNumber)
+    {
+        try
+        {
+            return BuildItem(block, _contentWidth, room, _options.Direction);
+        }
+        catch (InvalidOperationException error)
+        {
+            throw new InvalidOperationException($"The {what} of page {pageNumber} cannot be laid out: {error.Message}", error);
+        }
     }
 
     private static double CheckFits(Item item, double room, string what, string margin, int pageNumber)

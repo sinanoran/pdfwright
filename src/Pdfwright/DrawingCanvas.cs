@@ -77,17 +77,26 @@ public sealed class DrawingCanvas
     public void Translate(double dx, double dy)
     {
         Require();
+        Finite(dx, nameof(dx));
+        Finite(dy, nameof(dy));
         _inner.Translate(dx, dy);
     }
 
     /// <summary>Scales the axes from the origin. A scale of zero is refused.</summary>
     /// <param name="sx">The horizontal factor.</param>
     /// <param name="sy">The vertical factor.</param>
-    /// <exception cref="ArgumentException">A number is not finite, or a factor is zero.</exception>
+    /// <exception cref="ArgumentException">A number is not finite, or a factor is zero (the exception names the argument).</exception>
     /// <exception cref="ObjectDisposedException">The drawing's callback has returned.</exception>
     public void Scale(double sx, double sy)
     {
         Require();
+        Finite(sx, nameof(sx));
+        Finite(sy, nameof(sy));
+        if (sx == 0 || sy == 0)
+        {
+            throw new ArgumentException("A scale of zero flattens the canvas and cannot be undone.", sx == 0 ? nameof(sx) : nameof(sy));
+        }
+
         _inner.Scale(sx, sy);
     }
 
@@ -98,6 +107,7 @@ public sealed class DrawingCanvas
     public void Rotate(double degrees)
     {
         Require();
+        Finite(degrees, nameof(degrees));
         _inner.Rotate(degrees);
     }
 
@@ -113,6 +123,18 @@ public sealed class DrawingCanvas
     public void Transform(double a, double b, double c, double d, double e, double f)
     {
         Require();
+        Finite(a, nameof(a));
+        Finite(b, nameof(b));
+        Finite(c, nameof(c));
+        Finite(d, nameof(d));
+        Finite(e, nameof(e));
+        Finite(f, nameof(f));
+        double determinant = (a * d) - (b * c);
+        if (!double.IsFinite(determinant) || determinant == 0)
+        {
+            throw new ArgumentException("A transform is invertible: its determinant (a d - b c) is neither zero nor beyond the range of a number.");
+        }
+
         _inner.Transform(new Matrix(a, b, c, d, e, f));
     }
 
@@ -195,6 +217,8 @@ public sealed class DrawingCanvas
         ArgumentNullException.ThrowIfNull(text);
         _ = Check.Defined(alignment, nameof(alignment));
         _ = Check.Defined(direction, nameof(direction));
+        Finite(x, nameof(x));
+        Finite(y, nameof(y));
         double alpha = Opacity(opacity);
         ResolvedStyle resolved = _services.Base.Apply(style);
         _services.Family(resolved.Family);
@@ -217,7 +241,11 @@ public sealed class DrawingCanvas
     {
         Require();
         ArgumentNullException.ThrowIfNull(image);
-        _inner.DrawImage(image.Source, x, y, width, height, opacity);
+        Finite(x, nameof(x));
+        Finite(y, nameof(y));
+        Positive(width, nameof(width));
+        Positive(height, nameof(height));
+        _inner.DrawImage(image.Source, x, y, width, height, Opacity(opacity));
     }
 
     /// <summary>Ends the canvas: closes every save still open. Called by the document layer when the callback returns, even if it threw.</summary>
@@ -234,6 +262,22 @@ public sealed class DrawingCanvas
 
     private static double Opacity(double opacity) =>
         opacity is >= 0 and <= 1 ? opacity : throw new ArgumentException($"Opacity is a number from 0 to 1, not {opacity}.", nameof(opacity));
+
+    private static void Finite(double value, string name)
+    {
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentException($"A number is finite, not {value}.", name);
+        }
+    }
+
+    private static void Positive(double value, string name)
+    {
+        if (!(double.IsFinite(value) && value > 0))
+        {
+            throw new ArgumentException($"A size is finite and more than zero, not {value}.", name);
+        }
+    }
 
     private void Require() => ObjectDisposedException.ThrowIf(_finished, this);
 }

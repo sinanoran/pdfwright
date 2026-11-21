@@ -207,6 +207,9 @@ internal sealed partial class DocumentRenderer
         internal double FirstLineHeight => FirstUnit ?? (Text is { Layout.Lines.Count: > 0 } t ? t.Layout.Lines[0].Pitch : 0);
 
         internal bool HasFlow => Text is not null || FirstUnit is not null;
+
+        /// <summary>The whole height of a block that asks to be kept together and fits a page, or <see langword="null"/>: a heading before it must stay with all of it, not only its first line.</summary>
+        internal double? WholeHeight { get; init; }
     }
 
     private Prepared Prepare(Block block)
@@ -216,7 +219,16 @@ internal sealed partial class DocumentRenderer
             case Paragraph or Heading:
             {
                 TextItem item = BuildTextItem(block, _contentWidth, _options.Direction);
-                return new Prepared { Text = item.Styled, Before = item.Before, After = item.After, KeepWithNext = item.KeepWithNext, KeepTogether = item.KeepTogether };
+                double whole = item.Height;
+                return new Prepared
+                {
+                    Text = item.Styled,
+                    Before = item.Before,
+                    After = item.After,
+                    KeepWithNext = item.KeepWithNext,
+                    KeepTogether = item.KeepTogether,
+                    WholeHeight = item.KeepTogether && whole <= _contentHeight ? whole : null,
+                };
             }
 
             default:
@@ -260,7 +272,14 @@ internal sealed partial class DocumentRenderer
         // (unless it is already at the top of one). The space before the next block counts because it is dropped only at the top of a page, and the next block is below the heading.
         if (block.KeepWithNext && _hasContent && _page is not null)
         {
-            double rest = lines.Sum(l => l.Pitch) + block.After + (next is { HasFlow: true } ? next.Before + next.FirstLineHeight : 0);
+            double own = lines.Sum(l => l.Pitch) + block.After + (next is { HasFlow: true } ? next.Before : 0);
+            double follow = next is { HasFlow: true } ? next.FirstLineHeight : 0;
+            if (next?.WholeHeight is { } whole && own + whole <= _contentHeight)
+            {
+                follow = whole; // the next block will not be split, so the heading goes with all of it
+            }
+
+            double rest = own + follow;
             if (rest <= _contentHeight && _y + block.Before + rest > _contentHeight)
             {
                 ClosePage();
@@ -269,8 +288,8 @@ internal sealed partial class DocumentRenderer
 
         if (block.KeepTogether && _hasContent && _page is not null)
         {
-            double whole = lines.Sum(l => l.Pitch);
-            if (whole <= _contentHeight && _y + block.Before + whole > _contentHeight + 1e-9)
+            double all = lines.Sum(l => l.Pitch);
+            if (all <= _contentHeight && _y + block.Before + all > _contentHeight + 1e-9)
             {
                 ClosePage();
             }

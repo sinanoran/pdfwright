@@ -106,6 +106,14 @@ DocumentDiagnostics report = document.Diagnostics; // missing glyphs by language
 A drawing, a picture (`PdfImage.FromBytes(...)`, JPEG or PNG; `new Image(picture) { Width = Length.Mm(40) }` places one in the flow) and the header and footer can all
 hold a logo and a date: a header is any block built per page, for example `Columns` of an `Image` and a `Paragraph`.
 
+In a right-to-left document a footer such as `$"{page.Number} / {page.Count}"` is a right-to-left paragraph, so the two numbers read in bidi order: page 1 of 3 shows as "3 / 1". To keep it as written,
+set the footer paragraph's `Direction = TextDirection.LeftToRight` (the whole footer is then left to right), or wrap the text in a left-to-right isolate, `"\u2066" + text + "\u2069"` (U+2066 LRI ... U+2069 PDI, written here as C# escapes),
+which keeps that part in order inside a right-to-left line.
+
+`DrawingCanvas.DrawImage` stretches a picture to the rectangle it is given; the `Image` block keeps the picture's proportions (one of `Width` and `Height` set, or none) and stretches only when both are set.
+A `Drawing` sets text in the direction of the `Columns` or `Callout` it is in. `Image` and `Drawing` are also names in `System.Drawing`: where both namespaces are imported, alias ours
+(`using Image = Pdfwright.Image;`).
+
 `TextMeasurer` measures text with the engine that draws it, for placing labels. `Length` has no implicit
 conversion from a number, so a unit is never guessed.
 

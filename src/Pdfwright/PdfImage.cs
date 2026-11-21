@@ -31,7 +31,7 @@ public sealed class PdfImage
     /// </summary>
     /// <param name="bytes">The bytes of a JPEG or PNG file.</param>
     /// <returns>The picture.</returns>
-    /// <exception cref="ArgumentException">The data is neither a JPEG nor a PNG, is damaged or cut short, uses a feature that is not supported (arithmetic coding, 12-bit samples, an unknown critical PNG chunk), or is larger than the limits allow; the reason is the message and the inner exception.</exception>
+    /// <exception cref="ArgumentException">The data is neither a JPEG nor a PNG, is damaged or cut short, uses a feature that is not supported (arithmetic coding, 12-bit samples, an unknown critical PNG chunk), or is larger than the limits allow; the reason is in the message.</exception>
     public static PdfImage FromBytes(ReadOnlySpan<byte> bytes)
     {
         try
@@ -40,7 +40,7 @@ public sealed class PdfImage
         }
         catch (ImageFormatException error)
         {
-            throw new ArgumentException("The data is not a usable JPEG or PNG: " + error.Message, nameof(bytes), error);
+            throw new ArgumentException("The data is not a usable JPEG or PNG: " + error.Message, nameof(bytes));
         }
     }
 }
