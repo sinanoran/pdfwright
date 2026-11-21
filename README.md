@@ -17,7 +17,8 @@ dotnet add package Pdfwright
 > the command above works only once the maintainer has released 0.1.0. Until then, clone the repository and reference `src/Pdfwright/Pdfwright.csproj`. What remains is the maintainer's: a native-speaker review of the test text,
 > opening the sample files in the viewers people use, and the release itself (see [RELEASING.md](RELEASING.md)).
 
-Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). The package ships no font.
+Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). Besides the Windows, Linux and macOS runners, CI makes the sample report inside the slim
+.NET runtime images `mcr.microsoft.com/dotnet/aspnet:10.0` (Debian, glibc) and `mcr.microsoft.com/dotnet/aspnet:10.0-alpine` (musl). The package ships no font.
 
 ## Why it exists
 
