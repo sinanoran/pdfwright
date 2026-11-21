@@ -25,6 +25,7 @@ internal static class ParagraphLayouter
     /// Lays out <paramref name="text"/>, which is one paragraph (a paragraph separator may only be its last character: split text with
     /// <see cref="UnicodeBidi.Paragraphs"/> and lay the paragraphs out one after another). Hard line breaks inside the paragraph (U+2028,
     /// U+000B, U+000C) end a line; a line break at the very end of the text does not add an empty line, and an empty text is one empty line.
+    /// A tab (U+0009) is laid out as one space (tab stops are for the block layer); the character itself stays in the text the glyphs are cut from.
     /// A soft hyphen (U+00AD) is never a place to break: nothing would draw the hyphen, and there is no hyphenation in 0.1, so it stays invisible inside its word.
     /// A unit wider than the width (a long word, Thai text without spaces) is cut between grapheme clusters, as much as fits on each line and
     /// never less than one cluster, with no hyphen (CSS <c>overflow-wrap: anywhere</c>); one cluster wider than the width stands alone and overflows.
@@ -50,7 +51,8 @@ internal static class ParagraphLayouter
             throw new ArgumentOutOfRangeException(nameof(options), options.LineSpacing, "The line spacing must be a positive number.");
         }
 
-        ShapedParagraph paragraph = TextShaper.Shape(text, fonts, options.ParagraphLevel, options.Language);
+        // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab.
+        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language);
         State state = new(text, paragraph, fonts, options);
         List<Raw> raws = [];
         int start = 0;
