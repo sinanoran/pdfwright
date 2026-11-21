@@ -9,6 +9,10 @@
     <Project Path="tools/Pdfwright.GoldenDiff/Pdfwright.GoldenDiff.csproj" />
     <Project Path="tools/Pdfwright.UnicodeGen/Pdfwright.UnicodeGen.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Pdfwright.Samples.Report/Pdfwright.Samples.Report.csproj" />
+    <File Path="samples/README.md" />
+  </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Pdfwright.Benchmarks/Pdfwright.Benchmarks.csproj" />
   </Folder>
@@ -19,6 +23,7 @@
     <File Path="docs/plan-0.1.md" />
     <File Path="docs/baselines.md" />
     <File Path="docs/known-limitations.md" />
+    <File Path="docs/guide.md" />
   </Folder>
   <Folder Name="/solution items/">
     <File Path="README.md" />

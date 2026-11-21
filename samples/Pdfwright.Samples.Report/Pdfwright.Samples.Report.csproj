@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A runnable sample of the public API: a multi-page report with a heading, KPIs, a chart, a paginated table, a header and footer, and Arabic text.
+    It is not a package. The fonts are the Noto fonts of the test project (SIL OFL 1.1, licences in tests/Pdfwright.Tests/Fonts and in NOTICE), linked from there
+    and copied beside the program, so the repository holds one copy of each.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Pdfwright.Samples</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pdfwright\Pdfwright.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Regular.ttf" Link="fonts\NotoSans-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Bold.ttf" Link="fonts\NotoSans-Bold.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSansArabic-Regular.ttf" Link="fonts\NotoSansArabic-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\OFL-latin-greek-cyrillic.txt" Link="fonts\OFL-latin-greek-cyrillic.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\OFL-arabic.txt" Link="fonts\OFL-arabic.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Images\Files\gradient-24x16.jpg" Link="logo.jpg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
