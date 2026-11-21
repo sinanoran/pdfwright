@@ -273,6 +273,13 @@ internal static class TextShaper
         buffer.AddUtf16(text, utf16Start, utf16Length);
         buffer.Direction = (level & 1) == 1 ? Direction.RightToLeft : Direction.LeftToRight;
         buffer.Script = HarfBuzzSharp.Script.Parse(ScriptData.CodeOf(script));
+        if ((level & 1) == 1)
+        {
+            // Cluster level 1 gives every mark of a right-to-left run a cluster, and so a text, of its own, which the writer needs to keep marks apart for pdf.js.
+            // Left-to-right runs stay at the default level: level 1 there made xpdf misread five Indic lines.
+            buffer.ClusterLevel = ClusterLevel.MonotoneCharacters;
+        }
+
         if (language is not null)
         {
             buffer.Language = new HarfBuzzSharp.Language(language);
