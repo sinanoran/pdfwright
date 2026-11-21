@@ -74,8 +74,9 @@ internal sealed class ParagraphLayout
 {
     private readonly TrueTypeFont[] _fonts;
 
-    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts)
+    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0)
     {
+        ParagraphLevel = paragraphLevel;
         Text = text;
         Size = size;
         Lines = lines;
@@ -90,6 +91,12 @@ internal sealed class ParagraphLayout
 
     /// <summary>The font size in points.</summary>
     internal double Size { get; }
+
+    /// <summary>The base level of the paragraph, as the bidirectional algorithm resolved it: 0 for left to right, 1 for right to left.</summary>
+    internal byte ParagraphLevel { get; }
+
+    /// <summary>The paragraph reads from right to left.</summary>
+    internal bool IsRightToLeft => (ParagraphLevel & 1) == 1;
 
     /// <summary>The lines in order. A paragraph always has at least one (an empty text has one empty line).</summary>
     internal IReadOnlyList<LaidOutLine> Lines { get; }
@@ -115,7 +122,7 @@ internal sealed class ParagraphLayout
     /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be the very font (the same <see cref="TrueTypeFont"/> object) the paragraph was laid out with at that place.
     /// </summary>
     /// <exception cref="ArgumentException">The arrays do not match the fonts the paragraph was laid out with.</exception>
-    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont[] embedded, string[] fontResourceNames, double left, double top)
+    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont?[] embedded, string?[] fontResourceNames, double left, double top)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
@@ -126,16 +133,23 @@ internal sealed class ParagraphLayout
                 $"The paragraph was laid out with {_fonts.Length} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
         }
 
+        // A font that no run uses may be null (it need not be embedded); one that a run uses must be there and be the very font.
+        HashSet<int> used = [.. Lines.SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
         for (int i = 0; i < _fonts.Length; i++)
         {
+            if (!used.Contains(i) && embedded[i] is null && fontResourceNames[i] is null)
+            {
+                continue;
+            }
+
             if (embedded[i] is null || fontResourceNames[i] is null)
             {
                 throw new ArgumentException($"Font {i} has no embedded font or no resource name.");
             }
 
-            if (!ReferenceEquals(embedded[i].Font, _fonts[i]))
+            if (!ReferenceEquals(embedded[i]!.Font, _fonts[i]))
             {
-                throw new ArgumentException($"Embedded font {i} is not the font the paragraph was laid out with at that place ({_fonts[i].PostScriptName}, found {embedded[i].Font.PostScriptName}): the glyph numbers and widths would be those of another font.");
+                throw new ArgumentException($"Embedded font {i} is not the font the paragraph was laid out with at that place ({_fonts[i].PostScriptName}, found {embedded[i]!.Font.PostScriptName}): the glyph numbers and widths would be those of another font.");
             }
         }
 
@@ -147,7 +161,7 @@ internal sealed class ParagraphLayout
             foreach (PlacedRun placed in line.Runs)
             {
                 int font = placed.Run.FontIndex;
-                GlyphRunWriter.Write(content, embedded[font], fontResourceNames[font], placed.Run, Text, left + placed.X, baseline, Size);
+                GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, Size);
             }
 
             lineTop -= line.Pitch;

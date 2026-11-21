@@ -116,7 +116,7 @@ internal static class ParagraphLayouter
             });
         }
 
-        return new ParagraphLayout(text, options.Size, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts);
+        return new ParagraphLayout(text, options.Size, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel);
     }
 
     /// <summary>The first font of the content of the closest line to <paramref name="index"/> that has any: the line before, else the line after, else the first font.</summary>

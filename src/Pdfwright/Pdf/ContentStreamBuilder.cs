@@ -31,14 +31,20 @@ internal sealed class ContentStreamBuilder
     }
 
     /// <summary>Concatenates a matrix to the current transformation: <c>a b c d e f cm</c>.</summary>
-    internal ContentStreamBuilder Transform(double a, double b, double c, double d, double e, double f) =>
-        Op("cm", a, b, c, d, e, f);
+    /// <remarks>The operands are written with relative precision (ten significant digits), so that a tiny scale or a small rotation survives.</remarks>
+    internal ContentStreamBuilder Transform(double a, double b, double c, double d, double e, double f)
+    {
+        Raw(string.Join(' ', new[] { a, b, c, d, e, f }.Select(PdfReal.FormatRelative)) + " cm\n");
+        return this;
+    }
 
     internal ContentStreamBuilder LineWidth(double width) => Op("w", width);
 
     internal ContentStreamBuilder LineCap(int style) => Op("J", style);
 
     internal ContentStreamBuilder LineJoin(int style) => Op("j", style);
+
+    internal ContentStreamBuilder MiterLimit(double limit) => Op("M", limit);
 
     internal ContentStreamBuilder Dash(double[] pattern, double phase)
     {
