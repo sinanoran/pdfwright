@@ -38,7 +38,7 @@ public class ParagraphExtractionTests
         ShapingFont[] fonts = LayoutTestKit.Fonts(c.Fonts);
 
         ParagraphLayout layout = LayoutTestKit.Layout(c.Text, fonts, width);
-        byte[] pdf = LayoutTestKit.Draw(layout, c.Text, fonts);
+        byte[] pdf = LayoutTestKit.Draw(layout, fonts);
 
         if (Environment.GetEnvironmentVariable("PDFWRIGHT_DUMP") is { Length: > 0 } dump)
         {

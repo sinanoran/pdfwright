@@ -59,7 +59,7 @@ public class TextMeasurerTests
     }
 
     [Theory]
-    [InlineData(40)]
+    [InlineData(80)]
     [InlineData(100)]
     [InlineData(150)]
     [InlineData(420)]

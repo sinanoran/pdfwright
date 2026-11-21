@@ -27,7 +27,7 @@ public class ParagraphTabTests
         const string text = "a\tb";
 
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, null);
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, text, fonts));
+        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
 
         Assert.Equal(text, document.GetPage(1).Text);
     }

@@ -34,18 +34,36 @@ internal static class LayoutTestKit
     internal static ParagraphLayout Layout(string text, ShapingFont[] fonts, double? maxWidth, TextAlignment alignment = TextAlignment.Start, double size = 14, int paragraphLevel = Pdfwright.Unicode.UnicodeBidi.AutoLevel, double lineSpacing = 1.0) =>
         ParagraphLayouter.Layout(text, fonts, new ParagraphOptions { Size = size, MaxWidth = maxWidth, Alignment = alignment, ParagraphLevel = paragraphLevel, LineSpacing = lineSpacing });
 
-    /// <summary>Draws a laid out paragraph on one page, tall enough for all its lines, with its top left corner 20 points from the page's left edge and 50 from its top.</summary>
-    internal static byte[] Draw(ParagraphLayout layout, string text, ShapingFont[] fonts)
+    /// <summary>The left edge, in points, of what <see cref="Draw"/> and <see cref="DrawStack"/> draw.</summary>
+    internal const double Left = 20;
+
+    /// <summary>The distance from the top of the page to the top of the first paragraph.</summary>
+    internal const double TopMargin = 50;
+
+    /// <summary>The page height <see cref="DrawStack"/> uses: A4's, or taller when the paragraphs need it.</summary>
+    internal static double PageHeight(params ParagraphLayout[] layouts) => Math.Max(842, layouts.Sum(l => l.Height) + 100);
+
+    /// <summary>Draws a laid out paragraph on one page: its top left corner is <see cref="Left"/> from the page's left edge and <see cref="TopMargin"/> from its top.</summary>
+    internal static byte[] Draw(ParagraphLayout layout, ShapingFont[] fonts) => DrawStack([layout], fonts);
+
+    /// <summary>Draws paragraphs one under the other on one page, the first at the top margin, each starting where the one before it ends.</summary>
+    internal static byte[] DrawStack(ParagraphLayout[] layouts, ShapingFont[] fonts)
     {
-        double pageWidth = Math.Max(595, layout.Width + 40);
-        double pageHeight = Math.Max(842, layout.Height + 100);
+        double pageWidth = Math.Max(595, layouts.Max(l => l.Width) + 40);
+        double pageHeight = PageHeight(layouts);
         using MemoryStream stream = new();
         using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont[] embedded = [.. fonts.Select(f => new PdfEmbeddedFont(document, f.Font))];
             PdfPageWriter page = document.BeginPage(pageWidth, pageHeight);
             string[] names = [.. embedded.Select(e => page.UseFont(e.Reference))];
-            layout.Draw(page.Content, embedded, names, text, 20, pageHeight - 50);
+            double top = pageHeight - TopMargin;
+            foreach (ParagraphLayout layout in layouts)
+            {
+                layout.Draw(page.Content, embedded, names, Left, top);
+                top -= layout.Height;
+            }
+
             page.End();
             document.Complete();
         }

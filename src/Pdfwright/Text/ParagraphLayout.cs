@@ -24,7 +24,7 @@ internal sealed class PlacedRun
     internal ShapedRun Run { get; }
 
     /// <summary>The left edge of the run in points from the paragraph's left edge, already in its visual place and after alignment.</summary>
-    internal double X { get; set; }
+    internal double X { get; }
 
     /// <summary>The advance width of the run in points.</summary>
     internal double Width { get; }
@@ -48,27 +48,38 @@ internal sealed class LaidOutLine
     /// <summary>The offset in points of the content's left edge from the paragraph's left edge, after alignment.</summary>
     internal required double X { get; init; }
 
-    /// <summary>The distance from the top of the line to its baseline, in points (positive), from the fonts used on the line.</summary>
+    /// <summary>
+    /// The distance from the top of the line to its baseline, in points (positive), from the fonts used on the line. A line with nothing
+    /// visible takes the font of the nearest line that has content (the one before it, else the one after it, else the first font).
+    /// </summary>
     internal required double Ascent { get; init; }
 
-    /// <summary>The distance from the baseline to the bottom of the line, in points (positive), from the fonts used on the line.</summary>
+    /// <summary>The distance from the baseline to the bottom of the line, in points (positive), chosen like <see cref="Ascent"/>.</summary>
     internal required double Descent { get; init; }
 
-    /// <summary>The distance from this line's baseline to the next one's: <c>(Ascent + Descent) * LineSpacing</c>.</summary>
+    /// <summary>
+    /// The distance from the top of this line to the top of the next one: <c>(Ascent + Descent) * LineSpacing</c>. The baseline of a line is its
+    /// <see cref="Ascent"/> below its top, so the next baseline is <c>Pitch - Ascent + Ascent of the next line</c> below this one; the extra
+    /// room of a line spacing above 1 is under the line.
+    /// </summary>
     internal required double Pitch { get; init; }
 
     /// <summary>The runs of the line in logical order; each has its place in <see cref="PlacedRun.X"/>.</summary>
-    internal required List<PlacedRun> Runs { get; init; }
+    internal required IReadOnlyList<PlacedRun> Runs { get; init; }
 }
 
 /// <summary>The lines of one paragraph, and what it takes to draw them.</summary>
 internal sealed class ParagraphLayout
 {
-    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines)
+    private readonly int[] _unitsPerEm;
+
+    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts)
     {
         Text = text;
         Size = size;
         Lines = lines;
+        Missing = missing;
+        _unitsPerEm = [.. fonts.Select(f => f.Font.UnitsPerEm)];
         Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
         Height = lines.Sum(l => l.Pitch);
     }
@@ -82,6 +93,9 @@ internal sealed class ParagraphLayout
     /// <summary>The lines in order. A paragraph always has at least one (an empty text has one empty line).</summary>
     internal IReadOnlyList<LaidOutLine> Lines { get; }
 
+    /// <summary>The characters no font had a glyph for, as UTF-16 indices (see <see cref="ShapedParagraph.Missing"/>): they are drawn as the .notdef glyph.</summary>
+    internal IReadOnlyList<int> Missing { get; }
+
     /// <summary>The number of lines.</summary>
     internal int LineCount => Lines.Count;
 
@@ -92,21 +106,36 @@ internal sealed class ParagraphLayout
     internal double Height { get; }
 
     /// <summary>
-    /// Writes every line into <paramref name="content"/>, inside a <c>BT</c> / <c>ET</c> of its own, with <see cref="GlyphRunWriter"/>, so
-    /// that every reader gets the text in logical order. The top left corner of the paragraph is at (<paramref name="left"/>,
-    /// <paramref name="top"/>) in PDF space (y up); the baseline of each line is its ascent below the line's top. <paramref name="embedded"/>
-    /// and <paramref name="fontResourceNames"/> are indexed like the fonts that were given to <see cref="ParagraphLayouter.Layout"/>;
-    /// <paramref name="text"/> must be the text that was laid out (it is what the glyph clusters are cut from).
+    /// Writes every line into <paramref name="content"/> with <see cref="GlyphRunWriter"/>, so that every reader gets the text in logical order.
+    /// The whole paragraph is one <c>BT</c> / <c>ET</c> pair, which this method writes (the text state must not already be inside one). The top
+    /// left corner of the paragraph is at (<paramref name="left"/>, <paramref name="top"/>) in PDF space (y up): the baseline of a line is its
+    /// <see cref="LaidOutLine.Ascent"/> below the line's top, and the top of the next line is <see cref="LaidOutLine.Pitch"/> below that top.
+    /// <paramref name="embedded"/> and <paramref name="fontResourceNames"/> hold one entry for each font that was given to
+    /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be a font of the same units per em.
     /// </summary>
-    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont[] embedded, string[] fontResourceNames, string text, double left, double top)
+    /// <exception cref="ArgumentException">The arrays do not match the fonts the paragraph was laid out with.</exception>
+    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont[] embedded, string[] fontResourceNames, double left, double top)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
         ArgumentNullException.ThrowIfNull(fontResourceNames);
-        ArgumentNullException.ThrowIfNull(text);
-        if (!string.Equals(text, Text, StringComparison.Ordinal))
+        if (embedded.Length != _unitsPerEm.Length || fontResourceNames.Length != _unitsPerEm.Length)
         {
-            throw new ArgumentException("The text is not the text that was laid out.", nameof(text));
+            throw new ArgumentException(
+                $"The paragraph was laid out with {_unitsPerEm.Length} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
+        }
+
+        for (int i = 0; i < _unitsPerEm.Length; i++)
+        {
+            if (embedded[i] is null || fontResourceNames[i] is null)
+            {
+                throw new ArgumentException($"Font {i} has no embedded font or no resource name.");
+            }
+
+            if (embedded[i].Font.UnitsPerEm != _unitsPerEm[i])
+            {
+                throw new ArgumentException($"Embedded font {i} has {embedded[i].Font.UnitsPerEm} units per em, but the font the paragraph was laid out with at that place has {_unitsPerEm[i]}: they are not the same font.");
+            }
         }
 
         content.BeginText();
@@ -117,7 +146,7 @@ internal sealed class ParagraphLayout
             foreach (PlacedRun placed in line.Runs)
             {
                 int font = placed.Run.FontIndex;
-                GlyphRunWriter.Write(content, embedded[font], fontResourceNames[font], placed.Run, text, left + placed.X, baseline, Size);
+                GlyphRunWriter.Write(content, embedded[font], fontResourceNames[font], placed.Run, Text, left + placed.X, baseline, Size);
             }
 
             lineTop -= line.Pitch;

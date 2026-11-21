@@ -13,7 +13,7 @@ public class ParagraphWordBreakTests
 
     private static string ExtractedText(ParagraphLayout layout, string text, ShapingFont[] fonts)
     {
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, text, fonts));
+        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
         return Strip(document.GetPage(1).Text);
     }
 

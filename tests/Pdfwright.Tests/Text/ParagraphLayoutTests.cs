@@ -462,12 +462,64 @@ public class ParagraphLayoutTests
     }
 
     [Fact]
-    public void Drawing_text_other_than_the_text_that_was_laid_out_is_refused()
+    public void Drawing_with_other_fonts_than_the_paragraph_was_laid_out_with_is_refused()
     {
-        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Arabic);
         ParagraphLayout layout = LayoutTestKit.Layout("abc", fonts, null);
 
-        Assert.Throws<ArgumentException>(() => LayoutTestKit.Draw(layout, "abd", fonts));
+        // A font of another size of em, if the fonts of the corpus have one: the glyph scale would be wrong.
+        ShapingFont? other = Directory.GetFiles(TestPaths.FontsDirectory, "*.ttf")
+            .Select(p => LayoutTestKit.Font(Path.GetFileName(p)))
+            .FirstOrDefault(f => f.Font.UnitsPerEm != fonts[0].Font.UnitsPerEm);
+
+        using MemoryStream stream = new();
+        using Pdfwright.Pdf.PdfDocumentWriter document = new(stream, new Pdfwright.Pdf.PdfDocumentOptions { Compression = Pdfwright.Pdf.PdfCompression.None });
+        Pdfwright.Pdf.PdfEmbeddedFont[] embedded = [.. fonts.Select(f => new Pdfwright.Pdf.PdfEmbeddedFont(document, f.Font))];
+        Pdfwright.Pdf.PdfPageWriter page = document.BeginPage(595, 842);
+        string[] names = [.. embedded.Select(e => page.UseFont(e.Reference))];
+
+        Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, embedded[..1], names, 0, 800));
+        Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, embedded, names[..1], 0, 800));
+        if (other is not null)
+        {
+            Pdfwright.Pdf.PdfEmbeddedFont[] wrong = [new Pdfwright.Pdf.PdfEmbeddedFont(document, other.Font), embedded[1]];
+            ArgumentException error = Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, wrong, names, 0, 800));
+            Assert.Contains("units per em", error.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void The_lines_and_runs_of_a_layout_cannot_be_changed_by_the_caller()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        ParagraphLayout layout = LayoutTestKit.Layout("aaa bbb", fonts, 20);
+
+        Assert.False(layout.Lines is List<LaidOutLine>);
+        Assert.False(layout.Lines[0].Runs is List<PlacedRun>);
+        Assert.False(layout.Missing is List<int>);
+    }
+
+    [Fact]
+    public void The_empty_lines_of_a_paragraph_take_the_font_of_the_nearest_line_with_content()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Arabic);
+        char separator = (char)0x2028;
+        string arabic = LayoutTestKit.Case("arabic-hello").Text;
+
+        // The Arabic text is set in the second font of the list; the line between two hard breaks has no content of its own.
+        ParagraphLayout between = LayoutTestKit.Layout(arabic + separator + separator + arabic, fonts, null);
+        ParagraphLayout leading = LayoutTestKit.Layout(new string(separator, 1) + arabic, fonts, null);
+        ParagraphLayout none = LayoutTestKit.Layout(new string(separator, 1), fonts, null);
+
+        double arabicAscent = fonts[1].Font.Ascender * MetricScale(fonts[1]);
+        double latinAscent = fonts[0].Font.Ascender * MetricScale(fonts[0]);
+        Assert.NotEqual(latinAscent, arabicAscent);
+        Assert.Equal(3, between.LineCount);
+        Assert.Empty(between.Lines[1].Runs);
+        Assert.Equal(arabicAscent, between.Lines[1].Ascent, Tolerance);
+        Assert.Equal(between.Lines[0].Pitch, between.Lines[1].Pitch, Tolerance);
+        Assert.Equal(arabicAscent, leading.Lines[0].Ascent, Tolerance);
+        Assert.Equal(latinAscent, none.Lines[0].Ascent, Tolerance);
     }
 
     [Theory]

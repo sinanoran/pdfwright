@@ -25,6 +25,7 @@ internal static class ParagraphLayouter
     /// Lays out <paramref name="text"/>, which is one paragraph (a paragraph separator may only be its last character: split text with
     /// <see cref="UnicodeBidi.Paragraphs"/> and lay the paragraphs out one after another). Hard line breaks inside the paragraph (U+2028,
     /// U+000B, U+000C) end a line; a line break at the very end of the text does not add an empty line, and an empty text is one empty line.
+    /// A line with nothing visible (between two hard breaks) is as high as the nearest line that has content (the one before it, else the one after it, else the first font).
     /// A tab (U+0009) is laid out as one space (tab stops are for the block layer); the character itself stays in the text the glyphs are cut from.
     /// A soft hyphen (U+00AD) is never a place to break: nothing would draw the hyphen, and there is no hyphenation in 0.1, so it stays invisible inside its word.
     /// A unit wider than the width (a long word, Thai text without spaces) is cut between grapheme clusters, as much as fits on each line and
@@ -65,10 +66,29 @@ internal static class ParagraphLayouter
             }
 
             int end = state.Count == 0 ? 0 : state.FindLineEnd(start, candidate);
+
+            // A line that does not advance would loop for ever: stop with an error (this check stays in Release builds).
+            if (state.Count > 0 && (end <= start || end > state.Count))
+            {
+                throw new InvalidOperationException($"Line breaking did not advance: a line that starts at {start} was given the end {end} in a text of {state.Count} characters.");
+            }
+
             raws.Add(state.BuildLine(start, end));
             start = end;
         }
         while (start < state.Count);
+
+        // A line with nothing visible (an empty line between two hard breaks, a line of white space) is as high as the font of the nearest
+        // line that has content (the one before it, else the one after it, else the first font), so that the empty lines of a paragraph in
+        // one script do not take the height of another script's font.
+        for (int i = 0; i < raws.Count; i++)
+        {
+            if (raws[i].FirstFont < 0)
+            {
+                (double ascent, double descent) = state.Metrics(NearestContentFont(raws, i));
+                raws[i] = raws[i] with { Ascent = ascent, Descent = descent };
+            }
+        }
 
         // The box lines sit in: the width given, or the widest line's content, so that a paragraph without a width still has an edge to align to.
         double box = options.MaxWidth ?? raws.Max(r => r.Width);
@@ -77,9 +97,10 @@ internal static class ParagraphLayouter
         foreach (Raw raw in raws)
         {
             double offset = Offset(options.Alignment, rightToLeft, box, raw.Width);
-            foreach (PlacedRun placed in raw.Runs)
+            List<PlacedRun> runs = new(raw.Runs.Count);
+            foreach (Placement placement in raw.Runs)
             {
-                placed.X = offset + (placed.X - raw.ContentLeft);
+                runs.Add(new PlacedRun(placement.Run, offset + (placement.X - raw.ContentLeft), placement.Width, placement.IsTrailingSpace));
             }
 
             lines.Add(new LaidOutLine
@@ -91,11 +112,33 @@ internal static class ParagraphLayouter
                 Ascent = raw.Ascent,
                 Descent = raw.Descent,
                 Pitch = (raw.Ascent + raw.Descent) * options.LineSpacing,
-                Runs = raw.Runs,
+                Runs = runs.AsReadOnly(),
             });
         }
 
-        return new ParagraphLayout(text, options.Size, lines);
+        return new ParagraphLayout(text, options.Size, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts);
+    }
+
+    /// <summary>The first font of the content of the closest line to <paramref name="index"/> that has any: the line before, else the line after, else the first font.</summary>
+    private static int NearestContentFont(List<Raw> raws, int index)
+    {
+        for (int i = index - 1; i >= 0; i--)
+        {
+            if (raws[i].FirstFont >= 0)
+            {
+                return raws[i].FirstFont;
+            }
+        }
+
+        for (int i = index + 1; i < raws.Count; i++)
+        {
+            if (raws[i].FirstFont >= 0)
+            {
+                return raws[i].FirstFont;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>The left edge of a line's content in a box: logical alignment, with a line that is too wide aligned to the start.</summary>
@@ -125,7 +168,20 @@ internal static class ParagraphLayouter
     }
 
     /// <summary>A line before alignment: its runs are at x positions measured from the left edge of the line's own sequence of runs.</summary>
-    private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, List<PlacedRun> Runs);
+    /// <remarks><paramref name="FirstFont"/> is the font of the first run of the content in logical order, or -1 for a line with nothing visible.</remarks>
+    private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, int FirstFont, List<Placement> Runs);
+
+    /// <summary>A run on a line while the line is being built: <see cref="X"/> is first its place in the row of runs and then, after alignment, its place from the paragraph's left edge.</summary>
+    private sealed class Placement(ShapedRun run, double width, bool isTrailingSpace)
+    {
+        internal ShapedRun Run { get; } = run;
+
+        internal double Width { get; } = width;
+
+        internal bool IsTrailingSpace { get; } = isTrailingSpace;
+
+        internal double X { get; set; }
+    }
 
     /// <summary>What the line breaker and the line builder share for one paragraph.</summary>
     private sealed class State
@@ -332,7 +388,7 @@ internal static class ParagraphLayouter
             int drawEnd = utf16[drawEndCp];
             byte[] levels = UnicodeBidi.LineLevels(_paragraph.Bidi, firstCp, endCp);
 
-            List<PlacedRun> pieces = [];
+            List<Placement> pieces = [];
             for (int runIndex = FirstRunEndingAfter(start); runIndex < _paragraph.Runs.Count; runIndex++)
             {
                 ShapedRun run = _paragraph.Runs[runIndex];
@@ -363,7 +419,7 @@ internal static class ParagraphLayouter
                         cp++;
                     }
 
-                    PlacedRun? piece = Piece(runIndex, run, runEnd, utf16[groupStart], utf16[cp], level, trailing);
+                    Placement? piece = Piece(runIndex, run, runEnd, utf16[groupStart], utf16[cp], level, trailing);
                     if (piece is not null)
                     {
                         pieces.Add(piece);
@@ -386,7 +442,8 @@ internal static class ParagraphLayouter
             double contentLeft = double.PositiveInfinity;
             double ascent = 0;
             double descent = 0;
-            foreach (PlacedRun piece in pieces)
+            int firstFont = -1;
+            foreach (Placement piece in pieces)
             {
                 if (piece.IsTrailingSpace)
                 {
@@ -396,21 +453,24 @@ internal static class ParagraphLayouter
 
                 width += piece.Width;
                 contentLeft = Math.Min(contentLeft, piece.X);
-                AddMetrics(piece.Run.FontIndex, ref ascent, ref descent);
+                firstFont = firstFont < 0 ? piece.Run.FontIndex : firstFont;
+                (double pieceAscent, double pieceDescent) = Metrics(piece.Run.FontIndex);
+                ascent = Math.Max(ascent, pieceAscent);
+                descent = Math.Max(descent, pieceDescent);
             }
 
             if (double.IsPositiveInfinity(contentLeft))
             {
                 // Nothing visible: the white space hangs on the side where the line would have ended (to the left in a right-to-left paragraph).
+                // Its height is the paragraph's to give once every line is built (see ParagraphLayouter.Layout).
                 contentLeft = (_paragraph.ParagraphLevel & 1) == 1 ? trailingWidth : 0;
-                AddMetrics(0, ref ascent, ref descent);
             }
 
-            return new Raw(start, end - start, width, contentLeft, ascent, descent, pieces);
+            return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, pieces);
         }
 
         /// <summary>One stretch of <paramref name="run"/> on a line: the glyphs whose clusters lie in [from, to), in the order of the level they now have.</summary>
-        private PlacedRun? Piece(int runIndex, ShapedRun run, int runEnd, int from, int to, byte level, bool trailing)
+        private Placement? Piece(int runIndex, ShapedRun run, int runEnd, int from, int to, byte level, bool trailing)
         {
             ShapedGlyph[] glyphs;
             if (from == run.Utf16Start && to == runEnd && level == run.Level)
@@ -443,7 +503,7 @@ internal static class ParagraphLayouter
             ShapedRun piece = glyphs == run.Glyphs
                 ? run
                 : new ShapedRun { Utf16Start = from, Utf16Length = to - from, Level = level, Script = run.Script, FontIndex = run.FontIndex, Glyphs = glyphs };
-            return new PlacedRun(piece, 0, advance, trailing);
+            return new Placement(piece, advance, trailing);
         }
 
         /// <summary>The index of the first run that ends after <paramref name="position"/> (runs are in logical order and tile the text): where a line that starts there begins to look.</summary>
@@ -507,11 +567,11 @@ internal static class ParagraphLayouter
             return low;
         }
 
-        private void AddMetrics(int fontIndex, ref double ascent, ref double descent)
+        /// <summary>The ascent and the descent of a font at the paragraph's size, in points, both positive.</summary>
+        internal (double Ascent, double Descent) Metrics(int fontIndex)
         {
             TrueTypeFont font = _fonts[fontIndex].Font;
-            ascent = Math.Max(ascent, Math.Abs(font.Ascender) * _scale[fontIndex]);
-            descent = Math.Max(descent, Math.Abs(font.Descender) * _scale[fontIndex]);
+            return (Math.Abs(font.Ascender) * _scale[fontIndex], Math.Abs(font.Descender) * _scale[fontIndex]);
         }
     }
 
