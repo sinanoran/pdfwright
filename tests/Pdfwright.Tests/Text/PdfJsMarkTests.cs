@@ -157,4 +157,32 @@ public static partial class PdfJsMarkTests
         Assert.NotEmpty(withZwnj);
         Assert.All(withZwnj, t => Assert.EndsWith(new string([(char)0x200C, (char)0x034F]), t, StringComparison.Ordinal));
     }
+
+    [Fact]
+    public static void A_run_written_after_a_restore_of_the_graphics_state_sets_its_font_again()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        ShapedParagraph paragraph = TextShaper.Shape("ab", fonts);
+
+        using MemoryStream stream = new();
+        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        {
+            PdfEmbeddedFont embedded = new(document, fonts[0].Font);
+            PdfPageWriter page = document.BeginPage(595, 842);
+            string name = page.UseFont(embedded.Reference);
+
+            // The font the builder tracked was set inside q ... Q, so after the Q the state holds another one and the run must say which it uses.
+            page.Content.SaveState().BeginText().Font(name, RunSize).EndText().RestoreState();
+            Assert.Null(page.Content.CurrentFont);
+            page.Content.BeginText();
+            GlyphRunWriter.Write(page.Content, embedded, name, paragraph.Runs[0], "ab", 20, 780, RunSize);
+            page.Content.EndText();
+            page.End();
+            document.Complete();
+        }
+
+        string pdf = Encoding.Latin1.GetString(stream.ToArray());
+        string afterRestore = pdf[(pdf.IndexOf("\nQ\n", StringComparison.Ordinal) + 3)..];
+        Assert.Matches(@"^BT\s+/\S+ 14 Tf", afterRestore);
+    }
 }
