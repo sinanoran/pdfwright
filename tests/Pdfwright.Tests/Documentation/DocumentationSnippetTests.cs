@@ -514,6 +514,7 @@ public class DocumentationSnippetTests
         // </snippet>
 
         Assert.Equal("13", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
+        AssertFooterFileValid();
     }
 
     [Fact]
@@ -534,6 +535,7 @@ public class DocumentationSnippetTests
         // </snippet>
 
         Assert.Equal("13", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
+        AssertFooterFileValid();
     }
 
     /// <summary>Saves the document with three pages, and returns the digits of the footer of page 1 in the order they stand from left to right.</summary>
@@ -548,13 +550,15 @@ public class DocumentationSnippetTests
         using MemoryStream stream = new();
         await document.SaveAsync(stream, cancellationToken);
         _pdf = stream.ToArray();
-        DocumentTestKit.AssertValid(_pdf, "documentation");
 
+        // The digit order is read before the file is checked with qpdf, which skips the test where qpdf is not installed.
         using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(_pdf);
         Assert.Equal(3, read.NumberOfPages);
         Page first = read.GetPage(1);
         return string.Concat(first.Letters.Where(l => l.Value.Length == 1 && char.IsAsciiDigit(l.Value[0])).OrderBy(l => l.BoundingBox.Left).Select(l => l.Value));
     }
+
+    private void AssertFooterFileValid() => DocumentTestKit.AssertValid(_pdf!, "documentation");
 
     [Fact]
     public async Task Metadata_and_a_fixed_date_make_the_same_bytes_every_time()
