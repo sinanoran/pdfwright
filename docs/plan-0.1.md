@@ -362,25 +362,48 @@ Three ways of writing a shaped run were measured on the same 61 files, and one c
 | One `Tm` per glyph, logical order (kept) | 61 | 27 | 36 |
 | One `Tm` per run, `TJ` adjustments | 61 | 27 | 29 |
 | Glyphs without advance written first in a cluster | 61 | | 25 |
-| HarfBuzz cluster level 1 (monotone characters) | 61 | 56 | 44 (joiner removed) |
+| HarfBuzz cluster level 1 (monotone characters; measured with the earlier writer: no U+034F mapping, no size switch) | 61 | 56 | 44 (joiner removed) |
 | `ActualText` around multi-glyph clusters, continuation codes empty | not applicable (PdfPig ignores it) | 27, junk doubled | 35 |
 | **Continuation codes mapped to U+034F instead of empty (kept)** | 61 (U+034F removed) | **56** | **44** with the joiner removed, 23 without |
 
 - **pdf.js:** the junk was the whole problem. With the combining grapheme joiner (invisible, default-ignorable, transparent to Arabic joining) as the text of a code that
-  continues a cluster, 56 of 61 lines come out right (ignoring the spaces its text layer does not mark, and the joiner). The five left are lines with stacked marks
+  continues a cluster, 56 of 61 lines come out right (ignoring the spaces its text layer does not mark, and the joiner). The lines still wrong then (all five fixed in the next subsection) were lines with stacked marks
   (`arabic-diacritics`, `arabic-kashida`, `arabic-shadda-dagger-alef`, `hebrew-points`), which pdf.js orders by position, and `arabic-persian`, where pdf.js drops
   the zero width non-joiner of "می‌خواهم" although the file maps its code to U+200C. `ActualText` was tried: pdf.js ignores it (and then shows the junk twice), and xpdf
-  does not improve (35), so it is not preferred over the joiner. Cluster level 1 changes little (31 files need the joiner instead of 34).
+  does not improve (35), so it is not preferred over the joiner. Cluster level 1 seemed to change little (31 files need the joiner instead of 34), but that was measured with the earlier writer, before the U+034F mapping and the size switch of the next subsection. With the final writer, level 1 on all runs costs five Indic lines (xpdf 40 against 45), which is why it applies only to right-to-left runs.
 - **The price of the joiner:** every reader now sees U+034F in copied text (34 of the 61 lines carry it). It is invisible and does not break Arabic joining, but it breaks plain
   string matching (`Contains`, grep, tokenizers that keep it inside the word), and because its combining class is 0 it blocks canonical reordering when a position-ordered reader
   puts it between a letter and its own marks (normalised text then differs from the source). This is written into `docs/known-limitations.md`. Fewer continuation glyphs
   (fonts or shaping settings that draw a letter as one glyph) is the way to reduce it; it is not a 0.1 goal.
 - **xpdf's position-ordered mode cannot be brought to 61 of 61 by the layouts tried**: it puts a space wherever a glyph is drawn to the left of the end of the glyph before it
   (a vowel sign drawn before its consonant, a mark placed by an offset), and none of the three orders removes that. This is a heuristic of one reader, not a defect of the
-  file, so the criterion for S4 is **PdfPig 61 of 61 (byte-exact, joiner removed), pdf.js at 61 of 61 once the five lines above are understood, xpdf not below its floor of 44
+  file, so the criterion for S4 is **PdfPig 61 of 61 (byte-exact, joiner removed), pdf.js at 61 of 61 (reached in the next subsection), xpdf not below its floor (44 when this was written, 45 after the next subsection)
   (`XpdfRegressionFloorTests`, which runs where `pdftotext` is installed; the 36 first agreed is the floor measured with the empty mapping)**; poppler's own position-ordered mode
   (Evince, Okular) was never measured, and the viewers that matter to users (Acrobat, Chrome, Preview) are in the release checklist (section 8, point 6). The stop condition's
   "a fix that works in pdf.js, Acrobat, Preview and Chrome together" is read as: the pdf.js fix exists (the joiner), the others are checked at release.
+
+### What reading pdf.js's source showed (21 November 2026, `GlyphRunWriter`, `TextShaper`)
+
+The five lines pdf.js still got wrong after the joiner were explained by its source (6.3.335, which Firefox ships), and fixed:
+
+- **Cause.** pdf.js tests a glyph's text with `/^(\s)|(\p{Mn})|(\p{Cf})$/u`, whose alternation makes a glyph with a non-spacing mark *anywhere* in its text a "zero-width diacritic":
+  it skips the position check and is appended to the open text item. pdf.js then runs its bidi over each item and reverses right-to-left items character by character, expecting visual
+  order; ours are in logical order (what PdfPig and copying need), so an item that holds several glyphs of a right-to-left run came out reversed. A glyph whose text *ends* with a format
+  character (U+200C) is dropped. And a new item is started whenever the `Tf` font size changes.
+- **Fix, all three parts needed.** (1) Right-to-left runs are shaped at HarfBuzz cluster level 1 (`MonotoneCharacters`), so each mark has a cluster and a text of its own; left-to-right runs
+  stay at the default level, because level 1 there cost xpdf five Indic lines. (2) A glyph whose text holds a mark, ends with a format character, or is a continuation glyph is shown with
+  `Tf` at size 1 and a text matrix scaled by the real size (the same drawing); two in a row alternate between sizes 1 and 2, so each starts an item of its own, and the next ordinary glyph
+  restores `Tf` at the real size. (3) A cluster text that ends with a format character gets U+034F appended, so pdf.js keeps the glyph.
+
+| Reader | Before | After |
+|---|---|---|
+| PdfPig (content order, U+034F removed) | 61 of 61 | **61 of 61** |
+| pdf.js 6.3.335 (Firefox), NFD, white space, U+034F and bidi controls removed | 56 of 61 | **61 of 61** |
+| xpdf `pdftotext` 4.06 default, joiner removed | 44 of 61 | **45 of 61** (`arabic-kashida` now reads exactly) |
+
+pdf.js is at 61 of 61; it is measured by `tools/pdfjs-check` (not part of CI) and the xpdf number is the floor of `XpdfRegressionFloorTests`. The pdf.js comparison is canonical, not byte,
+equality: in `hebrew-points` one glyph carries two points (U+05B8 U+05C1) and pdf.js reverses them, and the two orders are canonically equivalent. The size switch and the other costs are in
+`docs/known-limitations.md`.
 
 ## 10. Repository, release and name
 
