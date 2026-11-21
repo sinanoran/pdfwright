@@ -12,7 +12,7 @@ namespace Pdfwright.Tests.Text;
 public class XpdfRegressionFloorTests
 {
     /// <summary>The number of corpus lines xpdf reads exactly (after the normalisations below) when this floor was set.</summary>
-    private const int Floor = 44;
+    private const int Floor = 45;
 
     private static string? FindPdftotext()
     {
