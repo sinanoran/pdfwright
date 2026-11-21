@@ -60,8 +60,14 @@ internal static class ScriptData
 /// <summary>
 /// Splits text into runs of one script, the unit that is shaped with one script tag (UAX #24, section 5.1). Common and Inherited
 /// characters (spaces, digits, punctuation, combining marks) join the run they are in, or the next run at the start of the text;
-/// a closing bracket takes the script of its opening bracket; a character whose Script_Extensions contain the run's script stays in it.
+/// a closing bracket takes the script of its opening bracket; a character of a real script whose Script_Extensions contain the run's script stays in it.
 /// </summary>
+/// <remarks>
+/// A Common character that is used only with some scripts (U+060C, U+3001, U+0640) stays in the run it follows even when that script is
+/// not one of them, as in ICU: the run's script tag is then the neighbour's, so the shaping step must pass the text around a run to
+/// HarfBuzz as context (so that an Arabic letter after a tatweel is still joined) and choose fonts per character, not per run. Unknown
+/// characters join the run they are in. At most 63 brackets are tracked; deeper openers are ignored.
+/// </remarks>
 internal static class ScriptItemizer
 {
     private const int MaxBracketDepth = 63;
@@ -84,7 +90,8 @@ internal static class ScriptItemizer
         {
             int codePoint = text[i];
             int script = ScriptData.ScriptOf(codePoint);
-            if (script == ScriptData.Common || script == ScriptData.Inherited)
+            // Unknown (unassigned, private use, noncharacters) has no glyph to shape: it joins the run it is in, like a neutral.
+            if (script == ScriptData.Common || script == ScriptData.Inherited || script == ScriptData.Unknown)
             {
                 resolved[i] = current;
                 if (script != ScriptData.Common)
@@ -130,6 +137,18 @@ internal static class ScriptItemizer
             resolved[i] = chosen;
             if (chosen != current)
             {
+                if (current == Pending)
+                {
+                    // Brackets opened before the first real script belong to it, so that their closers return to it.
+                    for (int b = 0; b < brackets.Count; b++)
+                    {
+                        if (brackets[b].Script == Pending)
+                        {
+                            brackets[b] = (brackets[b].Closing, chosen);
+                        }
+                    }
+                }
+
                 current = chosen;
                 for (int j = i - 1; j >= 0 && resolved[j] == Pending; j--)
                 {

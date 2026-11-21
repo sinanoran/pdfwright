@@ -97,6 +97,28 @@ public class ScriptItemizerTests
     }
 
     [Fact]
+    public void A_bracket_opened_before_the_first_script_belongs_to_that_script_and_its_closer_returns_to_it()
+    {
+        // "(" is pending until the Cyrillic letter; ")" after a Latin word is in the Cyrillic script, as its opener is.
+        Assert.Equal([(0, 3, "Cyrl"), (3, 1, "Latn"), (4, 1, "Cyrl")], Runs("(б a)"));
+    }
+
+    [Fact]
+    public void A_character_used_with_a_script_stays_in_that_run_through_its_script_extensions()
+    {
+        // Arabic-Indic digits are script Arabic and also used with Thaana: after a Thaana letter they stay in the Thaana run.
+        Assert.Equal([(0, 5, "Thaa")], Runs("ހށ ١٢"));
+        Assert.Equal([(0, 2, "Latn"), (2, 2, "Arab")], Runs("a ١٢")); // in Latin text they start an Arabic run
+    }
+
+    [Fact]
+    public void Unassigned_and_private_use_characters_join_the_run_they_are_in()
+    {
+        Assert.Equal([(0, 10, "Latn")], Runs("Save  now"));
+        Assert.Equal([(0, 5, "Latn")], Runs("ab͸cd"));
+    }
+
+    [Fact]
     public void Nothing_in_gives_nothing_out_and_the_runs_cover_the_whole_text()
     {
         Assert.Empty(ScriptItemizer.Itemize([]));
