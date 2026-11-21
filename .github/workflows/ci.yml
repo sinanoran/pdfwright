@@ -98,3 +98,39 @@ jobs:
         with:
           name: nupkg
           path: artifacts/*
+
+  linux-runtime-images:
+    # The runner images above have a full SDK and many libraries installed. A service usually runs on the slim .NET runtime images
+    # instead, where only what the runtime needs is present, and on Alpine the C library is musl, not glibc. This job proves that
+    # the native shaping library (HarfBuzzSharp) loads there and that a whole report is made: the sample report program, published
+    # for the image's runtime identifier, runs inside the image and must write its file with every glyph found.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mcr.microsoft.com/dotnet/aspnet:10.0
+            rid: linux-x64
+          - image: mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+            rid: linux-musl-x64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Publish the sample report for ${{ matrix.rid }}
+        run: dotnet publish samples/Pdfwright.Samples.Report/Pdfwright.Samples.Report.csproj --configuration Release --runtime ${{ matrix.rid }} --self-contained false --output "${{ runner.temp }}/sample"
+
+      - name: Run it in ${{ matrix.image }}
+        shell: bash
+        run: |
+          # The program exits with 1 when a glyph is missing and with another code when anything fails, including the native load.
+          mkdir -p "${{ runner.temp }}/out"
+          docker run --rm -v "${{ runner.temp }}/sample:/app:ro" -v "${{ runner.temp }}/out:/out" -w /app "${{ matrix.image }}" \
+            dotnet Pdfwright.Samples.Report.dll /out/report.pdf
+          test -s "${{ runner.temp }}/out/report.pdf"
+          head -c 8 "${{ runner.temp }}/out/report.pdf" | grep -q '%PDF-' || { echo "not a PDF file"; exit 1; }
