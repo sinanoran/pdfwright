@@ -1,4 +1,5 @@
 using Pdfwright.Text;
+using Pdfwright.Unicode;
 using UglyToad.PdfPig;
 
 namespace Pdfwright.Tests.Text;
@@ -136,5 +137,26 @@ public class ParagraphWordBreakTests
         ParagraphLayout wide = LayoutTestKit.Layout(text, fonts, word + 0.5);
 
         Assert.Equal([0, 10], wide.Lines.Select(l => l.Start).ToArray());
+    }
+
+    [Fact]
+    public void A_break_opportunity_inside_a_glyph_cluster_is_not_used()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+
+        // A combining mark after a space: UAX #14 allows a break between them (the mark is a letter after a space, rule LB10), but the space and the mark are one
+        // grapheme cluster and the shaper gives them one glyph cluster, so the line must not end between them.
+        string text = "aaa " + (char)0x0301 + "bbb";
+        ShapedParagraph shaped = TextShaper.Shape(text, fonts);
+        Assert.DoesNotContain(shaped.Runs.SelectMany(r => r.Glyphs), g => g.Cluster == 4);
+        int[] codePoints = UnicodeText.CodePoints(text, out _);
+        Assert.NotEqual(LineBreakKind.None, UnicodeLineBreaker.Breaks(codePoints)[4]);
+
+        double aaa = TextMeasurer.Measure("aaa", fonts, new ParagraphOptions { Size = 14 }).Width;
+        ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, aaa + 0.5);
+
+        AssertTiles(text, layout);
+        Assert.DoesNotContain(layout.Lines, l => l.Start == 4);
+        Assert.True(layout.LineCount > 1);
     }
 }
