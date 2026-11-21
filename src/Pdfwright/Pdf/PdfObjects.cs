@@ -57,6 +57,33 @@ internal sealed class PdfReal : PdfObject
         string text = value.ToString("0.#####", CultureInfo.InvariantCulture);
         return text == "-0" ? "0" : text;
     }
+
+    /// <summary>
+    /// A number with ten significant digits instead of five decimals, for the operands whose size says nothing about their importance (a
+    /// matrix scaled by 1e-6 would be all zeros with <see cref="Format"/>). Still plain decimal text, never an exponent, never "-0"; a
+    /// number below about 1e-20 in size is written as 0.
+    /// </summary>
+    internal static string FormatRelative(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "A PDF number is finite.");
+        }
+
+        if (value == 0)
+        {
+            return "0";
+        }
+
+        int decimals = Math.Clamp(9 - (int)Math.Floor(Math.Log10(Math.Abs(value))), 0, 20);
+        string text = value.ToString("F" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+        if (text.Contains('.', StringComparison.Ordinal))
+        {
+            text = text.TrimEnd('0').TrimEnd('.');
+        }
+
+        return text is "-0" or "" ? "0" : text;
+    }
 }
 
 internal sealed class PdfName(string value) : PdfObject

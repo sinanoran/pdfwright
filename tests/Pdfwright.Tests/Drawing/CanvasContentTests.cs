@@ -257,6 +257,54 @@ public class CanvasContentTests
     }
 
     [Fact]
+    public void A_tiny_scale_is_written_with_its_own_precision_not_as_zeros()
+    {
+        Drawn drawn = CanvasTestKit.Run(c => c.Scale(1e-6, 2.5e-7));
+        Assert.Equal(CanvasTestKit.Wrap("0.000001 0 0 0.00000025 0 0 cm"), drawn.Lines);
+        Assert.DoesNotContain(drawn.Lines, l => l.Contains('E', StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void A_tiny_rotation_is_not_lost()
+    {
+        Drawn drawn = CanvasTestKit.Run(c => c.Rotate(0.0001));
+        double[] n = CanvasTestKit.Numbers(drawn.Inner[0]);
+        double radians = 0.0001 * Math.PI / 180;
+        Assert.Equal(Math.Sin(radians), n[1], 14);
+        Assert.Equal(-Math.Sin(radians), n[2], 14);
+        Assert.NotEqual(0, n[1]);
+        Assert.DoesNotContain("E", drawn.Inner[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Numbers_with_relative_precision_are_plain_decimals_that_round_trip()
+    {
+        foreach (double value in new[] { 1e-6, -3.3e-9, 0.1234567891234, 123456789.5, 1e15, 0.5, -2, 1.0 / 3 })
+        {
+            string text = PdfReal.FormatRelative(value);
+            Assert.DoesNotContain("E", text, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(value, double.Parse(text, System.Globalization.CultureInfo.InvariantCulture), Math.Abs(value) * 1e-9);
+        }
+
+        Assert.Equal("0", PdfReal.FormatRelative(-0.0));
+        Assert.Equal("0", PdfReal.FormatRelative(1e-30));
+    }
+
+    [Fact]
+    public void A_transform_that_cannot_be_undone_is_refused()
+    {
+        Drawn ignored = CanvasTestKit.Run(c =>
+        {
+            Assert.Throws<ArgumentException>(() => c.Scale(0, 1));
+            Assert.Throws<ArgumentException>(() => c.Scale(0, 0));
+            Assert.Throws<ArgumentException>(() => c.Transform(new Matrix(1, 2, 2, 4, 0, 0)));
+            Assert.Throws<ArgumentException>(() => c.Scale(1e-200, 1e-200));
+            Assert.Throws<ArgumentException>(() => c.Scale(1e200, 1e200));
+        });
+        Assert.Equal(CanvasTestKit.Wrap(), ignored.Lines);
+    }
+
+    [Fact]
     public void A_rotation_is_clockwise_on_the_canvas()
     {
         // On a y-down canvas a clockwise quarter turn takes the point to the right of the origin to the point below it.
@@ -294,6 +342,15 @@ public class CanvasContentTests
             Assert.Throws<ArgumentException>(() => c.Transform(new Matrix(1, 0, 0, 1, bad, 0)));
         });
         Assert.Equal(CanvasTestKit.Wrap(), ignored.Lines);
+    }
+
+    [Fact]
+    public void A_pen_refuses_a_cap_or_a_join_that_is_not_defined()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Pen(Color.Black, cap: (LineCap)3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Pen(Color.Black, cap: (LineCap)(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Pen(Color.Black, join: (LineJoin)7));
+        Assert.Equal(LineCap.Square, new Pen(Color.Black, cap: LineCap.Square).Cap);
     }
 
     [Fact]

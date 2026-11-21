@@ -29,7 +29,7 @@ internal sealed class Pen
     /// <param name="dashes">The lengths of the dashes and the gaps in turn, or <see langword="null"/> or empty for a solid line.</param>
     /// <param name="dashPhase">How far into the pattern the line starts.</param>
     /// <param name="opacity">From 0 to 1.</param>
-    /// <exception cref="ArgumentException">A number is not finite, a width, dash or phase is negative, the miter limit is below 1, or the dashes are all zero.</exception>
+    /// <exception cref="ArgumentException">A cap or a join is not one of the defined values, a number is not finite, a width, dash or phase is negative, the miter limit is below 1, or the dashes are all zero.</exception>
     internal Pen(
         Color color,
         double width = 1,
@@ -40,6 +40,16 @@ internal sealed class Pen
         double dashPhase = 0,
         double opacity = 1)
     {
+        if (!Enum.IsDefined(cap))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cap), cap, "A line cap is Butt, Round or Square.");
+        }
+
+        if (!Enum.IsDefined(join))
+        {
+            throw new ArgumentOutOfRangeException(nameof(join), join, "A line join is Miter, Round or Bevel.");
+        }
+
         if (!(double.IsFinite(width) && width >= 0))
         {
             throw new ArgumentException($"A line width is a finite number of zero or more, not {width}.", nameof(width));

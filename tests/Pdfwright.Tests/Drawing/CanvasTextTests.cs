@@ -39,6 +39,42 @@ public class CanvasTextTests
     }
 
     [Fact]
+    public void Only_the_fonts_a_text_uses_are_embedded_and_named_in_the_page()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Arabic);
+        int fontEntries = -1;
+        byte[] pdf = Page((c, page) =>
+        {
+            c.DrawText("Hello", fonts, 20, new Point(50, 100));
+            fontEntries = ((PdfDictionary)page.BuildResources()["Font"]!).Entries.Count;
+        });
+
+        Assert.Equal(1, fontEntries);
+        Assert.Equal(1, Count(pdf, "/FontFile2"));
+
+        // With a letter of the fallback in the text, both are used.
+        byte[] both = Page((c, page) =>
+        {
+            c.DrawText("Hello \u0645\u0631\u062D\u0628\u0627", fonts, 20, new Point(50, 100));
+            fontEntries = ((PdfDictionary)page.BuildResources()["Font"]!).Entries.Count;
+        });
+        Assert.Equal(2, fontEntries);
+        Assert.Equal(2, Count(both, "/FontFile2"));
+    }
+
+    private static int Count(byte[] pdf, string needle)
+    {
+        string text = System.Text.Encoding.Latin1.GetString(pdf);
+        int count = 0;
+        for (int at = text.IndexOf(needle, StringComparison.Ordinal); at >= 0; at = text.IndexOf(needle, at + 1, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    [Fact]
     public void Text_is_drawn_upright_with_its_first_baseline_at_the_point()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);

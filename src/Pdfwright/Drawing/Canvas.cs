@@ -119,6 +119,12 @@ internal sealed class Canvas : IDisposable
             throw new ArgumentException("A transform's numbers are finite.", nameof(matrix));
         }
 
+        double determinant = (matrix.A * matrix.D) - (matrix.B * matrix.C);
+        if (!double.IsFinite(determinant) || determinant == 0)
+        {
+            throw new ArgumentException("A transform is invertible: its determinant is neither zero nor beyond the range of a number (a scale of 0 flattens the canvas).", nameof(matrix));
+        }
+
         _content.Transform(matrix.A, matrix.B, matrix.C, matrix.D, matrix.E, matrix.F);
     }
 
@@ -236,8 +242,17 @@ internal sealed class Canvas : IDisposable
             return;
         }
 
-        PdfEmbeddedFont[] embedded = [.. fonts.Select(f => _page.Document.GetOrAddShared(f.Font, () => new PdfEmbeddedFont(_page.Document, f.Font)))];
-        string[] names = [.. embedded.Select(e => _page.UseFont(e.Reference))];
+        // Only the fonts a run uses are embedded and named in the page's resources: a fallback that no character needed stays out of the file.
+        HashSet<int> used = [.. layout.Lines.SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
+        PdfEmbeddedFont?[] embedded = new PdfEmbeddedFont?[fonts.Count];
+        string?[] names = new string?[fonts.Count];
+        foreach (int index in used)
+        {
+            ShapingFont f = fonts[index];
+            PdfEmbeddedFont e = _page.Document.GetOrAddShared(f.Font, () => new PdfEmbeddedFont(_page.Document, f.Font));
+            embedded[index] = e;
+            names[index] = _page.UseFont(e.Reference);
+        }
 
         // Where the block's left edge goes: the point is the start, the middle or the end of it, and start and end swap sides in a right-to-left paragraph.
         double width = layout.Width;
