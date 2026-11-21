@@ -51,6 +51,10 @@ internal static class DocumentTestKit
             Compress = b.Compress,
             Limits = b.Limits ?? new DocumentLimits(),
             HeadingStyles = b.HeadingStyles,
+            Header = b.Header,
+            Footer = b.Footer,
+            HeaderOffset = b.HeaderOffset,
+            FooterOffset = b.FooterOffset,
         };
     }
 
@@ -86,6 +90,14 @@ internal static class DocumentTestKit
         internal DocumentLimits? Limits { get; set; }
 
         internal IReadOnlyList<TextStyle>? HeadingStyles { get; set; }
+
+        internal Func<PageContext, Block?>? Header { get; set; }
+
+        internal Func<PageContext, Block?>? Footer { get; set; }
+
+        internal Length? HeaderOffset { get; set; }
+
+        internal Length? FooterOffset { get; set; }
     }
 
     internal static byte[] Save(PdfDocument document)
