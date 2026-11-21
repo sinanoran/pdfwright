@@ -15,6 +15,14 @@
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
     <!-- The extractor that reads a generated file back, so that text order is tested rather than assumed. Apache-2.0, test-only. -->
     <PackageVersion Include="PdfPig" Version="0.1.16" />
+    <!--
+      Renders each golden page through PDFium (tests/Pdfwright.Tests/Pdf/RenderGolden.cs). Test-only: nothing in src/ references it.
+      PDFtoImage (MIT) calls PDFium through its own bindings and draws with SkiaSharp. Everything it brings is permissive:
+        SkiaSharp and SkiaSharp.NativeAssets.Win32 / .macOS / .Linux.NoDependencies 4.150.1 (Microsoft, MIT; the Linux assets link nothing outside glibc),
+        bblanchon.PDFium.Win32 / .Linux / .macOS 152.0.7961 (Benoit Blanchon, Apache-2.0; the binaries are PDFium builds, BSD-3-Clause / Apache-2.0, with FreeType under the FreeType Licence).
+      Published 16 August 2026; the transitive versions are the ones it asks for.
+    -->
+    <PackageVersion Include="PDFtoImage" Version="5.4.0" />
   </ItemGroup>
 
   <ItemGroup Label="Benchmarks">

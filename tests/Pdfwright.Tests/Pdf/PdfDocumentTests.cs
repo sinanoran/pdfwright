@@ -203,6 +203,12 @@ public class PdfDocumentTests
         Golden.Check("three-pages.pdf", actual);
     }
 
+    [Fact]
+    public void The_three_pages_look_like_their_stored_render()
+    {
+        RenderGolden.Check("three-pages.pdf", PdfTestKit.ThreePages(PdfCompression.None));
+    }
+
     /// <summary>A stream that only writes: nothing may seek or read it, as a response body or a pipe cannot.</summary>
     private sealed class WriteOnlyStream(Stream inner) : Stream
     {
