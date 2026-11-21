@@ -40,6 +40,8 @@ internal sealed class ContentStreamBuilder
 
     internal ContentStreamBuilder LineJoin(int style) => Op("j", style);
 
+    internal ContentStreamBuilder MiterLimit(double limit) => Op("M", limit);
+
     internal ContentStreamBuilder Dash(double[] pattern, double phase)
     {
         Raw("[");

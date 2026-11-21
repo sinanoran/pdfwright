@@ -74,8 +74,9 @@ internal sealed class ParagraphLayout
 {
     private readonly TrueTypeFont[] _fonts;
 
-    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts)
+    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0)
     {
+        ParagraphLevel = paragraphLevel;
         Text = text;
         Size = size;
         Lines = lines;
@@ -90,6 +91,12 @@ internal sealed class ParagraphLayout
 
     /// <summary>The font size in points.</summary>
     internal double Size { get; }
+
+    /// <summary>The base level of the paragraph, as the bidirectional algorithm resolved it: 0 for left to right, 1 for right to left.</summary>
+    internal byte ParagraphLevel { get; }
+
+    /// <summary>The paragraph reads from right to left.</summary>
+    internal bool IsRightToLeft => (ParagraphLevel & 1) == 1;
 
     /// <summary>The lines in order. A paragraph always has at least one (an empty text has one empty line).</summary>
     internal IReadOnlyList<LaidOutLine> Lines { get; }

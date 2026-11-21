@@ -47,6 +47,7 @@ internal sealed class PdfDocumentWriter : IDisposable
     private readonly List<PdfReference> _pages = [];
     private readonly List<PendingDestination> _destinations = [];
     private readonly List<Action<PdfDocumentWriter>> _onComplete = [];
+    private readonly Dictionary<object, object> _shared = new(ReferenceEqualityComparer.Instance);
     private PdfPageWriter? _open;
     private bool _completed;
 
@@ -63,6 +64,25 @@ internal sealed class PdfDocumentWriter : IDisposable
     internal PdfReference AddObject(PdfObject value) => _file.Add(value);
 
     internal PdfReference AllocateObject() => _file.Allocate();
+
+    /// <summary>
+    /// What the document keeps once for everything that uses it: the embedded form of a font, the XObject of an image. The first call
+    /// with a key (compared by reference) makes the value with <paramref name="create"/>, and every later call returns that same value.
+    /// </summary>
+    internal T GetOrAddShared<T>(object key, Func<T> create)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(create);
+        if (_shared.TryGetValue(key, out object? found))
+        {
+            return (T)found;
+        }
+
+        T made = create();
+        _shared[key] = made;
+        return made;
+    }
 
     /// <summary>
     /// Registers work for the moment the document is completed, before the page tree is written: an embedded font writes its
@@ -351,7 +371,7 @@ internal sealed class PdfPageWriter
     private readonly PdfDocumentWriter _document;
     private readonly List<(string Name, PdfReference Font)> _fonts = [];
     private readonly List<(string Name, PdfReference Object)> _xObjects = [];
-    private readonly List<(string Name, double Alpha)> _graphicStates = [];
+    private readonly List<(string Name, double Fill, double Stroke)> _graphicStates = [];
 
     internal PdfPageWriter(PdfDocumentWriter document, int index, double width, double height)
     {
@@ -360,6 +380,9 @@ internal sealed class PdfPageWriter
         Width = width;
         Height = height;
     }
+
+    /// <summary>The document this page belongs to, for what it keeps once (fonts, images).</summary>
+    internal PdfDocumentWriter Document => _document;
 
     internal int Index { get; }
 
@@ -401,21 +424,32 @@ internal sealed class PdfPageWriter
     }
 
     /// <summary>Makes an opacity available (fill and stroke alike) and returns the name to use in <c>gs</c>.</summary>
-    internal string UseOpacity(double alpha)
+    internal string UseOpacity(double alpha) => UseOpacity(alpha, alpha);
+
+    /// <summary>
+    /// Makes a pair of opacities available, <paramref name="fill"/> for <c>ca</c> (fills, text and images) and <paramref name="stroke"/> for <c>CA</c>
+    /// (strokes), and returns the name to use in <c>gs</c>. The same pair is one <c>ExtGState</c> however often it is asked for.
+    /// </summary>
+    internal string UseOpacity(double fill, double stroke)
     {
-        if (alpha is < 0 or > 1)
+        if (!(fill is >= 0 and <= 1))
         {
-            throw new ArgumentOutOfRangeException(nameof(alpha), alpha, "Opacity is between 0 and 1.");
+            throw new ArgumentOutOfRangeException(nameof(fill), fill, "Opacity is between 0 and 1.");
         }
 
-        int found = _graphicStates.FindIndex(g => g.Alpha == alpha);
+        if (!(stroke is >= 0 and <= 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(stroke), stroke, "Opacity is between 0 and 1.");
+        }
+
+        int found = _graphicStates.FindIndex(g => g.Fill == fill && g.Stroke == stroke);
         if (found >= 0)
         {
             return _graphicStates[found].Name;
         }
 
         string name = "G" + (_graphicStates.Count + 1).ToString(CultureInfo.InvariantCulture);
-        _graphicStates.Add((name, alpha));
+        _graphicStates.Add((name, fill, stroke));
         return name;
     }
 
@@ -472,9 +506,9 @@ internal sealed class PdfPageWriter
         if (_graphicStates.Count > 0)
         {
             PdfDictionary states = new();
-            foreach ((string name, double alpha) in _graphicStates)
+            foreach ((string name, double fill, double stroke) in _graphicStates)
             {
-                states.Set(name, new PdfDictionary().Set("Type", "ExtGState").Set("CA", new PdfReal(alpha)).Set("ca", new PdfReal(alpha)));
+                states.Set(name, new PdfDictionary().Set("Type", "ExtGState").Set("CA", new PdfReal(stroke)).Set("ca", new PdfReal(fill)));
             }
 
             resources.Set("ExtGState", states);
