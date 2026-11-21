@@ -78,6 +78,18 @@ internal sealed class ShapedParagraph
     /// need no glyph (joiners, direction marks, variation selectors, control characters) are never listed.
     /// </summary>
     internal required List<int> Missing { get; init; }
+
+    /// <summary>The code points of the text, as the algorithms of <see cref="UnicodeText"/> take them.</summary>
+    internal required int[] CodePoints { get; init; }
+
+    /// <summary>For each code point the UTF-16 index where it starts, and <c>text.Length</c> after the last (see <see cref="UnicodeText.CodePoints"/>).</summary>
+    internal required int[] Utf16Index { get; init; }
+
+    /// <summary>
+    /// The bidi result the runs' levels came from, kept so that a line breaker can apply rule L1 to each line with <see cref="UnicodeBidi.LineLevels"/>:
+    /// a run's own level has L1 applied to the paragraph as one line, which is wrong for the white space at the end of every line but the last.
+    /// </summary>
+    internal required BidiResult Bidi { get; init; }
 }
 
 /// <summary>
@@ -103,12 +115,12 @@ internal static class TextShaper
         }
 
         int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
+        BidiResult bidi = UnicodeBidi.Resolve(codePoints, paragraphLevel);
         if (codePoints.Length == 0)
         {
-            return new ShapedParagraph { ParagraphLevel = paragraphLevel == 1 ? (byte)1 : (byte)0, Runs = [], Missing = [] };
+            return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = [], Missing = [], CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
         }
 
-        BidiResult bidi = UnicodeBidi.Resolve(codePoints, paragraphLevel);
         List<(int Start, int Length, int Script)> scriptRuns = ScriptItemizer.Itemize(codePoints);
         int[] scriptOf = new int[codePoints.Length];
         foreach ((int start, int length, int script) in scriptRuns)
@@ -133,7 +145,7 @@ internal static class TextShaper
             runStart = i;
         }
 
-        return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing };
+        return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing, CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
     }
 
     /// <summary>
