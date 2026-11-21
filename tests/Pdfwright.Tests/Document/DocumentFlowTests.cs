@@ -471,7 +471,7 @@ public class DocumentFlowTests
             o.Title = "Açık faturalar";
             o.Subject = "Q4";
             o.Author = "Ayşe";
-            o.Creator = "Plinth";
+            o.Creator = "Pdfwright Tests";
             o.Language = "tr";
             o.Creation = new DateTimeOffset(2026, 11, 21, 9, 30, 0, TimeSpan.Zero);
         });
@@ -483,7 +483,7 @@ public class DocumentFlowTests
         Assert.Equal("Açık faturalar", read.Information.Title);
         Assert.Equal("Q4", read.Information.Subject);
         Assert.Equal("Ayşe", read.Information.Author);
-        Assert.Equal("Plinth", read.Information.Creator);
+        Assert.Equal("Pdfwright Tests", read.Information.Creator);
         Assert.Equal("Pdfwright", read.Information.Producer);
         Assert.Contains("20261121", read.Information.CreationDate, StringComparison.Ordinal);
         string raw = Encoding.Latin1.GetString(pdf);

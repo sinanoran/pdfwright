@@ -3,7 +3,7 @@
 // Usage: node pdfjs-check.js <dumpDir> <corpusDir> [id-filter]
 //
 // The Playwright module is found through the first of: the environment variable PLAYWRIGHT_MODULE (a path to the playwright package folder,
-// for example C:/work/node_modules/playwright), or a plain require('playwright') from the folder you run the script in or above it.
+// for example C:/work/node_modules/playwright), or a plain require('playwright'), which Node looks for in node_modules next to this script (run `npm install playwright` in this folder) and in the folders above it.
 //
 // A dump folder may also hold documents with an expected-strings file beside them (<name>.pdf and <name>.expected.txt, written by the S6a script conformance
 // tests with PDFWRIGHT_DUMP): one string per line in the order the document was given them, and a last line starting with '!' that is the header cells of a table,

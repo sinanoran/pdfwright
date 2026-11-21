@@ -198,7 +198,7 @@ public class PdfFileTests
                 Keywords = "pdf, report",
                 Author = "Ann",
                 Language = "en-GB",
-                Creator = "Plinth",
+                Creator = "Pdfwright Tests",
                 Created = PdfTestKit.Created,
             }))
         {
@@ -215,10 +215,10 @@ public class PdfFileTests
 
         Assert.Contains("A &lt;title&gt; &amp; \"quotes\"", xmp.InnerXml);
         Assert.Contains("<pdf:Keywords>pdf, report</pdf:Keywords>", xmp.InnerXml);
-        Assert.Contains("<xmp:CreatorTool>Plinth</xmp:CreatorTool>", xmp.InnerXml);
+        Assert.Contains("<xmp:CreatorTool>Pdfwright Tests</xmp:CreatorTool>", xmp.InnerXml);
         Assert.Contains("<xmp:CreateDate>2026-11-21T09:30:00Z</xmp:CreateDate>", xmp.InnerXml);
         Assert.Contains("/Keywords (pdf, report)", text);
-        Assert.Contains("/Creator (Plinth)", text);
+        Assert.Contains("/Creator (Pdfwright Tests)", text);
     }
 
     [Fact]

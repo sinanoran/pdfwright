@@ -1,13 +1,13 @@
 # Plan: Pdfwright, our own PDF package
 
-> Copied from the planning folder of Plinth, the first consumer, on 21 November 2026, when the repository was started; the package is called **Pdfwright** (decided by the maintainer the same day), and the placeholder names of section 5 read `Pdfwright` from here on. Sections that say "no repository yet" describe the state when it was written. Plinth's own plan for the adapter that uses it is `plan-q11-b1.md` in that repository. **Status lines in sections 2, 7 and 10 ("nothing is reserved", "in the session scratchpad", "no repository yet") describe 21 November before the repository existed; the repository now holds slice S0** (the harness, the corpus and fonts, the CI), and the baselines are in `baselines.md`.
+> Written on 21 November 2026, when the repository was started; the package is called **Pdfwright** (decided by the maintainer the same day), and the placeholder names of section 5 read `Pdfwright` from here on. **Status lines in sections 2, 7 and 10 ("nothing is reserved", "in the session scratchpad", "no repository yet") describe 21 November before the repository existed;** the repository has grown since (section 9, "Where it stands"), and the baselines are in `baselines.md`.
 
 **Status:** design for the maintainer, 21 November 2026. Nothing is reserved, created or published.
-**Decision it serves:** the maintainer decided on 21 November that Plinth renders report PDFs through Playwright for now, behind an adapter,
-and that we write our own PDF package in parallel, in its own repository like Sheetwright, to replace Playwright later. Performance and small
-memory matter to him; Playwright's size is why.
+**Goal:** a .NET PDF writer for business documents (reports, invoices, statements) that gets text right in many scripts and in mixed direction,
+needs no system fonts, and writes the PDF itself, in its own repository like Sheetwright. Speed and small memory matter: a headless browser
+is the usual alternative and its size is the reason to write something smaller.
 **Model:** the Sheetwright repository (github.com/sinanoran/sheetwright: README, `RELEASING.md`, CI, tag-driven release to nuget.org through Trusted Publishing, MIT).
-**Fits:** Plinth's plan Q11 with B1 (the `ReportDocument` contract of D8 and the page model of D11).
+**Fits:** a small, independent package: managed code, one native dependency (HarfBuzz), a public API that is small and written to stay.
 
 ## 0. The answer in one page
 
@@ -15,45 +15,47 @@ memory matter to him; Playwright's size is why.
    `HarfBuzzSharp`, MIT), for shaping. It does **not** use SkiaSharp. The reason is evidence, not taste: a spike run today (section 2) shows that
    Skia's PDF backend writes Arabic and Hebrew as presentation forms in *visual* order, so the text cannot be extracted, searched or read by a
    screen reader; SkiaSharp exposes no structure tree, outlines, language or page labels, so tagged (accessible) PDF is impossible on it; and
-   it adds a 13 MB native library per runtime. The earlier plan (`plan-q11-b1.md`, D9) recommended Skia and wrote its own exit criterion 1,
-   "the text can be extracted back in logical order"; the spike fails that criterion, and the plan said that in that case the maintainer
-   decides between an own writer and a commercial adapter. This is that decision, with numbers.
+   it adds a 13 MB native library per runtime. Skia was the obvious first candidate, with the exit criterion "the text can be extracted back
+   in logical order"; the spike fails that criterion, so the choice was between an own writer and a commercial library. This is that decision,
+   with numbers.
 2. **Three layers, one public surface.** A PDF writer with embedded font subsets (internal), a text engine (itemize, bidi, shape, break;
    internal) and a document layer (flow, paragraphs, tables with pagination and repeated headers, header and footer, a drawing canvas for
    charts; **public**). The public API is small and written to stay: it is the part that is hard to change after release (section 5).
-3. **Version 0.1 is what Plinth's reports need and nothing more:** heading, KPI row, table with pagination and repeated header, chart as vectors,
-   note; header and footer with organisation, date, zone and filters; page breaks; embedded subset TrueType fonts; right-to-left and mixed
+3. **Version 0.1 is what a typical business report needs and nothing more:** heading, KPI row, table with pagination and repeated header, chart as vectors,
+   note; header and footer with a title, a date and page numbers; page breaks; embedded subset TrueType fonts; right-to-left and mixed
    direction; Arabic, Indic and Thai shaping. **Not in 0.1:** CJK (needs CFF fonts and a CFF subsetter), emoji and colour fonts, forms,
    encryption, PDF/A, tagged PDF (but the design carries it, section 6).
-4. **Targets (section 7), against what Playwright costs today on this machine** (measured, section 2): a 1,000-row table over 20 pages renders in
-   2.0 s with a 495 MB peak today; the target is **under 250 ms cold in a fresh process and under 60 ms warm, under 25 MB over the runtime's
+4. **Targets (section 7), against what a headless browser (Playwright, Chromium) costs today on this machine** (measured, section 2): a 1,000-row table over 20 pages renders in
+   2.0 s with a 495 MB peak that way; the target is **under 250 ms cold in a fresh process and under 60 ms warm, under 25 MB over the runtime's
    baseline, under 150 KB of output**.
 5. **About 13 working weeks for one engineer-equivalent, plus or minus 40 percent** (section 9); with parallel agent sessions, 6 to 8 weeks of
    calendar if the three engine slices run side by side. The first useful checkpoint is after slice 3 (a one-page report in every
    script of the corpus, with correct text extraction), at about five weeks of effort.
 
-## 1. What Plinth's reports need (from `plan-q11-b1.md`)
+## 1. What a typical use needs (reports, invoices, statements)
 
-The adapter implements `IReportPdfRenderer { Task<ReportPdf> RenderAsync(ReportDocument, ReportRenderContext, CancellationToken) }` over a
-neutral `ReportDocument`: **heading, KPI row, table, chart, note** (D8). The adapter, not the package, knows dashboards and widgets. The page
-model of D11, which the package must be able to produce:
+The typical use is a report built from a few kinds of content: **heading, KPI row, table, chart, note**. The package knows these as blocks
+and layout, not as any application's concepts. The page model it must be able to produce:
 
-- A4 portrait by default, Letter for some countries, landscape for a wide pivot; page one has a header (organisation name and logo, the
-  dashboard's title, "as of" in the report's zone and the recipient's language, the filters in force, "Prepared for {name}"); later pages a thin
+- A4 portrait by default, Letter for some countries, landscape for a wide table; page one has a header (an organisation name and logo, the
+  document's title, an "as of" date in a given zone and language, the filters in force, "Prepared for {name}"); later pages a thin
   running header and "page x of y".
-- Body in the dashboard's order; `kpi` and `gauge` up to four per row, everything else full width; **a chart is never split across pages**;
-  **a table repeats its header on each page**, at most 200 rows, then a "N more rows" line.
-- Limits (100 pages, 20 MB, 10 minutes), a cell shortened at 1,000 characters, a stable failure reason when a limit is hit.
-- Metadata: title, language, creator "Plinth", no author, no query text, no internal ids.
+- Body in the order given; KPI boxes up to four per row, everything else full width; **a chart is never split across pages**;
+  **a table repeats its header on each page**; a caller that wants a row limit (for example 200 rows, then a "N more rows" line) applies it
+  before the table, and the package offers a limit that stops the run (section 5).
+- Limits (pages, bytes), a cell shortened at a given length, a stable failure reason when a limit is hit.
+- Metadata: title, language, creator, no author unless given, nothing the caller did not set.
 - Fonts embedded, never looked up in the operating system; a character no loaded font has is drawn as the replacement box and **reported**
-  (never a failure of the report): the run page says which language had missing characters.
-- Charts: the adapter draws bar, line, area, donut, gauge, pivot as vectors from data, with the kit's design tokens as colours (D12). So the
-  package must offer a **drawing canvas** and **text measurement**, not a chart library.
+  (never a failure of the document): the diagnostics say which language had missing characters.
+- Charts: the caller draws bar, line, area, donut, gauge and pivot charts as vectors from data, with its own colours. So the package must
+  offer a **drawing canvas** and **text measurement**, not a chart library.
+- The scripts of the corpus: Latin (with Turkish, Polish, Vietnamese, German), Greek, Cyrillic, Arabic, Hebrew, Devanagari, Bengali, Tamil,
+  Thai, and lines that mix directions.
 
-The package never learns the words "dashboard", "widget", "organisation" or "report": the adapter maps `ReportDocument` onto the public API of
-section 5. That keeps the package usable for invoices later (Billing), which D8 already names.
+The package never learns the words "dashboard", "widget" or "organisation": the caller maps its own model onto the public API of section 5.
+That keeps the package usable for invoices, statements and other business documents.
 
-## 2. Evidence gathered for this plan (21 November 2026, this machine)
+ gathered for this plan (21 November 2026, this machine)
 
 All numbers are one run each, on the maintainer's Windows machine, in `Release`, and are **baselines to beat, not benchmarks**. The scratch
 projects are in the session scratchpad, not in a repository.
@@ -158,7 +160,7 @@ PdfDocument doc = new(new PdfDocumentOptions
     Fonts = fonts,
     DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "tr" },   // BCP 47
     PageSize = PageSize.A4, Margins = Margins.Mm(top: 20, right: 15, bottom: 20, left: 15),
-    Title = "Open invoices", Language = "tr", Creator = "Plinth",
+    Title = "Open invoices", Language = "tr", Creator = "Example",
     Direction = TextDirection.Auto,                              // the document's base direction; a block may override
     Header = page => new Paragraph(...), Footer = page => new Paragraph($"{page.Number} / {page.Count}"),
     Deterministic = true,                                        // fixed /ID and dates from Creation, for golden files
@@ -171,7 +173,7 @@ doc.Add(new Table(columns, header: headerRow, rows: rows)        // rows may be 
     RepeatHeader = true, Borders = Borders.Horizontal, ZebraFill = ...,
 });
 doc.Add(new Drawing(Length.Mm(180), Length.Mm(70), canvas => { canvas.Path(...); canvas.Text(...); }) { AltText = "Bar chart of ..." });
-doc.Add(new Callout(new Paragraph("This section is only available in Plinth.")));
+doc.Add(new Callout(new Paragraph("This figure is provisional.")));
 
 await doc.SaveAsync(stream, cancellationToken);                  // streams pages out when it can
 DocumentDiagnostics report = doc.Diagnostics;                    // missing glyphs by language, pages, bytes
@@ -180,7 +182,7 @@ DocumentDiagnostics report = doc.Diagnostics;                    // missing glyp
 **What the sketch fixes, and why each is expensive to change later:**
 
 1. **Blocks are immutable records** (`Heading`, `Paragraph`, `Table`, `Columns`, `Drawing`, `Callout`, `PageBreak`, `Spacer`) in a **closed**
-   set (closed by an internal constructor and a runtime check; C# cannot check a `switch` over a class hierarchy for completeness, so the layout's `switch` throws for a block it does not know, and an adapter's mapping is checked by a test, not by the compiler). New blocks are added, never changed.
+   set (closed by an internal constructor and a runtime check; C# cannot check a `switch` over a class hierarchy for completeness, so the layout's `switch` throws for a block it does not know, and a caller's mapping is checked by a test, not by the compiler). New blocks are added, never changed.
 2. **Styles are values, language is a first-class property** (BCP 47). Language selects the shaping features and the line-breaking
    behaviour; it also becomes the tagged PDF's `/Lang` later.
 3. **Direction is logical everywhere** (`Start`/`End`, never `Left`/`Right`, except on the canvas, which is geometric).
@@ -194,12 +196,12 @@ DocumentDiagnostics report = doc.Diagnostics;                    // missing glyp
 8. **Table rows are streamed** (`IEnumerable<TableRow>` or `IAsyncEnumerable`; `IAsyncEnumerable` was not built, see S5b deviation 2) so a 1,000-row table is never held twice; auto column widths
    come from the header and a bounded sample, said in the documentation.
 9. **Versioning:** 0.x may break between minors with a changelog; the section 5 surface is reviewed line by line before 1.0, and the
-   blocks above carry `[Experimental]`-free names from the start so that 0.1 consumers (Plinth) do not rename anything later.
+   blocks above carry `[Experimental]`-free names from the start so that code written against 0.1 does not need renaming later.
 
-**Mapping from the adapter's `ReportDocument`:** `ReportHeading` to `Heading`; `ReportKpiRow` to `Columns` of small `Paragraph`s on a filled
-`Callout`; `ReportTable` to `Table` (header repeated, the 200-row limit and the "N more rows" line are the adapter's); `ReportChart` to
-`Drawing` (the adapter draws the chart with the canvas and the measurer, from the shared vectors of D12); `ReportNote` to `Callout`;
-page-one header and the running header to `Header`; "page x of y" to the footer's `PageContext`. The adapter owns Plinth's limits and words.
+**Mapping from a caller's own report model** (an example, not part of the package): a heading to `Heading`; a row of KPIs to `Columns` of small
+`Paragraph`s on a filled `Callout`; a table to `Table` (header repeated; any row limit and "N more rows" line are the caller's); a chart to
+`Drawing` (drawn with the canvas and the measurer); a note to `Callout`; the first-page header and the running header to `Header`; "page x of y"
+to the footer's `PageContext`. The caller owns its limits and its words.
 
 ## 6. Tagged (accessible) PDF later, without rewriting
 
@@ -213,18 +215,18 @@ The first release does not claim PDF/UA, but it is built so that adding it is ad
 - `/Lang` on the catalog and on spans of another language (the run's `Language`), `DisplayDocTitle`, XMP metadata and an `OutputIntent`
   are the same flag's second half. Embedded fonts and logical-order extraction (this package's point) are what PDF/UA-1 also needs.
 - **Validation:** veraPDF (a test-time tool, run in CI as a process) for PDF/UA-1 and PDF/A-2; no claim of conformance is made until it passes
-  on the corpus. Target: the version after 0.1 (0.2), once the engine slices are stable. The product note for Plinth: 0.1 reports are not
-  tagged (as `plan-q11-b1.md`, D11, already says); the workbook and the screen are the accessible forms.
+  on the corpus. Target: the version after 0.1 (0.2), once the engine slices are stable. Until then, 0.1 documents are not
+  tagged, which is a known limitation (`docs/known-limitations.md`); a caller that needs an accessible form offers another one next to the PDF.
 
 ## 7. Performance targets and how they are measured
 
-**Baselines (section 2):** Playwright, 1,000-row table: 2,048 ms, 495 MB, 154 KB. Skia-backed spike: 279 ms, +7 MB, 590 KB.
+**Baselines (section 2):** Headless Chromium through Playwright, 1,000-row table: 2,048 ms, 495 MB, 154 KB. Skia-backed spike: 279 ms, +7 MB, 590 KB.
 
 | Scenario | Target (warm, steady state) | Target (cold, fresh process) | Memory | Output size |
 |---|---|---|---|---|
 | **20-page report**: heading, 4 KPI boxes, three charts, two 40-row tables, notes, header and footer, Latin | **under 40 ms** | under 200 ms | managed allocation **under 10 MB**; working-set increase over the runtime baseline **under 25 MB** | under 120 KB |
 | **1,000-row table, 6 columns, about 20 pages, repeated header** | **under 60 ms** | **under 250 ms** | allocation under 20 MB; increase under 25 MB, and **flat as rows grow** (rows are streamed, a page is released when emitted) | under 150 KB (Playwright: 154 KB) |
-| **100 pages, 12 charts, 20 tables** (the P0 criterion of `plan-q11-b1.md`: under 5 s and under 200 MB with Skia) | under 400 ms | under 700 ms | under 60 MB | under 600 KB |
+| **100 pages, 12 charts, 20 tables** (a stress document; the Skia spike was meant to do it in under 5 s and under 200 MB) | under 400 ms | under 700 ms | under 60 MB | under 600 KB |
 | Arabic or Devanagari table of the same size | at most **2 times** the Latin time | | same | same |
 | Fonts | a Latin report embeds **only the glyphs it uses**: Noto Sans subset under 25 KB | | | |
 
@@ -262,8 +264,8 @@ The first release does not claim PDF/UA, but it is built so that adding it is ad
 7. **Property and fuzz tests:** random mixed-script strings never throw and never draw outside the page; table pagination invariants (every
    row appears once, the header repeats on every page after the first it starts on, no row is split unless taller than a page); layout is
    deterministic (two runs, equal bytes).
-8. **The adapter's own tests** (in Plinth, at integration time): the shared chart vectors of D12 and a golden report of the dashboard
-   fixture; the same fixtures are rendered through Playwright and the package during the parallel period so differences are visible.
+8. **Comparison with a browser.** The same table rendered by headless Chromium and by the package (`benchmarks/`, `docs/baselines.md`) so
+   differences in time, memory and size are visible and repeatable.
 
 ## 9. Slices and estimate
 
@@ -271,18 +273,24 @@ Effort in **working days of one engineer-equivalent** (an agent session plus rev
 plus or minus 40 percent because shaping and font bugs are the part nobody can estimate from outside. Slices are small and ordered; each ends
 with a green CI and a reviewed pull request, as in Sheetwright.
 
-| Slice | What | Days |
-|---|---|---|
-| **S0** | Repository skeleton (as Sheetwright: Directory.Build.props, central packages, CI, RELEASING, README stub), the corpus and fonts, the spike results of section 2 as a documented baseline, the benchmark and process harnesses | 3 |
-| **S1** | **PDF writer core:** objects, stream-form cross-reference, content-stream builder, Flate, page tree, Info and XMP, annotations (URI, destination), deterministic mode, `qpdf --check` in CI | 8 |
-| **S2** | **Font engine:** TrueType parser, glyph-closure subsetter (keeps glyph ids, drops unused outlines; composite glyphs followed), CID fonts with `Identity-H`, widths, **`ToUnicode` from clusters, one text per code**, `fsType` check; extraction test for Latin | 10 |
-| **S3** | **Text engine:** Unicode tables and their generator, script itemization, bidi (UAX #9) and mirroring, font fallback runs, HarfBuzz shaping with features, grapheme-safe breaking, line breaking (UAX #14), the conformance files | 12 |
-| **S4** | **Paragraph layout and the drawing canvas**: lines, alignment (logical), runs, the public `TextMeasurer`, paths, clip, transforms, opacity, JPEG and PNG | 8 |
-| **S5** | **Document layer:** the block set, flow and page breaks, keep-together, columns, **tables with pagination, repeated header, streamed rows, auto widths**, header and footer with page count (two passes only when the footer asks for it) | 10 |
-| **S6** | **Script conformance:** the corpora for Arabic, Hebrew, Devanagari, Bengali, Tamil, Thai, mixed direction; extraction and visual goldens; fixes in S2 to S4; native-speaker review | 8 |
-| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 |
-| | **Total to 0.1.0** | **64 days, about 13 weeks** |
-| **A1** | (in Plinth, not the package) the adapter `Plinth.Modules.Dashboards.Pdf.Package` implementing `IReportPdfRenderer` and the chart drawing (replaces the Playwright adapter's engine); the font pack | 5 |
+| Slice | What | Days (the estimate) | Status, 21 November 2026 |
+|---|---|---|---|
+| **S0** | Repository skeleton (as Sheetwright: Directory.Build.props, central packages, CI, RELEASING, README stub), the corpus and fonts, the spike results of section 2 as a documented baseline, the benchmark and process harnesses | 3 | Done (commits on `main`, before the pull request workflow) |
+| **S1** | **PDF writer core:** objects, stream-form cross-reference, content-stream builder, Flate, page tree, Info and XMP, annotations (URI, destination), deterministic mode, `qpdf --check` in CI | 8 | Done (commit on `main`, before the pull request workflow) |
+| **S2** | **Font engine:** TrueType parser, glyph-closure subsetter (keeps glyph ids, drops unused outlines; composite glyphs followed), CID fonts with `Identity-H`, widths, **`ToUnicode` from clusters, one text per code**, `fsType` check; extraction test for Latin | 10 | Done: #1, and the go or stop assessment #2 |
+| **S3** | **Text engine:** Unicode tables and their generator, script itemization, bidi (UAX #9) and mirroring, font fallback runs, HarfBuzz shaping with features, grapheme-safe breaking, line breaking (UAX #14), the conformance files | 12 | Done: #3 (S3a), #4 (S3b), #5 (S3c), #6 (S3d) |
+| **S4** | **Paragraph layout and the drawing canvas**: lines, alignment (logical), runs, the public `TextMeasurer`, paths, clip, transforms, opacity, JPEG and PNG | 8 | Done: #7 (S4a), #8 (S4b), #9 (S4c, the pdf.js reading check), #10 (S4d) |
+| **S5** | **Document layer:** the block set, flow and page breaks, keep-together, columns, **tables with pagination, repeated header, streamed rows, auto widths**, header and footer with page count (two passes only when the footer asks for it) | 10 | Done: #11 (S5a), #12 (S5b), #13 (S5c) |
+| **S6** | **Script conformance:** the corpora for Arabic, Hebrew, Devanagari, Bengali, Tamil, Thai, mixed direction; extraction and visual goldens; fixes in S2 to S4; native-speaker review | 8 | Done: #14 (S6a), #15 (S6b); the native-speaker review is the maintainer's (release checklist) |
+| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Not started |
+| | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S6 done; S7 and the release remain |
+
+**Where it stands (21 November 2026).** Slices S0 to S6 are done and merged: the writer, the font engine, the text engine, paragraph layout and the
+canvas, the document layer (blocks, tables, columns, callouts, drawings, images, headers and footers) and the script conformance corpus with its
+extraction and visual goldens. The day counts above were the estimate; they are kept as written. What remains before 0.1.0 is slice S7
+(documentation, samples, the README comparison table, `RELEASING.md`, the CHANGELOG) and the maintainer's own items: the native-speaker review of
+the corpus text, opening the sample files in Chrome, Edge, Acrobat Reader and macOS Preview, the Trusted Publishing policy on nuget.org with the
+publishing secret, and the decision to release. Tagging 0.1.0 and publishing are the maintainer's, and have not been done.
 
 **Order and parallel work:** S0 first; then **S1 and S2 can run beside S3** (the text engine has no dependency on the writer until S4);
 S4 needs S2 and S3; S5 needs S4; S6 runs from S3 on as the corpus grows and finishes last. With three parallel sessions the calendar is
@@ -636,7 +644,7 @@ these are not guarantees: an id is free until somebody pushes it, and the check 
 
 | Candidate | Id free? | Reading | Concern |
 |---|---|---|---|
-| **Pagewright** | yes (404, 0 search hits) | a maker of pages; the obvious sibling of Sheetwright | **One syllable from Playwright** (Microsoft's tool this package replaces): easy to mistype, easy to confuse in search and in conversation ("Page" and "Play" differ by two letters). Distinct enough in writing, risky in speech |
+| **Pagewright** | yes (404, 0 search hits) | a maker of pages; the obvious sibling of Sheetwright | **One syllable from Playwright** (Microsoft's browser automation tool, a common way to make PDFs): easy to mistype, easy to confuse in search and in conversation ("Page" and "Play" differ by two letters). Distinct enough in writing, risky in speech |
 | **Foliowright** | yes (404, 0 search hits) | a folio is a sheet folded for pages; a maker of folios | Longer, a little precious; nothing close to it on nuget.org |
 | **Leafwright** | yes (404) | a leaf is a page of a book | Short and clear; "leaf" is also a plant, a mild ambiguity |
 | Also free, not recommended | Printwright, Typewright, Pdfwright, Reportwright (404, 0 hits) | | "Pdfwright" names the format, not the craft; "Reportwright" is too narrow (invoices); "Typewright" suggests typesetting only |
@@ -658,13 +666,13 @@ when he has chosen.
 ## 11. Open points for the maintainer (the recommendation is first)
 
 1. **Own writer (B) rather than Skia (A).** *Recommended: B, with the stop point after S2 and S3's first half and the contingency of section 3.*
-   This changes `plan-q11-b1.md` D9's recommendation; the spike evidence is in section 2.
-2. **Is "no CJK in 0.1" acceptable?** The Q11 plan allowed CJK through a font directory; that needs CFF (OpenType) fonts, so a CFF subsetter
+   The spike evidence is in section 2.
+2. **Is "no CJK in 0.1" acceptable?** CJK through a font directory needs CFF (OpenType) fonts, so a CFF subsetter
    (about 10 days) is the first item after 0.1 (call it 0.2 with tagged PDF). TrueType-flavoured CJK fonts would work in 0.1 without it.
    *Recommended: yes, CJK in 0.2.*
-3. **Tagged PDF in 0.2, not 0.1** (section 6). *Recommended: yes, and written as a known limitation of Plinth's reports until then.*
+3. **Tagged PDF in 0.2, not 0.1** (section 6). *Recommended: yes, and written as a known limitation until then.*
 4. **The name** (section 10). *Recommended: Pdfwright (the name says what it does, in Sheetwright's pattern).*
-5. **Effort.** 13 weeks of one engineer-equivalent, 6 to 8 calendar weeks with parallel sessions, plus 1 week to adopt it in Plinth. Is that the right
-   priority beside the Playwright adapter that ships first?
+5. **Effort.** 13 weeks of one engineer-equivalent, 6 to 8 calendar weeks with parallel sessions, and a test period before a first release. Is that the right
+   priority?
 6. **Where the code lives and who may publish:** `sinanoran/<name>` and the maintainer's nuget.org profile, as for Sheetwright (a publishing
    policy is created by him, not by an agent).

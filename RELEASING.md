@@ -1,7 +1,7 @@
 # Releasing
 
-> **Status: nothing is published and `Pdfwright` is not on nuget.org.** The Trusted Publishing policy below
-> does not exist yet. The maintainer creates it on nuget.org (not an agent, not CI) and sets `NUGET_USER`
+> **Status: nothing is published and `Pdfwright` is not on nuget.org.** Slices S0 to S6 of the plan are done; the checks below and slice S7 remain
+> before 0.1.0. The Trusted Publishing policy below does not exist yet. The maintainer creates it on nuget.org (not an agent, not CI) and sets `NUGET_USER`
 > before the first tag. Do not push a `v*` tag until both exist.
 
 A release is a tag. `.github/workflows/release.yml` reads the version from the
