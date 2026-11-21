@@ -44,4 +44,27 @@ public class ParagraphTabTests
         Assert.Equal([0, 4], layout.Lines.Select(l => l.Start).ToArray());
         Assert.Equal(aaa, layout.Lines[0].Width, 1e-6);
     }
+
+    [Fact]
+    public void A_tab_in_a_right_to_left_paragraph_is_a_segment_separator_at_the_paragraph_level()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+
+        // Rule L1 returns the tab to the paragraph level, so the two words are separate left-to-right runs on either side of it, in right-to-left order.
+        ParagraphLayout layout = LayoutTestKit.Layout("abc\tdef", fonts, null, paragraphLevel: 1);
+
+        PlacedRun Run(int index) => layout.Lines[0].Runs.Single(r => r.Run.Utf16Start <= index && index < r.Run.Utf16Start + r.Run.Utf16Length);
+        PlacedRun abc = Run(0);
+        PlacedRun tab = Run(3);
+        PlacedRun def = Run(4);
+        Assert.Equal(2, abc.Run.Level);
+        Assert.Equal(1, tab.Run.Level);
+        Assert.Equal(2, def.Run.Level);
+        Assert.True(def.X < tab.X && tab.X < abc.X);
+
+        // The same text with a space in place of the tab is one left-to-right stretch.
+        ParagraphLayout space = LayoutTestKit.Layout("abc def", fonts, null, paragraphLevel: 1);
+        Assert.Equal(space.Width, layout.Width, 1e-9);
+        Assert.Single(space.Lines[0].Runs);
+    }
 }

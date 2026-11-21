@@ -52,8 +52,8 @@ internal static class ParagraphLayouter
             throw new ArgumentOutOfRangeException(nameof(options), options.LineSpacing, "The line spacing must be a positive number.");
         }
 
-        // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab.
-        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language);
+        // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab, and the bidi algorithm reads the tab itself (a segment separator, rule L1).
+        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text);
         State state = new(text, paragraph, fonts, options);
         List<Raw> raws = [];
         int start = 0;

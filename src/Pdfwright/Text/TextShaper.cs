@@ -103,9 +103,10 @@ internal static class TextShaper
     /// <see cref="UnicodeBidi.Paragraphs"/> first, or <see cref="ArgumentException"/> is thrown; tabs and other control characters are for the
     /// caller to turn into spaces). <paramref name="fonts"/> is the fallback list in order of preference. No language is set unless
     /// <paramref name="language"/> is given (then it applies to every run); the beginning and end of text flags of HarfBuzz are not set, so
-    /// the text is taken as it is written and a combining mark at its start gets no dotted circle.
+    /// the text is taken as it is written and a combining mark at its start gets no dotted circle. <paramref name="bidiText"/>, when given, is a text of the
+    /// same code points in number that the bidi algorithm reads instead of <paramref name="text"/> (a tab shaped as a space still resolves as a tab: rule L1 needs the segment separator).
     /// </summary>
-    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null)
+    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(fonts);
@@ -115,7 +116,7 @@ internal static class TextShaper
         }
 
         int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
-        BidiResult bidi = UnicodeBidi.Resolve(codePoints, paragraphLevel);
+        BidiResult bidi = UnicodeBidi.Resolve(bidiText is null ? codePoints : BidiCodePoints(bidiText, codePoints.Length), paragraphLevel);
         if (codePoints.Length == 0)
         {
             return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = [], Missing = [], CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
@@ -158,6 +159,17 @@ internal static class TextShaper
             or 0x00AD or 0x034F or 0x061C or 0x115F or 0x1160 or (>= 0x17B4 and <= 0x17B5) or (>= 0x180B and <= 0x180F)
             or (>= 0x200B and <= 0x200F) or (>= 0x202A and <= 0x202E) or (>= 0x2060 and <= 0x206F) or 0x3164
             or (>= 0xFE00 and <= 0xFE0F) or 0xFEFF or 0xFFA0 or (>= 0xFFF0 and <= 0xFFF8) or (>= 0xE0000 and <= 0xE0FFF);
+
+    private static int[] BidiCodePoints(string bidiText, int count)
+    {
+        int[] codePoints = UnicodeText.CodePoints(bidiText, out _);
+        if (codePoints.Length != count)
+        {
+            throw new ArgumentException("The text for the bidi algorithm must have as many code points as the text that is shaped.", nameof(bidiText));
+        }
+
+        return codePoints;
+    }
 
     /// <summary>
     /// A font for every character, chosen per grapheme cluster so that a base and its marks are never split between fonts. A cluster of a real

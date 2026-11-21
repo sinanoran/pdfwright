@@ -23,7 +23,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
   has one is cut like any other long word.
 - **A paragraph is shaped once, whole, so kerning across a place where a line breaks is not undone.** A pair of letters on either side of a hyphen that the font kerns keeps its
   adjustment at the end of the line and the start of the next.
-- **A tab is laid out as one space.** Tab stops belong to the block layer; the character itself is kept in the text that readers extract.
+- **A tab is laid out as one space.** Tab stops belong to the block layer; the character itself is kept in the text that readers extract, and the bidirectional algorithm still sees it as a tab (a segment separator, which rule L1 puts at the paragraph level).
 
 ## Writing
 
