@@ -19,6 +19,10 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A word wider than its box is cut between characters, with no hyphen.** Lines break at the opportunities of UAX #14 (spaces, hyphens, punctuation); a word, a number or a
   run of Thai text with no space that is wider than the width is cut between grapheme clusters as far as fits on each line, and a single cluster wider than the width is
   left whole and overflows. There is no hyphenation and no dictionary line breaking for Thai, Lao, Khmer or Burmese in 0.1.
+- **A soft hyphen (U+00AD) is never a place to break.** Nothing would draw the hyphen at the end of the line, so the character stays invisible inside its word, and a word that
+  has one is cut like any other long word.
+- **A paragraph is shaped once, whole, so kerning across a place where a line breaks is not undone.** A pair of letters on either side of a hyphen that the font kerns keeps its
+  adjustment at the end of the line and the start of the next.
 
 ## Writing
 

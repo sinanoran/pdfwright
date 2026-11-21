@@ -116,4 +116,25 @@ public class ParagraphWordBreakTests
         Assert.Equal(16, layout.Lines[^1].Start);
         AssertTiles("aa bbbbbbbbbbbb aa", layout);
     }
+
+    [Fact]
+    public void A_soft_hyphen_is_never_a_place_to_break()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        char shy = (char)0x00AD;
+        string text = "aaaa" + shy + "bbbb cc";
+
+        // Room for the first half only: with a break at the soft hyphen the first line would end there (and show no hyphen).
+        double half = TextMeasurer.Measure("aaaa", fonts, new ParagraphOptions { Size = 14 }).Width;
+        ParagraphLayout narrow = LayoutTestKit.Layout(text, fonts, half + 1);
+
+        AssertTiles(text, narrow);
+        Assert.DoesNotContain(narrow.Lines, l => l.Start is 4 or 5);
+
+        // Room for the whole word: it stays on one line, with the soft hyphen inside it.
+        double word = TextMeasurer.Measure("aaaabbbb", fonts, new ParagraphOptions { Size = 14 }).Width;
+        ParagraphLayout wide = LayoutTestKit.Layout(text, fonts, word + 0.5);
+
+        Assert.Equal([0, 10], wide.Lines.Select(l => l.Start).ToArray());
+    }
 }

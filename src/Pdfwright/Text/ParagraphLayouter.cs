@@ -7,17 +7,25 @@ namespace Pdfwright.Text;
 /// Lays one paragraph out in lines: the paragraph is shaped once, as a whole (so that joining and context do not depend on where lines
 /// break), the break opportunities of UAX #14 that fall on a glyph cluster boundary are filled greedily up to the width, each line gets the
 /// bidi order of its own characters (UAX #9 rules L1 and L2) and is placed in the width by its alignment. The width a line is measured with
-/// is the one it is drawn with, so <see cref="TextMeasurer"/> and drawing cannot disagree.
+/// is the one it is drawn with, so <see cref="TextMeasurer"/> and drawing cannot disagree. Because the paragraph is shaped once, kerning
+/// across a place where a line breaks (a pair on either side of a hyphen) is kept, not undone at the edge of the line.
 /// </summary>
 internal static class ParagraphLayouter
 {
     /// <summary>A width within this of the limit still fits: sums of advances in different orders differ in the last bits.</summary>
     private const double Tolerance = 1e-9;
 
+    /// <summary>U+00AD SOFT HYPHEN marks where a word may be hyphenated; with no hyphenation in 0.1 it is invisible and never a place to break.</summary>
+    private const int SoftHyphen = 0x00AD;
+
+    /// <summary>Whether the boundary before code point <paramref name="index"/> touches a soft hyphen, on either side.</summary>
+    private static bool IsSoftHyphenEdge(int[] codePoints, int index) => codePoints[index] == SoftHyphen || codePoints[index - 1] == SoftHyphen;
+
     /// <summary>
     /// Lays out <paramref name="text"/>, which is one paragraph (a paragraph separator may only be its last character: split text with
     /// <see cref="UnicodeBidi.Paragraphs"/> and lay the paragraphs out one after another). Hard line breaks inside the paragraph (U+2028,
     /// U+000B, U+000C) end a line; a line break at the very end of the text does not add an empty line, and an empty text is one empty line.
+    /// A soft hyphen (U+00AD) is never a place to break: nothing would draw the hyphen, and there is no hyphenation in 0.1, so it stays invisible inside its word.
     /// A unit wider than the width (a long word, Thai text without spaces) is cut between grapheme clusters, as much as fits on each line and
     /// never less than one cluster, with no hyphen (CSS <c>overflow-wrap: anywhere</c>); one cluster wider than the width stands alone and overflows.
     /// </summary>
@@ -199,14 +207,14 @@ internal static class ParagraphLayouter
             _anywhere = new bool[Count + 1];
             for (int i = 1; i < paragraph.CodePoints.Length; i++)
             {
-                _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]];
+                _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]] && !IsSoftHyphenEdge(paragraph.CodePoints, i);
             }
 
             // The places where a line may end: a break opportunity of UAX #14 that is also a cluster boundary, so that no cluster is split.
             LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(paragraph.CodePoints);
             for (int i = 1; i < breaks.Length; i++)
             {
-                if (breaks[i] != LineBreakKind.None && _boundary[utf16[i]])
+                if (breaks[i] != LineBreakKind.None && _boundary[utf16[i]] && paragraph.CodePoints[i - 1] != SoftHyphen)
                 {
                     CandidateIndex.Add(utf16[i]);
                     _mandatory.Add(breaks[i] == LineBreakKind.Mandatory);
