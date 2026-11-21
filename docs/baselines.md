@@ -1,6 +1,6 @@
 # Baselines
 
-Numbers measured on 21 November 2026, on the maintainer's Windows machine, `Release`, one run each. They
+Numbers measured on 21 November 2026, on the maintainer's Windows machine, `Release`. The Playwright and Skia rows are one run each; the Pdfwright rows are the median of 30 fresh processes. They
 are **baselines to beat, not benchmarks**: the point is the order of magnitude, and the method.
 
 ## The scenario
@@ -16,9 +16,46 @@ script (`Baselines/pw.cjs`) builds the same table as HTML.
 | Playwright (Chromium headless shell 1255), `page.pdf` with header and footer | **2,048 ms** total (launch 442, content 901, pdf 705) | **495 MB**, the highest sampled working set of the process tree | 154 KB | yes, below |
 | Playwright, 300 rows | 1,164 ms | 382 MB | 70 KB | yes |
 | SkiaSharp 4.157 PDF backend, text drawn with `SKCanvas.DrawText` | 279 ms (cold process) | 31 MB peak, 7 MB over the process baseline | 590 KB (the font was barely subset) | **no: a throwaway spike that is not in this repository** |
-| Pdfwright | not written yet | | | |
+| Pdfwright 0.1 (this repository, the same table), cold process | **p50 1,504 ms**, p95 1,999 ms over 30 fresh processes, from starting the process to its exit, with the file written (a machine under memory pressure, see below) | **54 MB** p50 and 55 MB max peak working set, read by the process itself at the end | 514 KB (513,897 bytes), 21 pages | yes, below |
 
 The browser is 288 MB on disk (headless shell) or 453 MB (full Chromium).
+
+## Pdfwright's own measurement
+
+Pdfwright is measured with the harness in `benchmarks/Pdfwright.Benchmarks`, through the public API only (`PdfDocument`, `Table`, `Drawing`), with the Noto Sans and Noto Sans Arabic fonts of the test project.
+
+**The machine.** AMD Ryzen 9 5900HX (8 cores, 16 threads), 31.4 GB RAM, Windows 11 (10.0.26300), .NET SDK 11.0.100 building `net10.0`, run on the .NET 10 runtime (10.0.15 is the latest 10.x installed), `Release`.
+**Free memory was low**: `Available MBytes` was 6,514 MB before the cold runs, 5,241 MB after the warm runs and 4,489 MB before the BenchmarkDotNet run, after waiting 30 minutes for it to reach 10 GB (it was at 5 to 10 GB the whole time). Every number below was taken under that memory pressure, with other programs open, and is labelled as such: treat the times as an upper bound for a quiet machine, and the memory figures as what the process used, not what the machine had.
+
+**Scenario A, the baseline table** (1,000 rows by 6 columns, `Row {r} cell {c} text`, A4 portrait, repeated header row, `Heading(1, "Report")` above it, horizontal rules, 9 pt Noto Sans, 8 mm side margins; the browser baseline printed with its default header and footer, so this one has a header "Report" and a footer "Page x of y"). It is 21 pages, close to the browser's "about 20", but not the same layout: the fonts differ (Segoe UI 10 pt in the browser script, Noto Sans 9 pt here, so that a row fits on one line).
+
+| | p50 | p95 | min / max |
+|---|---|---|---|
+| Cold process, wall time (30 runs) | 1,504 ms | 1,999 ms | 1,244 / 2,067 ms |
+| Peak working set (30 runs, read by the process at the end) | 54 MB | | 54 / 55 MB |
+| Warm, in one process (100 runs after 10 warm-up) | 473 ms | 717 ms | 328 / 1,130 ms |
+| Warm, BenchmarkDotNet `--job short` | mean 368 ms (error 184 ms, 3 iterations: rough) | | |
+| Managed allocation per run | 188 MB | | |
+
+Output: 513,897 bytes, 21 pages.
+
+**Scenario B, a ten-page report** (`Scenarios/ScenarioDocuments.cs`): a heading and three sections of four paragraphs each, a bar chart and a line chart drawn with `Drawing` and `DrawingCanvas` (paths and `DrawText` labels), an invoice table of 200 rows that runs over several pages with its header repeated, a six-row table, a header and a "Page x of y" footer, and an Arabic section with Latin words in it. It is 10 pages.
+
+| | p50 | p95 | min / max |
+|---|---|---|---|
+| Cold process, wall time (30 runs) | 553 ms | 1,073 ms | 446 / 1,119 ms |
+| Peak working set (30 runs, read by the process at the end) | 51 MB | | 51 / 51 MB |
+| Warm, in one process (100 runs after 10 warm-up) | 73 ms | 133 ms | 49 / 268 ms |
+| Warm, BenchmarkDotNet `--job short` | mean 78 ms (rough) | | |
+| Managed allocation per run | 24 MB | | |
+
+Output: 102,967 bytes, 10 pages.
+
+**What the numbers say, and what they do not.** The p95 of 30 runs is the 29th value (nearest rank): it is a feel for the spread, not a tight estimate. The 30 cold runs were made back to back, so the operating system's file cache was warm for all but the first process of a session (the very first run of the table, before the runs above, took 2,974 ms). A "cold" process here is a fresh .NET process: it pays the JIT, and does not use ReadyToRun or native AOT. The warm figures include building the document and saving it to memory, and not loading the fonts (loaded once). A warm run is not "steady state" in the sense of the plan's targets: with garbage collections happening (the allocation is large, 188 MB for the table) the spread is wide.
+
+**Comparison with the Playwright and Skia rows.** Order of magnitude only. Those were one run each, on the same machine on the same day, and measured differently: Playwright's 2,048 ms is the script's own launch, content and pdf time (node's start and the browser's close excluded), its memory is the highest sampled working set of the whole process tree, and the Skia spike's method is not documented beyond "cold process" and "peak". The Pdfwright cold time here is a parent process timing a child from its start to its exit, and its memory is that process's own `PeakWorkingSet64`. With that said: for the 1,000-row table Pdfwright (about 1.5 s, 54 MB) is in the same range of time as the browser (about 2 s) and nowhere near the Skia spike (279 ms), uses a tenth of the browser's memory and about twice the Skia spike's, and writes a file 3.3 times the browser's (154 KB) and slightly smaller than the Skia spike's (590 KB).
+
+**Against the targets of section 7 of the plan:** not met, see there.
 
 ## What the Skia spike showed about text (why Pdfwright writes its own writer)
 
@@ -48,6 +85,29 @@ pwsh sample.ps1 pw.cjs 1000
 dotnet run -c Release --project ../ -- cold --runs 10 -- node pw.cjs 1000
 ```
 
-The `cold` verb is for Pdfwright itself, once it exists: one process, no children, so its figures are complete.
+The `cold` verb is for Pdfwright itself: one process, no children, so its figures are complete.
 `pw.cjs` prints its own breakdown (launch, content, pdf) as JSON, which is where the table's 442, 901 and 705 ms
 come from.
+
+## How to repeat the Pdfwright measurement
+
+Check the machine first: close other programs and read the free memory, which is part of the result (PowerShell: `(Get-Counter '\Memory\Available MBytes').CounterSamples.CookedValue`). Then, from the repository root:
+
+<!-- snippet: none -->
+```bash
+dotnet build benchmarks/Pdfwright.Benchmarks -c Release -nodeReuse:false -m:1
+cd benchmarks/Pdfwright.Benchmarks/bin/Release/net10.0
+
+# Scenario A (1,000-row table) and B (ten-page report), cold: 30 fresh processes each
+./Pdfwright.Benchmarks cold --runs 30 -- ./Pdfwright.Benchmarks once table table.pdf
+./Pdfwright.Benchmarks cold --runs 30 -- ./Pdfwright.Benchmarks once report report.pdf
+
+# Warm, in one process: 100 runs after 10 warm-up runs
+./Pdfwright.Benchmarks warm table --runs 100 --warmup 10
+./Pdfwright.Benchmarks warm report --runs 100 --warmup 10
+
+# Warm time and allocations with BenchmarkDotNet (a quick, rough job; leave --job short out for the full one)
+./Pdfwright.Benchmarks bench --filter "*" --job short
+```
+
+On Windows the program is `Pdfwright.Benchmarks.exe`. `once` prints one JSON line (time since the process started, its own peak working set, bytes, pages), and `cold` takes the peak from it, so the figures are the process's own. The benchmark project is built by `dotnet build Pdfwright.slnx` so it cannot rot; CI builds it and does not run it.

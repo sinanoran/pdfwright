@@ -262,6 +262,8 @@ as released differs from it, and tagging still needs no breaking change:
   the budget by 25 percent (allocation counts are stable across machines where times are not).
 - The numbers go in `docs/baselines.md` (linked from the README) with the machine described, as Sheetwright's README states its own limits.
 
+**Measured on 21 November 2026 (written afterwards; `docs/baselines.md` has the method, the machine and the caveat that free memory was low):** the targets above are **not met**. Table of 1,000 rows (21 pages): cold p50 1,504 ms against 250 ms; warm p50 473 ms against 60 ms; allocation 188 MB against 20 MB; output 514 KB against 150 KB; peak working set 54 MB (the increase over the runtime baseline was not measured separately). Ten-page report (half the size of the 20-page scenario; no 20-page scenario exists yet): cold p50 553 ms, warm p50 73 ms, allocation 24 MB, 103 KB, against 200 ms, 40 ms, 10 MB and 120 KB for twenty pages. The Arabic table, the 100-page stress document and the allocation-budget test are not measured yet.
+
 ## 8. Test strategy
 
 1. **Golden PDFs, byte-stable.** `Deterministic = true` fixes `/ID`, dates and object order, so a golden file is compared by **hash** and a
