@@ -79,7 +79,7 @@ The own package has to be Chromium-correct and Skia-light.
 public    Document layer      blocks, styles, tables, pagination, header/footer, Canvas, TextMeasurer, SaveAsync
 internal  Text engine         itemization (script, direction, font fallback), bidi (UAX #9), shaping (HarfBuzz), line breaking (UAX #14),
                               justification (none in 0.1), glyph runs with clusters
-internal  Font engine         TrueType parser, subsetter, metrics, CID font objects, ToUnicode and ActualText
+internal  Font engine         TrueType parser, subsetter, metrics, CID font objects, ToUnicode (ActualText where a reader needs it)
 internal  PDF writer          objects, cross-reference (stream form), content-stream builder, Flate, images, annotations, metadata (Info and XMP)
           one native library  HarfBuzz through HarfBuzzSharp (shaping); no other native code
 ```
@@ -92,7 +92,7 @@ a second backend.
 | | A. Skia PDF backend | B. Own writer |
 |---|---|---|
 | Time to a first PDF | Fastest: Skia draws, embeds fonts, encodes images, does clipping and paths | Slower: about 8 days for the writer core and 10 for the font engine (section 9) |
-| Extraction of Arabic, Hebrew, ligatures | **Fails** (section 2); would need post-processing of Skia's output (rewriting font dictionaries), which is fragile | **Correct by construction**: `ToUnicode` with multi-character mappings from the shaper's clusters, `/ActualText` where a glyph is not one character |
+| Extraction of Arabic, Hebrew, ligatures | **Fails** (section 2); would need post-processing of Skia's output (rewriting font dictionaries), which is fragile | **Correct by construction**: `ToUnicode` with multi-character mappings from the shaper's clusters, one text per code (a glyph drawn for a second text gets its own code); `/ActualText` where a reader needs it (open: see the go or stop assessment) |
 | Tagged (accessible) PDF, outlines, page labels, language, XMP | **Impossible** through SkiaSharp's binding | Ours: additive, and designed in from the first slice (section 6) |
 | Size on disk of a deployment | +13 MB native per runtime (+ HarfBuzz 2 MB) | HarfBuzz only (about 2 MB per runtime); no Skia, no fontconfig, no libfreetype question |
 | Memory and speed | Good (spike: 7 MB over baseline) | Equal or better: no canvas abstraction, no native copies; a page is a byte buffer of operators |
@@ -275,7 +275,7 @@ with a green CI and a reviewed pull request, as in Sheetwright.
 |---|---|---|
 | **S0** | Repository skeleton (as Sheetwright: Directory.Build.props, central packages, CI, RELEASING, README stub), the corpus and fonts, the spike results of section 2 as a documented baseline, the benchmark and process harnesses | 3 |
 | **S1** | **PDF writer core:** objects, stream-form cross-reference, content-stream builder, Flate, page tree, Info and XMP, annotations (URI, destination), deterministic mode, `qpdf --check` in CI | 8 |
-| **S2** | **Font engine:** TrueType parser, glyph-closure subsetter (keeps glyph ids, drops unused outlines; composite glyphs followed), CID fonts with `Identity-H`, widths, **`ToUnicode` from clusters and `/ActualText`**, `fsType` check; extraction test for Latin | 10 |
+| **S2** | **Font engine:** TrueType parser, glyph-closure subsetter (keeps glyph ids, drops unused outlines; composite glyphs followed), CID fonts with `Identity-H`, widths, **`ToUnicode` from clusters, one text per code**, `fsType` check; extraction test for Latin | 10 |
 | **S3** | **Text engine:** Unicode tables and their generator, script itemization, bidi (UAX #9) and mirroring, font fallback runs, HarfBuzz shaping with features, grapheme-safe breaking, line breaking (UAX #14), the conformance files | 12 |
 | **S4** | **Paragraph layout and the drawing canvas**: lines, alignment (logical), runs, the public `TextMeasurer`, paths, clip, transforms, opacity, JPEG and PNG | 8 |
 | **S5** | **Document layer:** the block set, flow and page breaks, keep-together, columns, **tables with pagination, repeated header, streamed rows, auto widths**, header and footer with page count (two passes only when the footer asks for it) | 10 |
@@ -296,37 +296,44 @@ every page), which viewers handle well into the thousands of pages and which a b
 memory, with a few copies while it is compressed, so one very large page costs several times its own size at completion.
 A document's other pages are written as they end and cost nothing more.
 
-### Go or stop assessment (21 November 2026, after S1 and S2)
+### Go or stop assessment (21 November 2026, interim: after S1 and S2, before S3)
 
-**Verdict: go, on to S3.** Measured against the plan's own criteria:
+**Verdict: go, on to S3, with one extraction defect that must be closed in S4 and a narrower claim than "Arabic works".**
+The plan places the go or stop point after S2 *and S3's first half*; this is the part of it that can be measured before the text engine
+exists, with the shaper called directly. Against the criteria:
 
-- **Effort.** The contingency is "S1 and S2 overrun by more than 50 percent". They were planned at 8 and 7 working days and were done in
-  about one working session each (including an independent opus review of each and the fixes it found), so there is no overrun.
-- **Arabic and Devanagari extraction** (the criterion that failed with Skia). `ShapingSpikeTests` shapes every single-direction corpus line
-  of Arabic, Hebrew (with points), Devanagari (conjuncts, matras, nukta, reph), Bengali, Tamil (split vowels) and Thai with HarfBuzz, draws it
-  with the S2 font engine, and reads it back with PdfPig: **29 of 29 lines come back in logical order, exactly**, and qpdf accepts all of
-  them. The method: glyphs are written in logical (cluster) order, each at the position the shaper gave it; each cluster's text is
-  attached to its first glyph; a glyph drawn for a second text gets its own code (a CID above the glyph count, sent to the glyph by
-  `CIDToGIDMap`), so `ToUnicode` has exactly one text per code and no reader needs `ActualText`. The first attempt (one `ToUnicode` entry
-  per glyph) failed 17 of 29 lines, all for the one reason this fixed.
-- **What this does not show, and the risks that remain.** (1) Only **single-direction** lines were measured: mixed direction and nesting
-  (bidi, S3) are the open risk, and extraction in logical order across direction runs has not been tried. (2) **Nothing was rendered**: that
-  the glyphs are drawn at the right places is shaping output we trust, not a check; the PDFium image comparison of section 8 is S6 and
-  should come earlier, as soon as S4 draws a page. (3) PdfPig reads the content stream in order, and so do most extractors, but
-  extractors that sort by geometry (some pdftotext modes) may reorder lines of mixed direction; the viewer check of the release
-  list must include copying Arabic text out of three viewers. (4) One glyph per `Tm` is correct and large: the layout (S4) will write
-  runs with `TJ` adjustments where glyphs are adjacent, which has to keep this extraction result. (5) Line breaking (UAX #14), bidi and
-  the Unicode tables are still to be written and are the bulk of S3 (12 days): the estimate of the whole plan stands, with S3 now
-  the item to watch.
-- **Stop condition.** If bidi extraction of mixed lines (S3's second half) cannot be made correct with logical-order content, or the
-  visual check shows misplaced marks, stop and choose the contingency of section 3.
+- **Effort.** The contingency is "S1 and S2 overrun by more than 50 percent". S1 and S2 were planned at 8 and 10 working days (section 9)
+  and were done in about one working session each, including an independent opus review of each and the fixes it found. No overrun.
+- **Extraction in logical order, measured** (`ShapingSpikeTests`). Single-font, single-direction corpus lines of Arabic, Hebrew (with
+  points), Devanagari (conjuncts, matras, nukta, reph), Bengali, Tamil (split vowels) and Thai are shaped by HarfBuzz, drawn with the S2
+  font engine and read back with PdfPig: **28 lines, every one byte-exact**, accepted by qpdf, and every drawn code leads to the glyph
+  the shaper chose (the glyph map is read back from the file). Method: glyphs are written in logical (cluster) order, each at the shaper's
+  position; a cluster's text is attached to its first glyph; a glyph drawn for a second text gets its own code (a CID above the glyph
+  count, sent to the glyph by `CIDToGIDMap`), so `ToUnicode` has one text per code. A first attempt with one `ToUnicode` entry per glyph
+  failed 17 of the 29 lines for exactly that reason.
+- **What the measurement does not cover.** (1) Mixed direction and numbers inside Arabic (bidi, the second half of S3): `arabic-indic-digits`
+  is left out because it is drawn backwards without bidi. (2) Lines that need a second font (`bengali-reph-prebase`, the Hebrew maqaf line, the
+  long unbreakable lines, `indic-numerals`): the Bengali reordering case among them. (3) **Nothing was rendered**: the places of the
+  glyphs are the shaper's output, not a checked result; the image comparison of section 8 should move up to the moment S4 draws a page.
 
-**Risks.** (1) A script with a shaping subtlety we do not know about (Tamil and Bengali reordering are the likely ones): mitigated by HarfBuzz
-doing the work and by the native-speaker review. (2) Viewer incompatibility from an own writer: the PDF subset is small and fixed, `qpdf` and
-four viewers check it. (3) The Unicode tables and Thai breaking: the conformance files make the first measurable; the second is documented as a
-limitation. (4) Scope growth toward "a general PDF library": **the out-of-scope list in section 4 is the guard**, and every addition needs
-Plinth's report as its reason. (5) Maintenance after 0.1: one more repository, one more release flow: accepted by the maintainer's decision;
-the Unicode data update (yearly) and the .NET version matrix are the recurring work.
+**Open defects found by the review of this step (the reason the verdict is not an unqualified go):**
+
+1. **pdf.js** (Firefox's viewer) turns an empty `ToUnicode` entry into the code itself, so the continuation glyphs of a cluster (the dots of
+   an Arabic letter, a Bengali vowel part, a Thai mark) copy as junk: measured in the pdf.js that ships with Playwright's Firefox, on most
+   Arabic, Bengali, Tamil and Thai lines. PdfPig and poppler accept the empty entry. Omitting the entry (as before) gives the same result in
+   pdf.js. The claim that "no reader needs `ActualText`" is therefore **not** established. To decide in S4 with pdf.js as a test-time reader:
+   an `ActualText` span around the cluster, a mapping of continuation glyphs to an invisible character, or both. Until then pdf.js copy of
+   these scripts is a known defect, and the release checklist (copy Arabic out of three viewers) must pass before 0.1.0.
+2. **Readers that order by position** (poppler's default mode, which Evince and Okular use for copy) read these lines wrongly even when the
+   direction is uniform, because every glyph has its own `Tm`: spaces appear inside words, Hebrew points move before their letter. PdfPig
+   and poppler's `-raw` (content order) read them correctly. S4 should write glyph runs with `TJ` adjustments, with one `Tm` per run, and the
+   measurement repeated with a geometry-ordering reader.
+3. The cost of a glyph map is paid by any document in which one glyph is drawn for two texts (a Latin report included); it is written sparsely
+   (unused entries are zero) so that it compresses, but the size budget of section 7 must be measured with it.
+
+**Stop condition.** If extraction of mixed-direction lines in logical order cannot be made correct in S3's second half, if the visual check
+shows misplaced marks, or if defect 1 has no fix that works in pdf.js, Acrobat, Preview and Chrome together, stop and choose the contingency
+of section 3.
 
 ## 10. Repository, release and name
 

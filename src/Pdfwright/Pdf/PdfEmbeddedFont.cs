@@ -17,7 +17,8 @@ namespace Pdfwright.Pdf;
 /// A code is the glyph's id the first time the glyph is drawn for a text. When the same glyph is drawn for another text (a
 /// consonant alone and the same consonant inside a conjunct, U+2126 and U+03A9, a ligature in two words), it gets a code of
 /// its own, above the font's glyph count, and a <c>CIDToGIDMap</c> sends both codes to the one glyph. Every code then has exactly one
-/// text in <c>ToUnicode</c>, so any reader extracts the text that was drawn, with no <c>ActualText</c> and no ambiguity.
+/// text in <c>ToUnicode</c>, so a reader that follows it extracts the text that was drawn. A code that stands for no text maps to the empty string, which
+/// some readers (pdf.js) do not honour: see the assessment in <c>docs/plan-0.1.md</c>.
 /// </para>
 /// </remarks>
 internal sealed class PdfEmbeddedFont
@@ -56,7 +57,10 @@ internal sealed class PdfEmbeddedFont
     /// with, which <c>ToUnicode</c> will map back to exactly that text when the document is copied from or searched. A glyph that
     /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and extracts as nothing.
     /// </summary>
-    /// <returns>The code of the glyph for this text: write it with <see cref="Code"/>.</returns>
+    /// <returns>
+    /// The code of the glyph for this text: write it with <see cref="Code"/>. Codes are handed out in the order of the calls, so
+    /// call this only when drawing, never to measure: a measuring pass would add codes, and change the bytes of the file.
+    /// </returns>
     internal int UseGlyph(int glyph, string? text)
     {
         if (_written)
@@ -75,10 +79,21 @@ internal sealed class PdfEmbeddedFont
             return known;
         }
 
-        int code = _glyphsWithCode.Add(glyph) ? glyph : _nextExtra++;
+        bool first = !_glyphsWithCode.Contains(glyph);
+        int code = first ? glyph : _nextExtra;
         if (code > 0xFFFF)
         {
-            throw new InvalidOperationException("The font has been used for more distinct glyph and text pairs than a two-byte code can name (65,536).");
+            throw new InvalidOperationException(
+                $"The font has no code left for glyph {glyph} drawn for another text: a two-byte code names 65,536 glyph and text pairs, and this font's {_font.GlyphCount} glyphs take the first of them.");
+        }
+
+        if (first)
+        {
+            _glyphsWithCode.Add(glyph);
+        }
+        else
+        {
+            _nextExtra++;
         }
 
         _codes[(glyph, text)] = code;
@@ -198,17 +213,14 @@ internal sealed class PdfEmbeddedFont
         return new string(tag);
     }
 
-    /// <summary>The map from codes to glyphs: two bytes per code, the glyph's own id for the codes that are glyph ids.</summary>
+    /// <summary>
+    /// The map from codes to glyphs: two bytes per code. Only the codes that were drawn are filled in; every other entry is zero
+    /// (the <c>.notdef</c> glyph, which nothing draws), so that the map compresses to the size of what was used.
+    /// </summary>
     private byte[] CidToGidMap()
     {
         byte[] map = new byte[_nextExtra * 2];
-        for (int code = 0; code < _font.GlyphCount; code++)
-        {
-            map[code * 2] = (byte)(code >> 8);
-            map[(code * 2) + 1] = (byte)code;
-        }
-
-        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode.Where(p => p.Key >= _font.GlyphCount))
+        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode)
         {
             map[pair.Key * 2] = (byte)(pair.Value.Glyph >> 8);
             map[(pair.Key * 2) + 1] = (byte)pair.Value.Glyph;
