@@ -17,7 +17,7 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
   on every page, and rows that are never split unless taller than a page. Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole; `Table.MaxRows` cuts a table and reports it.
 - **Columns and callouts**: one to four equal cells for a KPI row, and a box with a fill, border, padding and corner radius that is split between pages or kept together.
 - **A drawing canvas** for charts as vectors: paths (lines, rectangles, rounded rectangles, ellipses, arcs, curves), fills with either rule, strokes with dashes, caps and joins, clipping, transforms, opacity, text through the
-  document's fonts, and images, in points with the origin at the top left. **`PdfImage.FromBytes`** reads JPEG (passed through) and PNG (decoded, with transparency).
+  document's fonts, and images, in points with the origin at the top left. **`PdfImage.FromBytes`** reads JPEG (passed through) and PNG (decoded, with transparency), and no other format.
 - **Headers and footers** built for each page from a `PageContext` (number, count, first and last page), drawn inside the margins after the body is laid out, so "page x of y" needs no second pass.
 - **`TextMeasurer`**, which measures text with the engine that draws it, for placing labels.
 - **Fonts supplied, never discovered**: `FontCollection` (thread-safe, `IDisposable`) takes TrueType bytes, reads family, weight and style from the font, refuses fonts that forbid embedding with `FontNotEmbeddableException`,
