@@ -230,9 +230,12 @@ as released differs from it, and tagging still needs no breaking change:
   header, a decorative image), 0.2 adds optional `init` properties to the sealed block and cell types, which is not a breaking change.
 - **Alternative text is already in 0.1:** `Image.AltText` and `Drawing.AltText` are stored and not written yet; 0.2 writes them as `/Alt` on the
   `Figure` element.
-- **Language is already in 0.1:** `PdfDocumentOptions.Language` and `TextStyle.Language` on runs give the catalog's `/Lang` and the spans'.
+- **Part of the second half is already written in 0.1**, whatever the flag: the catalog's `/Lang` (from `PdfDocumentOptions.Language`),
+  `DisplayDocTitle` whenever a title is set, and the XMP metadata. What waits for tagging is the `/Lang` of spans in another language (from the
+  runs' `TextStyle.Language`, which 0.1 already carries) and an `OutputIntent`.
 - **Turning it on** is a new `PdfDocumentOptions.Tagged` property (an `init` property, so additive); the content-stream builder already has the
-  marked-content operator with an `MCID`, unused in 0.1.
+  marked-content operator with an `MCID`, unused in 0.1. Contrary to the second point above, 0.1 allocates no ids and has no such flag yet; both
+  arrive with tagging, inside the writer, with no change to the public API.
 - The block set is closed, so a new structure (a list, a figure caption, a note) arrives as a new block type in a minor version, as the closed set
   intends; code written against 0.1 does not change.
 

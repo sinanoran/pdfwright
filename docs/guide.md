@@ -406,7 +406,7 @@ at the content width of its place, so give `Measure` the width you mean.
 `PdfImage.FromBytes` reads a JPEG or a PNG, and only those: WebP, GIF, BMP, TIFF, HEIC and SVG are refused with an `ArgumentException`, so convert
 such a picture to PNG (or to JPEG for a photograph) before you hand it over. A JPEG is read when it is baseline, extended or progressive with 8-bit
 samples (grey, RGB, YCbCr or CMYK); arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused. A PNG is read in every colour type and bit
-depth, interlaced or not, with its transparency (`tRNS` or an alpha channel). A JPEG is passed through into the file undecoded; a PNG is decoded once by a small managed decoder, and its transparency is kept. The picture is held decoded for the life
+depth, interlaced or not, with its transparency (`tRNS` or an alpha channel); 16-bit samples are reduced to 8 bits. A JPEG is passed through into the file undecoded; a PNG is decoded once by a small managed decoder, and its transparency is kept. The picture is held decoded for the life
 of the object and written once to each document that uses it, so make it once and share it. The colour management of a PNG (`iCCP`, `gAMA`, `sRGB`, `cHRM`) is ignored, and the orientation and colour profile of a JPEG
 are too; an image is limited to 65,535 pixels on a side and 100 million pixels in all, refused with an exception before memory is allocated.
 
