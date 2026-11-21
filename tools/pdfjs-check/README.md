@@ -9,5 +9,5 @@ It is a measuring tool, not part of CI.
    `PLAYWRIGHT_MODULE=/path/to/node_modules/playwright` (without it, `require('playwright')` is tried from the current folder upwards).
 3. Run `node tools/pdfjs-check/pdfjs-check.js /tmp/dump tests/Pdfwright.Tests/Corpus [id-filter]`.
 
-It prints `DIFF` with the code points of both sides for each line that differs, `EQUIV` for a line that differs only in the order of combining marks that are canonically
+It first prints the pdf.js version it measured (read from `pdfjsLib.version` in the viewer page, with the Firefox version beside it, and the Firefox version alone when the page does not expose it), then `DIFF` with the code points of both sides for each line that differs, `EQUIV` for a line that differs only in the order of combining marks that are canonically
 equivalent, and `pdf.js: N of M clean`. Compared: text without white space, U+034F and the bidirectional controls, in NFD.

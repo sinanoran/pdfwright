@@ -36,7 +36,7 @@ const cps = s => [...s].map(c => c.codePointAt(0).toString(16).toUpperCase().pad
 (async () => {
   const browser = await firefox.launch({ firefoxUserPrefs: { 'pdfjs.disabled': false, 'browser.download.open_pdf_attachments_inline': true } });
   const page = await browser.newPage();
-  let ok = 0, total = 0;
+  let ok = 0, total = 0, version = null;
   for (const file of fs.readdirSync(dumpDir).filter(f => f.endsWith('.pdf')).sort()) {
     const id = file.slice(0, -4);
     if (filter && !id.includes(filter)) continue;
@@ -45,6 +45,10 @@ const cps = s => [...s].map(c => c.codePointAt(0).toString(16).toUpperCase().pad
     await page.goto('file:///' + path.resolve(dumpDir, file).replace(/\\/g, '/'));
     await page.waitForSelector('.textLayer span', { timeout: 15000, state: 'attached' });
     await page.waitForTimeout(300);
+    if (!version) {
+      // The pdf.js of the browser, from the viewer page; the browser version stands in when the page does not expose it.
+      version = await page.evaluate(() => (typeof pdfjsLib !== 'undefined' && pdfjsLib.version) || (window.PDFViewerApplication && window.PDFViewerApplication.pdfjsVersion) || null).catch(() => null);
+    }
     const text = await page.$$eval('.textLayer span', s => s.map(x => x.textContent).join(''));
     const got = clean(text), want = clean(expected[id]);
     const good = got.normalize('NFD') === want.normalize('NFD');
@@ -52,6 +56,7 @@ const cps = s => [...s].map(c => c.codePointAt(0).toString(16).toUpperCase().pad
     if (good) ok++;
     else console.log(`DIFF ${id}\n  got: ${cps(got)}\n  exp: ${cps(want)}`);
   }
+  console.log(version ? `pdf.js ${version} (Firefox ${browser.version()})` : `pdf.js version not exposed by the page (Firefox ${browser.version()})`);
   console.log(`pdf.js: ${ok} of ${total} clean`);
   await browser.close();
 })();
