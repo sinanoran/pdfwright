@@ -532,4 +532,34 @@ public class ParagraphLayoutTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => LayoutTestKit.Layout("abc", fonts, null, size: size));
     }
+
+    [Fact]
+    public void An_empty_line_takes_the_metrics_of_the_line_before_it_rather_than_the_line_after_it()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Hebrew);
+        char separator = (char)0x2028;
+        string hebrew = new([(char)0x05E9, (char)0x05DC, (char)0x05D5, (char)0x05DD]);
+        double hebrewAscent = fonts[1].Font.Ascender * MetricScale(fonts[1]);
+        double hebrewDescent = -fonts[1].Font.Descender * MetricScale(fonts[1]);
+        double latinAscent = fonts[0].Font.Ascender * MetricScale(fonts[0]);
+        Assert.NotEqual(latinAscent, hebrewAscent);
+
+        // A Hebrew line, an empty line between two hard breaks, a Latin line: the empty line is as high as the Hebrew line before it, not the Latin one after it.
+        ParagraphLayout layout = LayoutTestKit.Layout(hebrew + separator + separator + "abc", fonts, null);
+
+        Assert.Equal(3, layout.LineCount);
+        Assert.Empty(layout.Lines[1].Runs);
+        Assert.Equal(hebrewAscent, layout.Lines[0].Ascent, Tolerance);
+        Assert.Equal(latinAscent, layout.Lines[2].Ascent, Tolerance);
+        Assert.Equal(hebrewAscent, layout.Lines[1].Ascent, Tolerance);
+        Assert.Equal(hebrewDescent, layout.Lines[1].Descent, Tolerance);
+
+        // With only a later line, the empty line takes that one's font (the first font would be Latin here).
+        ParagraphLayout later = LayoutTestKit.Layout(new string(separator, 1) + hebrew, fonts, null);
+
+        Assert.Equal(2, later.LineCount);
+        Assert.Empty(later.Lines[0].Runs);
+        Assert.Equal(hebrewAscent, later.Lines[0].Ascent, Tolerance);
+        Assert.Equal(hebrewDescent, later.Lines[0].Descent, Tolerance);
+    }
 }
