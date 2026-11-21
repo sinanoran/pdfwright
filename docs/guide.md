@@ -1,0 +1,611 @@
+# Pdfwright user guide
+
+This is the guide to the whole public surface of version 0.1, in the order a report is built. The [README](../README.md) has a first example and the reasons the library exists;
+[known-limitations.md](known-limitations.md) lists what it does not do and why. The full public surface (every type and member) is recorded in
+`tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt`, and every public member has XML documentation that your editor shows.
+
+Every code block in this guide is compiled and run by the test suite (`tests/Pdfwright.Tests/Documentation`), and the suite fails when a block and the code that was run differ,
+so what you copy is what was tested. A block is a piece of a program, not a whole one: unless it makes its own, the snippets assume
+
+- `fonts`, a `FontCollection` holding the fonts of the examples (Noto Sans in regular, bold and italic, and Noto Sans Arabic);
+- `fontDirectory`, the folder those `.ttf` files are in, and `logoBytes`, the bytes of a JPEG or PNG file;
+- `invoices`, a sequence of your own records with a name, an amount and a status;
+- `stream`, a writable `Stream`, and `cancellationToken`, a `CancellationToken`.
+
+Two type names are also names in `System.Drawing`: `Drawing` and `Image`. Where both namespaces are imported, alias ours (`using Image = Pdfwright.Image;`).
+
+## Contents
+
+1. [How a document is made](#how-a-document-is-made)
+2. [Fonts](#fonts)
+3. [Text and styles](#text-and-styles)
+4. [Headings, paragraphs and page breaks](#headings-paragraphs-and-page-breaks)
+5. [Tables](#tables)
+6. [Tables of many rows](#tables-of-many-rows)
+7. [Columns and callouts](#columns-and-callouts)
+8. [Drawing: charts and figures](#drawing-charts-and-figures)
+9. [Measuring text](#measuring-text)
+10. [Images](#images)
+11. [Headers and footers](#headers-and-footers)
+12. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
+13. [Metadata and deterministic output](#metadata-and-deterministic-output)
+14. [Diagnostics and limits](#diagnostics-and-limits)
+15. [Threads and lifetimes](#threads-and-lifetimes)
+
+## How a document is made
+
+A `PdfDocument` is made from `PdfDocumentOptions`, given blocks with `Add`, and saved. The blocks flow from the top of the first page down and break onto new pages as they fill:
+`Heading`, `Paragraph`, `Spacer`, `PageBreak`, `Table`, `Columns`, `Callout`, `Drawing` and `Image`. There is no page object to manage and no coordinate to compute.
+
+Lengths are `Length` values (`Length.Pt`, `Mm`, `Cm`, `In`), and there is no implicit conversion from a number, so a unit is never guessed. Page sizes are `PageSize.A4`, `A5`, `Letter` and `Legal`
+(and `Landscape()` turns one on its side), margins are `Margins` (20 mm at the top and bottom and 15 mm at the sides by default), and colours are `Color` values (`Color.FromHex("#3366CC")`,
+`Color.Gray(0.9)`, `Color.FromRgb(...)`, and named ones such as `Color.Red`). The one place that uses plain `double`s is the drawing canvas, which is in points because chart code is arithmetic.
+
+The examples in this guide are fragments, and some names in them come from the code around them: `document` is a `PdfDocument` made as in the [quick start](../README.md#quick-start), `fonts` is the `FontCollection` of
+the [Fonts](#fonts) section, `fontDirectory` is the folder that holds your `.ttf` files, `cancellationToken` is the `CancellationToken` that your method received (`CancellationToken.None` in a console program),
+`stream` is the stream you save to, and `invoices` is a sequence of your own records, each with a name, an amount and a status.
+
+<!-- snippet: guide-save -->
+```csharp
+// The whole file is made in memory and then copied, so a document that fails writes nothing. The stream is not closed.
+using MemoryStream stream = new();
+await document.SaveAsync(stream, cancellationToken);
+byte[] pdf = stream.ToArray();   // e.g. return Results.File(pdf, "application/pdf", "report.pdf") from an ASP.NET Core endpoint
+```
+
+`Save` and `SaveAsync` build the whole file in memory and write it to the stream only when it is complete, so a document that fails, or hits one of its limits, writes nothing. The stream
+need not be seekable and is not closed. `SaveAsync` does the layout on a thread-pool thread and copies the bytes with the stream's asynchronous methods; the token is checked between blocks and pages.
+The memory a save holds is about the size of the file, plus the page being built. A document can be saved more than once.
+
+## Fonts
+
+Fonts are **supplied, never discovered.** Pdfwright does not look in the operating system's font folders, so the same code produces the same file on a developer's machine, a Linux container
+and a build server. The package ships no font. Give the collection TrueType files (`glyf` outlines; Noto, Roboto, Open Sans, Arial and most `.ttf` files are) as bytes:
+
+<!-- snippet: guide-fonts -->
+```csharp
+// One collection for the whole application: it parses each font once and keeps a native copy of it.
+FontCollection fonts = new();
+fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Regular.ttf")));
+fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Bold.ttf")));
+fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf")));
+
+string families = string.Join(", ", fonts.Families); // Noto Sans, Noto Sans Arabic
+
+// fontBytes stands for the bytes of one more font file, here one that may be refused.
+try
+{
+    fonts.Add(fontBytes);
+}
+catch (FontNotEmbeddableException e)
+{
+    // The font's licence forbids embedding it: e.Family names it and e.EmbeddingPermission is its OS/2 fsType.
+    Console.Error.WriteLine($"{e.Family} may not be embedded (fsType {e.EmbeddingPermission}).");
+}
+catch (ArgumentException)
+{
+    // Not a TrueType font. OpenType fonts with CFF outlines (most .otf files) are refused as well.
+}
+
+fonts.Dispose(); // when the application is done with it, not after each document
+```
+
+- A collection parses each font once when it is added, reads its family, weight and style from the font itself, and is safe to share between any number of documents and threads. It is meant to
+  live as long as the application: it is `IDisposable` because it holds a native copy of every font for the shaping engine (HarfBuzz).
+- A font whose licence forbids embedding (OS/2 `fsType` restricted, no subsetting, or bitmap only) is refused with `FontNotEmbeddableException`, and nothing is added. Only the glyphs a document
+  uses are embedded, as a subset.
+- OpenType fonts with CFF outlines (most `.otf` files) are refused with an `ArgumentException`; CFF support is planned after 0.1.
+
+**Choosing a font.** A style names a `Family` (compared without regard to case), a `Weight` (400 regular, 700 bold) and `Italic`. The font whose weight is nearest is used, and there is **no synthetic
+bold or italic**: a family without a bold font draws bold text in its nearest weight, and one without an italic draws upright. Supply the fonts of the styles you use.
+
+**Fallback.** The font is chosen for each grapheme cluster, not for each word: a cluster takes the first font, in the order of the style's family first and then every other font of the collection, that
+covers all of it. So a Latin family and an Arabic font in one collection can share a paragraph, and the Arabic is drawn in the Arabic font, in the style's weight where that font has it. A character
+no font has is drawn as the `.notdef` glyph of the font chosen for it (usually an empty box) and **reported**, never an exception: see [Diagnostics and limits](#diagnostics-and-limits). A family named by a
+style that the collection does not have is replaced by the first font and listed in `DocumentDiagnostics.MissingFamilies`.
+
+A mark that follows a character of another script (a Hebrew point after a Latin digit) is shaped with the font of its base character and may be a missing glyph; put such text in a font that has both.
+
+## Text and styles
+
+A `TextStyle` has six properties, all optional: `Family`, `Size`, `Weight`, `Italic`, `Color` and `Language`. An unset property is taken from the style around it, so the styles are laid over each other:
+
+1. the library's defaults (the first font of the collection, 10 points, weight 400, upright, black);
+2. `PdfDocumentOptions.DefaultStyle`;
+3. inside a table, `Table.Style`, then `Table.HeaderStyle` in the header, then the `TableCell.Style`;
+4. the `Paragraph.Style` (for a heading, the style for its level);
+5. the `TextRun.Style` of a run.
+
+A later layer overrides only the properties it sets. `Language` is a BCP 47 tag (`tr`, `ar`, `hi`) that selects language-specific forms when shaping (the Turkish dotted and dotless i, for example);
+text whose style sets none takes the document's `Language`.
+
+<!-- snippet: guide-styles -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    // The base of every style. What it leaves unset is the library's: the first font, 10 points, regular, upright, black.
+    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
+});
+
+document.Add(new Paragraph(
+[
+    new TextRun("Totals are "),
+    new TextRun("final", new TextStyle { Weight = 700 }),   // bold, in the paragraph's size and colour
+    new TextRun(", amounts in "),
+    new TextRun("euros", new TextStyle { Italic = true, Color = Color.MidGray }),
+    new TextRun("."),
+])
+{
+    // Under the runs' own styles, over the document's: this paragraph is 11 points.
+    Style = new TextStyle { Size = Length.Pt(11) },
+});
+```
+
+A colour does not change how text is shaped: a word of which one letter is red has the same shape and width, and Arabic letters keep joining across a change of colour.
+A line break inside a run (`\n`, `\r\n`) is a hard line break inside the paragraph, not a new paragraph; make several `Paragraph`s to get spacing and a direction for each.
+
+## Headings, paragraphs and page breaks
+
+<!-- snippet: guide-flow -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10) },
+    // Six styles for levels 1 to 6; what one leaves unset comes from the default style. Without this, headings are bold at 2.0, 1.6, 1.3, 1.15, 1.0 and 1.0 times its size.
+    HeadingStyles =
+    [
+        new TextStyle { Size = Length.Pt(24), Weight = 700, Color = Color.FromHex("#1F3A5F") },
+        new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.FromHex("#1F3A5F") },
+        new TextStyle { Size = Length.Pt(13), Weight = 700 },
+        new TextStyle { Size = Length.Pt(11), Weight = 700 },
+        new TextStyle { Size = Length.Pt(10), Weight = 700 },
+        new TextStyle { Size = Length.Pt(10), Weight = 700, Italic = true },
+    ],
+});
+
+document.Add(new Heading(1, "Quarterly review"));
+document.Add(new Heading(2, "Summary") { SpaceBefore = Length.Pt(18) });
+document.Add(new Paragraph("Revenue grew in every region. The paragraph breaks into lines at the width of the page.")
+{
+    Alignment = TextAlignment.Start,   // Start, Center or End: logical, so Start is the right edge in a right-to-left paragraph
+    LineSpacing = 1.2,                 // a multiplier of the natural line height
+    SpaceAfter = Length.Pt(8),         // the default is 0.6 of the font size
+});
+document.Add(new Spacer(Length.Mm(5)));
+document.Add(new Paragraph("A short block that is moved whole to the next page rather than split.") { KeepTogether = true });
+document.Add(new PageBreak());
+document.Add(new Heading(2, "Details"));
+```
+
+- **Spacing.** A heading has the space above it (by default the heading's font size) and below it (0.4 of it); a paragraph has none above and 0.6 of its font size below. A space at the edge of a page is dropped,
+  not carried over; a `Spacer` is always kept.
+- **Keeping things together.** A heading is kept with the first line of the next block (the whole of a drawing, an image or a row of columns), and with the whole of a `KeepTogether` paragraph or callout that follows it when that fits a page. It is not kept with a table: a heading directly above a table can be left at the bottom of a page, with the table starting on the next. `Paragraph.KeepTogether` and `Callout.KeepTogether` move
+  a block that does not fit the rest of the page to the next one instead of splitting it. A block taller than a page is split whatever it asks. There is no widow or orphan control.
+- **Page breaks.** `PageBreak` ends the page; two in a row make a blank page.
+- **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation or dictionary breaking for Thai.
+
+## Tables
+
+A `Table` has columns, optional header rows and the body rows. Columns are `TableColumn`s with a width and an alignment:
+
+- `ColumnWidth.Fixed(length)`: a given width;
+- `ColumnWidth.Fraction(weight)`: a share of what the fixed and automatic columns leave, in proportion to the weight;
+- `ColumnWidth.Auto` (the default): measured from the content of the header and the first 100 rows. A cell further down that is wider wraps; nothing is re-measured, because the rows are streamed.
+  Give a column a fixed width or a fraction when the later rows differ from the first.
+
+Alignment is `Start`, `Center` or `End` and is **logical**, so a numeric column set to `End` is at the right edge of a left-to-right table and at the left edge of a right-to-left one.
+
+<!-- snippet: guide-table -->
+```csharp
+using System.Globalization;
+
+TableColumn[] columns =
+[
+    new(ColumnWidth.Fraction(2)),                                              // shares what the others leave, in proportion to its weight
+    new(ColumnWidth.Fixed(Length.Mm(25))) { Alignment = TextAlignment.End },   // a given width; numbers sit at the end edge
+    new(),                                                                     // auto: measured from the header and the first 100 rows
+];
+
+TableRow header = new("Customer", "Amount", "Status");
+IEnumerable<TableRow> rows = invoices.Select(i => new TableRow(i.Name, i.Amount.ToString("N2", CultureInfo.InvariantCulture), i.Status));
+
+document.Add(new Table(columns, header, rows)
+{
+    Borders = Borders.Horizontal,
+    HeaderFill = Color.Gray(0.9),
+    ZebraFill = Color.Gray(0.97),
+    CellPadding = Margins.Pt(top: 3, right: 5, bottom: 3, left: 5),
+    HeaderStyle = new TextStyle { Weight = 700 },
+    Style = new TextStyle { Size = Length.Pt(9) },
+});
+
+// A row can be made of cells with a style, a fill, an alignment or several paragraphs of their own.
+document.Add(new Table(
+    columns,
+    [
+        new TableRow(
+            new TableCell("Total") { Style = new TextStyle { Weight = 700 } },
+            new TableCell("1,234.50") { Alignment = TextAlignment.End, Fill = Color.FromHex("#FFF3CD") },
+            new TableCell([new Paragraph("Paid"), new Paragraph("by card") { Style = new TextStyle { Color = Color.MidGray } }])),
+    ]));
+```
+
+- The header row is repeated at the top of every page the table continues on (`RepeatHeader`, on by default; a header taller than half a page is not repeated), and is bold by default.
+- A row is never split between pages unless it is taller than a page; then it is split between the lines of its cells. A row that does not fit the rest of a page moves whole to the next one.
+- `Borders` are `None` (the default), `All`, `Horizontal`, `Outer` or your own lines made of a `BorderLine`, set for the outer and inner edges separately. Each page's part of a table has its own top and bottom line.
+- `HeaderFill`, `ZebraFill` (every second body row) and a `Fill` on a row or a cell are painted in that order, the cell's on top.
+- A cell's padding is physical (`Margins`), 3 points above and below and 5 at the sides by default; a cell may set its own.
+- A row with fewer cells than the table has columns leaves the rest empty. There are no cell spans, no vertical alignment and no table inside a table or a cell.
+
+## Tables of many rows
+
+The rows of a `Table` are an `IEnumerable<TableRow>` that is **enumerated once for each save and never held whole**, so a table costs the pages it makes and not the rows it came from. A lazy sequence
+(a `Select` over a query, a `yield return` method) is the intended input. Two consequences:
+
+- a sequence that can be enumerated only once (a reader, a one-shot iterator) works for one save only, and `IAsyncEnumerable` is not accepted: read your rows into an enumerable first, or build it to be repeatable;
+- a table does not know its length. `Table.MaxRows` reads one row more than it draws to know that there are more.
+
+The example below uses the `columns` and `header` of the table example above, and your own `invoices`:
+
+<!-- snippet: guide-table-streaming -->
+```csharp
+using System.Diagnostics;
+using System.Globalization;
+
+PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });
+
+// A lazy sequence is the intended input: it is enumerated once for each save and never held whole, so a table of a hundred
+// thousand rows costs the pages it makes and not the rows it came from.
+IEnumerable<TableRow> rows = invoices.Select(i => new TableRow(i.Name, i.Amount.ToString("N2", CultureInfo.InvariantCulture), i.Status));
+
+// MaxRows draws the first 100 rows and leaves the rest out; the document says so in its diagnostics.
+document.Add(new Table(columns, header, rows) { MaxRows = 100 });
+
+await document.SaveAsync(stream, cancellationToken);
+
+foreach (TruncatedTable cut in document.Diagnostics.TruncatedTables)
+{
+    Trace.WriteLine($"The table at block {cut.BlockIndex} was cut after {cut.MaxRows} rows.");
+}
+```
+
+`Table.MaxRows` cuts one table and lists it in the diagnostics; `DocumentLimits.MaxTableRows` stops the save with an exception when any table goes past it (see [Diagnostics and limits](#diagnostics-and-limits)).
+Use the first when a partial table is acceptable (a "200 of 5,300 rows" note is yours to add) and the second as a guard against a runaway query. When both are set, whichever a table reaches first applies.
+
+## Columns and callouts
+
+`Columns` is a row of one to four equal-width cells, each holding one block or several: a KPI row, a logo beside a title, two paragraphs side by side. A row of columns is never split between pages. `Callout`
+is a box around one or more blocks with a fill, a border, a padding and a corner radius (a radius larger than half the shorter side makes a pill). A callout in the flow is split between pages when it is too
+tall, with a box on each page, unless `KeepTogether` is set.
+
+<!-- snippet: guide-columns-callout -->
+```csharp
+// A KPI row: one to four equal cells, here inside a filled box that is kept on one page.
+document.Add(new Callout(new Columns(
+[
+    new Paragraph([new TextRun("Revenue\n"), new TextRun("1.2 M", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
+    new Paragraph([new TextRun("Orders\n"), new TextRun("8,430", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
+    new Paragraph([new TextRun("Returns\n"), new TextRun("2.1 %", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
+]))
+{
+    Fill = Color.FromHex("#E8F0FE"),
+    Border = new BorderLine(Length.Pt(0.75), Color.FromHex("#3366CC")),
+    CornerRadius = Length.Pt(4),
+    Padding = Margins.Pt(top: 8, right: 10, bottom: 8, left: 10),
+    KeepTogether = true,
+});
+
+// A cell may hold several blocks, and a gap can be set; a callout in the flow holds any blocks and is split between pages when it is too tall.
+document.Add(new Columns([[new Heading(3, "Notes"), new Paragraph("Left cell")], [new Paragraph("Right cell")]]) { Gap = Length.Mm(8) });
+document.Add(new Callout([new Heading(3, "Note"), new Paragraph("A note is a few blocks in a box.")]) { Fill = Color.FromHex("#FFF3CD") });
+```
+
+Columns are one level deep: no columns inside columns (also through a callout), and no table or page break in a cell or a callout. A callout inside a column cell or another callout is not split, and one taller than a
+page fails the save with an `InvalidOperationException`. `Direction` on `Columns` and `Callout` sets the order of cells and the direction of the paragraphs inside.
+
+## Drawing: charts and figures
+
+Pdfwright has a drawing canvas and a text measurer, not a chart library: you draw the bars, lines, areas and gauges of your own charts from your data and your colours, and they are vectors in the file.
+A `Drawing` is a box of a given size and a callback that draws on a `DrawingCanvas`. The callback runs when the document is saved, and the box is a clip.
+
+All numbers on the canvas are `double`s in **points**, the origin is the **top left** of the box, and **y points down**.
+
+<!-- snippet: guide-drawing -->
+```csharp
+using System.Globalization;
+
+double[] values = [4, 7, 5, 9, 6];
+string[] labels = ["Q1", "Q2", "Q3", "Q4", "Q5"];
+TextStyle small = new() { Size = Length.Pt(8) };
+TextMeasurer measurer = new(fonts, new TextStyle { Family = "Noto Sans" });
+
+document.Add(new Drawing(Length.Mm(120), Length.Mm(50), canvas =>
+{
+    // Points, origin at the top left, y pointing down. Nothing is drawn outside the box.
+    double baseline = canvas.Height - 14;
+    double step = canvas.Width / values.Length;
+
+    canvas.Stroke(new DrawingPathBuilder().MoveTo(0, baseline).LineTo(canvas.Width, baseline).Build(), Color.MidGray, 0.5);
+
+    for (int i = 0; i < values.Length; i++)
+    {
+        double height = values[i] / 10 * (baseline - 14);
+        double x = (i * step) + 6;
+        canvas.Fill(new DrawingPathBuilder().Rectangle(x, baseline - height, step - 12, height).Build(), Color.FromHex("#3366CC"));
+
+        // Place the value above the bar, centred, using the width the engine will draw it with.
+        string value = values[i].ToString(CultureInfo.InvariantCulture);
+        double width = measurer.Measure(value, small).Width.Points;
+        if (width < step - 12)
+        {
+            canvas.DrawText(value, x + ((step - 12) / 2), baseline - height - 3, small, TextAlignment.Center);
+        }
+
+        canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
+    }
+})
+{ AltText = "Bar chart of sales by quarter" });
+```
+
+The canvas can fill and stroke paths (lines, rectangles, rounded rectangles, ellipses, arcs, quadratic and cubic curves, closed or not), with even-odd or non-zero fill, opacity, and pens with dashes, caps and joins.
+It can clip to a path and transform the axes (`Translate`, `Scale`, `Rotate`, `Transform`); `Save` and `Restore` bracket a change of state, and a `Save` left open is closed when the callback returns.
+
+<!-- snippet: guide-canvas -->
+```csharp
+document.Add(new Drawing(Length.Mm(60), Length.Mm(30), canvas =>
+{
+    DrawingPath disc = new DrawingPathBuilder().Ellipse(40, 40, 30, 30).Build();
+    canvas.Fill(disc, Color.FromHex("#3366CC"), opacity: 0.5);
+
+    canvas.Save();                                   // the transform and the clip are undone by Restore
+    canvas.Clip(new DrawingPathBuilder().Rectangle(0, 0, canvas.Width, canvas.Height).Build());
+    canvas.Translate(120, 40);
+    canvas.Rotate(20);                               // degrees, clockwise on the canvas
+    DrawingPen dashed = new(Color.Red, width: 2, dashes: [5, 3]);
+    canvas.Stroke(new DrawingPathBuilder().RoundedRectangle(-20, -10, 40, 20, 4, 4).Build(), dashed);
+    canvas.Restore();
+
+    // A pie slice: a path of an arc and two lines.
+    DrawingPath slice = new DrawingPathBuilder().MoveTo(40, 40).LineTo(70, 40).Arc(40, 40, 30, 30, 0, 90).Close().Build();
+    canvas.Fill(slice, Color.Green, rule: FillRule.NonZero);
+}));
+```
+
+- `DrawText` sets text through the document's fonts with the same engine as paragraphs (so Arabic and Hindi are shaped, and missing glyphs are reported). The point is the start of the first baseline, and
+  `alignment` says which edge of the text sits at the point. It does not wrap; break lines yourself, using the measurer. A `Drawing` sets text in the direction of the `Columns` or `Callout` it is in.
+- A drawing is never split or scaled: one taller than a page, or wider than the room it is in, fails the save with an `InvalidOperationException`. Give it the size of its place.
+- Write numbers on a scale near 1: operands are written with five decimals, so data in units whose fractions are below 0.00001 loses them. Scale your data into points before drawing.
+- `AltText` is kept for tagged output, which is not in 0.1, and is not written to the file yet.
+
+## Measuring text
+
+`TextMeasurer` measures text with the very engine that draws it (shaping, fallback, bidi, line breaking), so a measured size and a drawn size cannot disagree. It tells you the width a label will take, how many
+lines a caption needs at a given width, and how tall they are. It is safe to use from several threads.
+
+<!-- snippet: guide-measuring -->
+```csharp
+// Make it the way the document is made: the same fonts, default style, language and line spacing.
+TextMeasurer measurer = new(fonts, new TextStyle { Family = "Noto Sans", Size = Length.Pt(9) }, language: "en");
+
+TextMeasurement one = measurer.Measure("Revenue by quarter");
+double widthInPoints = one.Width.Points;
+
+// With a width the text wraps like a paragraph of that width: how many lines, and how tall.
+TextMeasurement wrapped = measurer.Measure("A caption that is longer than the room the figure leaves for it.", maxWidth: Length.Mm(40));
+int lines = wrapped.LineCount;
+Length height = wrapped.Height;
+```
+
+A measurement matches a document only if it is made the way the document is: the same fonts, default style, language, direction (the `direction` argument) and line spacing. A paragraph in a document is measured
+at the content width of its place, so give `Measure` the width you mean.
+
+## Images
+
+`PdfImage.FromBytes` reads a JPEG or a PNG. A JPEG is passed through into the file undecoded; a PNG is decoded once by a small managed decoder, and its transparency is kept. The picture is held decoded for the life
+of the object and written once to each document that uses it, so make it once and share it. The colour management of a PNG (`iCCP`, `gAMA`, `sRGB`, `cHRM`) is ignored, and the orientation and colour profile of a JPEG
+are too; an image is limited to 65,535 pixels on a side and 100 million pixels in all, refused with an exception before memory is allocated.
+
+<!-- snippet: guide-images -->
+```csharp
+PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG or PNG; make it once and use it in any number of documents
+
+// The block keeps the picture's proportions: give a width, a height, or neither (the picture's natural size, 96 pixels to the inch).
+document.Add(new Image(logo) { Width = Length.Mm(30), Alignment = TextAlignment.End, AltText = "Company logo" });
+
+// The canvas stretches the picture to the rectangle it is given.
+document.Add(new Drawing(Length.Mm(40), Length.Mm(20), canvas => canvas.DrawImage(logo, 0, 0, canvas.Width, canvas.Height, opacity: 0.8)));
+```
+
+The `Image` block keeps the picture's proportions (set a width or a height, not both; setting both stretches it) and is scaled down to fit the width when it is wider than its place. It can be placed in the flow, in a cell, in a callout,
+in a header, and drawn on a canvas.
+
+## Headers and footers
+
+`Header` and `Footer` are functions from a `PageContext` (the number of the page, the page count, whether it is the first or the last, and the page size) to a block, or to `null` for a page with none. They are called
+once for each page, in order, **after the whole body has been laid out**, so `PageContext.Count` is the final count and "page x of y" costs nothing: a table of any length is still enumerated once. The block is laid out
+at the content width and drawn **inside the margin**, so the body's area does not change; it may be a paragraph, a heading, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, but
+not a table or a page break. A block taller than the room the margin leaves (the margin minus the offset) fails the save with an `InvalidOperationException` that names the page and says whether it was the header or the footer.
+The callback should be a pure function of its argument.
+
+<!-- snippet: guide-header-footer -->
+```csharp
+PdfImage logo = PdfImage.FromBytes(logoBytes);
+
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    Margins = Margins.Mm(top: 25, right: 15, bottom: 20, left: 15),
+    HeaderOffset = Length.Mm(8),   // from the top edge of the page to the top of the header (by default, half the margin)
+    FooterOffset = Length.Mm(8),   // from the bottom edge of the page to the bottom of the footer
+    // Called once for each page, after the whole body is laid out, so Count is final. Return null for a page with no header.
+    Header = page => page.IsFirst
+        ? null
+        : new Columns([new Image(logo) { Width = Length.Pt(24) }, new Paragraph("Monthly report") { Alignment = TextAlignment.End, Style = new TextStyle { Color = Color.MidGray } }]),
+    Footer = page => new Paragraph($"Page {page.Number} of {page.Count}") { Alignment = TextAlignment.End },
+});
+
+document.Add(new Heading(1, "Monthly report"));
+for (int i = 0; i < 90; i++)
+{
+    document.Add(new Paragraph($"Line {i} of the body, which runs over several pages."));
+}
+```
+
+**Page numbers in a right-to-left document.** In a right-to-left document a footer such as `$"{page.Number} / {page.Count}"` is a right-to-left paragraph, so the two numbers are ordered by the bidirectional
+algorithm: page 1 of 3 shows as "3 / 1". Say what you mean in one of two ways. Make the whole footer left to right:
+
+<!-- snippet: guide-rtl-footer -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+    Direction = TextDirection.RightToLeft,
+    // The footer is a right-to-left paragraph here, so "1 / 3" would be read in bidi order and shown as "3 / 1".
+    // Make the whole footer left to right:
+    Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Direction = TextDirection.LeftToRight, Alignment = TextAlignment.Center },
+});
+```
+
+Or keep the footer a right-to-left line and put the numbers inside a left-to-right isolate, written `⁦` and `⁩` in C# (U+2066 and U+2069):
+
+<!-- snippet: guide-rtl-footer-isolate -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+    Direction = TextDirection.RightToLeft,
+    // The numbers sit inside a left-to-right isolate (U+2066 ... U+2069), and the footer stays a right-to-left line.
+    Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
+});
+```
+
+## Right-to-left and mixed-direction text
+
+Direction comes from `PdfDocumentOptions.Direction` (`Auto`, the default, `LeftToRight` or `RightToLeft`), overridden by the `Direction` of a paragraph, heading, table, columns or callout. With `Auto`, each
+paragraph takes its direction from its first strong character. Inside a paragraph, the runs are ordered by the Unicode bidirectional algorithm (UAX #9), including paired brackets and isolates.
+
+The text is written to the file **in logical order** (the order you typed it), with each glyph in the position the bidirectional algorithm gives it. That is what makes the text of the file searchable, copyable and readable
+by a screen reader, and it is what separates Pdfwright from writers that draw presentation forms in visual order.
+
+<!-- snippet: guide-rtl -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Size = Length.Pt(11), Language = "ar" },
+    Language = "ar",
+    Direction = TextDirection.RightToLeft,   // the default is Auto: each paragraph takes its direction from its first strong character
+});
+
+document.Add(new Heading(1, "تقرير المبيعات الشهري"));
+
+// English inside Arabic: the Unicode bidirectional algorithm orders the runs; the text stays in logical order in the file.
+document.Add(new Paragraph("بلغت المبيعات 1,200 وحدة في Q3 وفق تقرير Finance."));
+
+// A reference code reads left to right, as one line.
+document.Add(new Paragraph("INV-2026-0042") { Direction = TextDirection.LeftToRight });
+
+// The first column is at the right edge; Start alignment is the right edge, End the left.
+document.Add(new Table(
+    [new TableColumn(ColumnWidth.Fraction(1)), new TableColumn(ColumnWidth.Fixed(Length.Mm(30))) { Alignment = TextAlignment.End }],
+    new TableRow("العميل", "المبلغ"),
+    [new TableRow("شركة الأفق", "1,200.00"), new TableRow("مؤسسة النور", "845.50")])
+{
+    Borders = Borders.Horizontal,
+});
+```
+
+- Alignment, table columns, column cells and the position of an `Image` are logical: in a right-to-left context `Start` is the right edge and the first column or cell is at the right edge. Padding, margins and borders are physical.
+- Arabic is shaped by HarfBuzz (joining, ligatures, marks); Hebrew points, Devanagari, Bengali and Tamil conjuncts and reordering vowel signs, and Thai stacked marks are positioned by the font's own tables. Supply a font for each
+  script you use (the Noto fonts used by the tests cover all of them).
+- Copying text out of a PDF made by Pdfwright can carry an invisible U+034F (a combining grapheme joiner) after some letters of Arabic, Indic and Thai text, and a reader that places glyphs by position (`pdftotext`'s default mode)
+  can show spaces inside words in some of those scripts. The file is correct and readers that follow the content stream get the text exactly; see [known-limitations.md](known-limitations.md) for what was measured and why.
+
+## Metadata and deterministic output
+
+<!-- snippet: guide-metadata -->
+```csharp
+PdfDocumentOptions options = new()
+{
+    Fonts = fonts,
+    Title = "Monthly report",
+    Subject = "Sales, October 2026",
+    Author = "Finance",                 // written only when set; nothing is added that the caller did not give
+    Creator = "Reporting service",
+    Language = "en",                    // a screen reader chooses its voice from this
+    Deterministic = true,               // the clock is never read: the same document is the same bytes
+    Creation = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero),   // optional; a deterministic file has no date without it
+    Compress = false,                   // Flate depends on the runtime's zlib; off, the bytes are the same on every .NET version
+};
+
+PdfDocument document = new(options);
+document.Add(new Paragraph("Hello"));
+```
+
+- Metadata is the title, subject, author, creator and language. Nothing is written that was not set, and the library records itself as the producer.
+- With `Deterministic = true` the clock is never read, so the same document is the same bytes. The file's `/ID` is a hash of its content either way. Without `Deterministic` and without `Creation`, the date is the time of the save.
+- `Compress` (on by default) is Flate. The compressed bytes depend on the zlib of the .NET runtime, so a compressed file is the same bytes on the same runtime but may differ between runtimes. For golden files that must match everywhere,
+  switch it off.
+- Every number in the file is written with the invariant culture, so a German or Turkish machine writes the same file as an American one.
+
+## Diagnostics and limits
+
+A document is made for a report, so a character no font has is **data to inspect, not an exception**. After a save, `PdfDocument.Diagnostics` says what it found:
+
+| Property | What it holds |
+|---|---|
+| `MissingGlyphs` | Each character no font had, once for each language and page it occurred on, at most 1,000 |
+| `MissingFamilies` | The families a style asked for that the collection does not have |
+| `TruncatedTables` | The tables that went past their `MaxRows` |
+| `PageCount`, `ByteCount` | The size of what was written |
+
+`PdfDocumentOptions.Limits` stops a runaway document with a `PdfLimitExceededException` whose `Limit` says which limit and `Maximum` its value: `MaxPages`, `MaxBytes` (checked after every page and once more when the file is complete,
+so a file over the limit is never returned) and `MaxTableRows`. **Nothing is written to the stream when a limit is hit.**
+
+<!-- snippet: guide-diagnostics-limits -->
+```csharp
+using System.Diagnostics;
+
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    Limits = new DocumentLimits { MaxPages = 50, MaxBytes = 5_000_000, MaxTableRows = 5_000 },
+});
+
+document.Add(new Paragraph("Hello 你好"));   // no font of the collection has these two characters
+
+try
+{
+    await document.SaveAsync(stream, cancellationToken);
+}
+catch (PdfLimitExceededException e)
+{
+    // Nothing was written to the stream. e.Limit says which limit and e.Maximum its value.
+    Trace.WriteLine($"{e.Limit} of {e.Maximum} was exceeded.");
+    throw;
+}
+
+// What the save found: data to inspect, never an exception.
+DocumentDiagnostics report = document.Diagnostics;
+foreach (MissingGlyph glyph in report.MissingGlyphs)
+{
+    Trace.WriteLine($"{glyph.Character} (U+{glyph.CodePoint:X4}) is in no font; language {glyph.Language ?? "unset"}, page {glyph.Page}.");
+}
+
+Trace.WriteLine($"{report.PageCount} page(s), {report.ByteCount} bytes, missing families: {string.Join(", ", report.MissingFamilies)}");
+```
+
+Other failures are exceptions where a value is wrong: a property is checked where it is set and the exception names it (`ArgumentOutOfRangeException` for a size or weight out of range, `ArgumentException` for a negative margin),
+and a layout that cannot be made (a drawing wider than its place, a header taller than its margin, a callout whose padding leaves no room) fails the save with an `InvalidOperationException` that says what and where. The font
+collection throws `ObjectDisposedException` after it is disposed.
+
+## Threads and lifetimes
+
+- `FontCollection` and `TextMeasurer` are safe to share between threads and documents; a `PdfImage` is made once and is meant to be shared by documents.
+- A `PdfDocument` is not thread-safe: do not use one instance from several threads at once (adding while a save runs, or two saves at once, throws `InvalidOperationException`). Make a document for each report.
+- Do not dispose a `FontCollection` while a document made with it is being saved.
+- The callbacks (`Drawing`'s, `Header` and `Footer`) run during the save, on the thread that saves, so they should not capture something that changes meanwhile.

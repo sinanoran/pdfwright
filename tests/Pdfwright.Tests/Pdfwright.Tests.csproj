@@ -49,6 +49,8 @@
     <Compile Include="..\..\tools\Pdfwright.UnicodeGen\BidiDataGenerator.cs" Link="Unicode\BidiDataGenerator.cs" />
     <Compile Include="..\..\tools\Pdfwright.UnicodeGen\PropertyDataGenerator.cs" Link="Unicode\PropertyDataGenerator.cs" />
     <Compile Include="..\..\tools\Pdfwright.UnicodeGen\ScriptDataGenerator.cs" Link="Unicode\ScriptDataGenerator.cs" />
+    <!-- The sample of the documentation is compiled here too, so that a test builds and reads back the very report that the sample program writes. -->
+    <Compile Include="..\..\samples\Pdfwright.Samples.Report\ReportSample.cs" Link="Documentation\ReportSample.cs" />
   </ItemGroup>
 
 </Project>

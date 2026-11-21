@@ -6,61 +6,48 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Version 0.1.0 is complete in this repository and is not released: nothing is published to nuget.org (see `RELEASING.md`). Everything below is what 0.1.0 will contain.
+
 ### Added
 
-- The repository skeleton (slice S0 of `docs/plan-0.1.md`): the build for `net8.0` to `net11.0`, the CI
-  and release workflows, the test corpus in nine scripts and mixed-direction text with its fonts and their licences on record, and
-  the benchmark and process harness with the recorded baselines. No writer and no public API yet.
+- **A document layer for reports.** `PdfDocument` is made from `PdfDocumentOptions` (fonts, default style, page size, margins, metadata, direction, header and footer, limits) and saved with `Save` or `SaveAsync`.
+  Blocks flow down the page and break onto new pages: `Heading` (levels 1 to 6), `Paragraph` (styled runs, logical alignment, line spacing, keep-together), `Spacer`, `PageBreak`, `Table`, `Columns`, `Callout`, `Drawing` and `Image`.
+  Values are `Length` (points, millimetres, centimetres, inches; no implicit conversion from a number), `PageSize`, `Margins` and `Color`, and are checked where they are set.
+- **Tables** with fixed, fractional and automatic column widths (measured from the header and the first 100 rows), cell padding, borders, header, zebra, row and cell fills, logical alignment, right-to-left column order, a header repeated
+  on every page, and rows that are never split unless taller than a page. Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole; `Table.MaxRows` cuts a table and reports it.
+- **Columns and callouts**: one to four equal cells for a KPI row, and a box with a fill, border, padding and corner radius that is split between pages or kept together.
+- **A drawing canvas** for charts as vectors: paths (lines, rectangles, rounded rectangles, ellipses, arcs, curves), fills with either rule, strokes with dashes, caps and joins, clipping, transforms, opacity, text through the
+  document's fonts, and images, in points with the origin at the top left. **`PdfImage.FromBytes`** reads JPEG (passed through) and PNG (decoded, with transparency).
+- **Headers and footers** built for each page from a `PageContext` (number, count, first and last page), drawn inside the margins after the body is laid out, so "page x of y" needs no second pass.
+- **`TextMeasurer`**, which measures text with the engine that draws it, for placing labels.
+- **Fonts supplied, never discovered**: `FontCollection` (thread-safe, `IDisposable`) takes TrueType bytes, reads family, weight and style from the font, refuses fonts that forbid embedding with `FontNotEmbeddableException`,
+  and chooses a font for each grapheme cluster by family, weight, style and coverage. Only the glyphs used are embedded, as subsets.
+- **Right-to-left and mixed-direction text** by the Unicode bidirectional algorithm, with Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping through HarfBuzz and Latin, Greek and Cyrillic. Text is written to the file in logical
+  order, so it can be searched, copied and read by a screen reader. Measured by reading the files back: 3120 of 3120 strings of the page corpus through PdfPig and through Firefox 157.0's pdf.js (21 November 2026), and 61 of 61 mixed-direction lines through PdfPig and through pdf.js 6.3.335 (21 November 2026, compared in NFD with white space, U+034F and the bidirectional controls removed);
+  xpdf's position-ordered `pdftotext` reads 45 of 61, a floor the tests hold (`docs/known-limitations.md`).
+- **Deterministic output** (`Deterministic`, `Creation`, `Compress`): the same document is the same bytes, and with compression off the same bytes on every .NET version. Metadata: title, subject, author, creator, language.
+- **Diagnostics and limits**: `PdfDocument.Diagnostics` lists the characters no font has (with language and page), the families that were not found, the tables that were cut, the page count and the byte count;
+  `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
+- **Documentation and samples**: a user guide (`docs/guide.md`), the known limitations, the baselines of the alternatives that were measured, and a runnable sample report (`samples/Pdfwright.Samples.Report`). Every code block of the
+  README and the guide is compiled and run by the tests, which fail when a block and its tested code differ.
+- **A package** for `net8.0`, `net9.0`, `net10.0` and `net11.0` that depends only on `HarfBuzzSharp` and its native assets, ships no font, and carries the README, the LICENSE and the NOTICE.
 
-- Slice S1 of the plan, the PDF writer core (internal): PDF objects and their serializer, the file structure with a
-  cross-reference stream and a content-based document id, a content-stream builder, a document writer (page tree,
-  Info and XMP metadata, language, URI and page links, per-page fonts, opacities and XObjects), Flate compression or none,
-  output to a stream that need not be seekable. Tested by reading generated files back with PdfPig, checking them with qpdf,
-  and comparing the uncompressed bytes with a golden file.
+### Not in this version
 
-- Slice S2 of the plan, the font engine (internal): a TrueType reader that checks every table, glyph range, composite and
-  character map against the file when it is parsed (formats 4 and 12), the embedding licence rules of OS/2 `fsType`, a subsetter
-  that keeps glyph ids, and the embedded font object (Type 0 / CIDFontType2 with `Identity-H`, widths, `ToUnicode`, a
-  deterministic subset tag). Tested against nine fonts in nine scripts, with HarfBuzz as a second reader, PdfPig and qpdf.
+CJK, emoji and colour fonts, forms, encryption, PDF/A, tagged (accessible) PDF, links on text, hyphenation, justification, table cell spans, widow and orphan control, synthetic bold and italic, and any use of system fonts.
+Each is named, with the reason, in `docs/known-limitations.md`.
 
-- Slice S3a of the plan, the bidirectional algorithm (internal): the Unicode 18.0.0 data pinned in `data/unicode` with its hashes and licence,
-  a generator (`tools/Pdfwright.UnicodeGen`) that makes the class, bracket and mirroring tables, and UAX #9 (explicit levels, isolates, weak and
-  neutral types, paired brackets, implicit levels, L1 and L2). It passes every row of `BidiTest.txt` (770,241) and `BidiCharacterTest.txt` (91,707).
+### Internal, not public API
 
-- Slice S3b of the plan, line breaking and grapheme clusters (internal): the line break class, grapheme break class and the properties their rules
-  ask about, generated into one packed table; UAX #14 (rules LB1 to LB31 with the Unicode 18 additions) and UAX #29 extended grapheme clusters
-  (GB1 to GB999). They pass every row of `LineBreakTest.txt` (19,346) and `GraphemeBreakTest.txt` (853).
+The PDF writer (objects, cross-reference stream, content streams, Flate, Info and XMP metadata, document id), the font engine (a validating TrueType reader, the embedding licence rules, a glyph-closure subsetter, Type 0 fonts with
+`ToUnicode`), and the text engine (Unicode 18.0.0 tables and their generator, the bidirectional algorithm UAX #9, line breaking UAX #14, grapheme clusters UAX #29, script itemization, shaping and font fallback, paragraph layout).
+The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest.txt` (91,707), `LineBreakTest.txt` (19,346) and `GraphemeBreakTest.txt` (853).
 
-- Slice S3c of the plan, script itemization (internal): the script and Script_Extensions of every code point with the ISO 15924 codes, and
-  an itemizer after UAX #24 that splits text into runs of one script (common and inherited characters join their run, a closing bracket
-  returns to the script of its opening bracket, a character used with several scripts stays in the run it is in).
+### Tests and tooling
 
-- Slice S5a of the plan, the public API and the simple block flow: `Length`, `PageSize`, `Margins`, `Color`, `FontCollection` (thread-safe, family,
-  weight and style read from the font, fonts that forbid embedding refused with `FontNotEmbeddableException`), `TextStyle`, `TextDirection`, `TextAlignment`,
-  the blocks `Heading`, `Paragraph` (with styled runs), `Spacer` and `PageBreak`, `PdfDocumentOptions`, `PdfDocument` (`Save`, `SaveAsync`),
-  `TextMeasurer`, `DocumentDiagnostics` and the limits `MaxPages` and `MaxBytes` (`PdfLimitExceededException`). The paragraph layout now takes
-  runs of different size, font, language and colour in one line (a colour does not split the shaping of a word). Values are checked where they are set, with the property as the parameter name; `MaxBytes` holds for the finished file and a limit that is hit
-  writes nothing to the stream (`PdfLimitExceededException.Limit` is a `DocumentLimit`); `FontCollection` is `IDisposable`; a family that is not in the collection is listed in `DocumentDiagnostics.MissingFamilies`. The public surface (with nullability) is recorded in `tests/Pdfwright.Tests/PublicApi/`.
-
-- Slice S5b of the plan, the table: the block `Table` with `TableColumn` (`ColumnWidth.Fixed`, `Fraction`, `Auto`; logical alignment), `TableRow`, `TableCell` (paragraphs or text, padding, fill, alignment, style), `Borders` and `BorderLine`,
-  header and zebra fills, header rows repeated on every page, rows that are never split unless taller than a page (then between the lines of the cells), right-to-left column order, automatic widths measured from the header and the first 100 rows.
-  Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole. `DocumentLimits.MaxTableRows` (`DocumentLimit.MaxTableRows`) stops a save; `Table.MaxRows` cuts a table and lists it in `DocumentDiagnostics.TruncatedTables`.
-
-- Slice S5c of the plan, the rest of the block flow: the blocks `Columns` (1 to 4 equal cells of blocks, kept together on a page, right-to-left order), `Callout` (fill, border, padding, corner radius; split between pages with a box on each, or `KeepTogether`),
-  `Drawing` (a box and a callback on the public `DrawingCanvas`: points as `double`, origin top left; paths, fills, strokes with dashes, clip, transforms, opacity, text through the document's fonts with missing glyphs reported, images) and `Image` (with the new `PdfImage.FromBytes` for JPEG and PNG),
-  `Paragraph.KeepTogether`, and `PdfDocumentOptions.Header` and `Footer` built per page from a `PageContext` (number, count, first and last page) and drawn inside the margins after the body, in one pass: the count is always known and a streamed table is still enumerated once.
-  The internal namespace `Pdfwright.Drawing` is now `Pdfwright.Graphics`. Links on text are not public yet (`docs/known-limitations.md`).
-  After review: a heading is kept with the whole of a `KeepTogether` block that follows; a callout whose padding leaves no room, a gap that leaves a cell under 4 points, and a header or footer that cannot be laid out (naming the page) fail the save with an `InvalidOperationException`; `Image.Source` is the picture; `DrawingPen` has value equality and read-only dashes; a `Drawing` draws text in the direction of its `Columns` or `Callout`.
-
-- Slice S6a of the plan, script conformance (tests and tools): a page corpus in ten script groups (Latin Extended, Greek, Cyrillic, Arabic, Hebrew, mixed direction, Devanagari, Bengali, Tamil, Thai), each a short page and a long
-  page with a 100-row table, as data files under `tests/Pdfwright.Tests/Corpus/pages`; a read-back test through the public API in which every heading, paragraph and table cell (3120 strings counting the repeated rows, 308 distinct) comes back from PdfPig, and from
-  Firefox's pdf.js when measured by hand, equal to its input in logical order with its spaces and string boundaries (and the right-to-left runs laid out right to left); failure cases for every script (a missing glyph, a font that may not be embedded, an unknown family); golden files for each script group and the
-  README report, compared by SHA-256 and written without compression, with `tools/Pdfwright.GoldenDiff` to see what differs and `PDFWRIGHT_UPDATE_GOLDENS=1` to regenerate them; seeded property and fuzz tests (random mixed-script
-  text never throws or leaves the page, a paginated table keeps every row once and its header on every page, equal bytes twice). `tools/pdfjs-check` reads whole documents.
-  Fixed: a glyph drawn as `.notdef` (a mark with no glyph in the font of its base, such as a Hebrew point after a Latin digit) is kept on the baseline; HarfBuzz's fallback mark positioning had put it below the line.
-
-- Slice S6b of the plan, visual golden files (tests only): every page of every golden document is drawn by PDFium (the test-only package `PDFtoImage`, MIT, with `bblanchon.PDFium.*` Apache-2.0 and SkiaSharp MIT) at 96 dpi and compared with a stored PNG
-  under a tight tolerance (more than one differing pixel fails), so a mark drawn in the wrong place or a mirrored glyph is caught where text extraction would still pass; a failure writes the page and an image of the differences for the CI artifact, `PDFWRIGHT_UPDATE_GOLDENS=1` regenerates the PNGs,
-  `PDFWRIGHT_REQUIRE_RENDER=1` (set on CI) makes a renderer that cannot load a failure. The library gains no dependency.
+- The public surface (with nullability) is recorded in `tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt`, and a test fails when it changes without that file changing.
+- Golden files for each script group and the README report, compared by SHA-256, with `tools/Pdfwright.GoldenDiff` to see what differs; visual golden files, every page drawn by PDFium and compared with a stored picture;
+  seeded property and fuzz tests; failure cases for every script; `qpdf --check` on every generated file in CI; `tools/pdfjs-check` for Firefox's pdf.js; the benchmark and process harness (`benchmarks/`).
+- CI on Linux, Windows and macOS, and a release workflow that publishes with Trusted Publishing and no stored key.
 
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
