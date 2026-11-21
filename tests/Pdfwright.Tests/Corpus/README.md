@@ -40,3 +40,40 @@ The strings are short and ordinary on purpose: a phrase a speaker of the languag
 native-speaker review before 0.1.0 (a release-checklist item) is a matter of minutes per script. They are
 original texts or common phrases, not copied passages; religious and political phrases are left out on
 purpose.
+
+## The page corpus (slice S6a): `pages/`
+
+The lines above are single strings. `pages/<group>.txt` are whole documents: one file for each script group (`latin-extended`, `greek`, `cyrillic`, `arabic`, `hebrew`,
+`mixed`, `devanagari`, `bengali`, `tamil`, `thai`), each giving a **short page** (a heading and a few paragraphs) and a **long page** (a heading, paragraphs and a
+three-column table of about 100 rows, which runs over several pages and repeats its header). The text is data, not code, so a reviewer who reads the language can fix it in a diff.
+The tests build the documents through the public API only (`PdfDocument`, `FontCollection`, `Heading`, `Paragraph`, `Table`) with all nine Noto fonts in the collection and the family of the
+file as the default style: `PageCorpus` in `tests/Pdfwright.Tests/Conformance`.
+
+```
+# a comment
+@group arabic              the group's name (also the name of its golden file)
+@family Noto Sans Arabic   the default family of the document; the other fonts of the collection draw what it lacks
+@direction rtl             ltr, rtl or auto: the direction of the document
+@rows 100                  the table has this many rows: the `row` lines are repeated in turn until there are so many
+@language tr               from here on, the language of each text (`@language -` for none): it selects the shaping features (Turkish i, Persian forms)
+<page>|<kind>|<text>...    page is short or long; kind is heading, heading2, para, head (the table header) or row; head and row have one text for each column, separated by |
+```
+
+A text may not contain `|`; every file is strict UTF-8, in Unicode normalization form C, with no byte-order mark (the loader asserts it).
+
+**What the tests do with them.**
+
+- `ScriptConformanceTests`: PdfPig reads each document back and every heading, paragraph and table cell must be equal to its input, in logical order. The normalisation is exactly this: every
+  run of characters for which `char.IsWhiteSpace` is true becomes one space on both sides, and U+034F COMBINING GRAPHEME JOINER is removed (which Pdfwright writes after some Arabic, Indic and Thai letters, see
+  `docs/known-limitations.md`). Nothing else is touched: the right-to-left mark, the zero-width non-joiner and the order of combining marks are compared as they are. A string passes when
+  the text read has it whole where the previous string ended (a space is a space or a line break, a line break falls inside a string only between grapheme clusters, a character that moved into the next string or cell fails); `Directions` also checks that right-to-left letters fall and left-to-right letters rise in the order of the stream; the header of a table, drawn again at the top of each later page, may stand between two strings and is counted separately
+  (a long page with *n* pages must repeat it *n* − 1 times).
+- `FailureCaseTests`: a character no font has (the diagnostics name it, the language and the page), a font that may not be embedded (`FontNotEmbeddableException`), a family that is not in the collection
+  (`MissingFamilies`), for every script.
+- `GoldenDocumentTests`: the short page of each group is a golden file (`tests/Pdfwright.Tests/Golden/README.md`).
+- `PropertyTests`: random strings from these files' alphabets (`PageCorpus.Alphabet`).
+- With `PDFWRIGHT_DUMP=<folder>` the extraction test keeps each document as `<group>-<short|long>.pdf` with its strings in `<group>-<short|long>.expected.txt`, which
+  `tools/pdfjs-check` reads with Firefox's pdf.js (see its README).
+
+**Which scripts have no font here.** None of the groups of the plan: Latin Extended, Greek and Cyrillic use Noto Sans; Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai have a Noto font each.
+Only the Regular weight exists for the six script fonts (Noto Sans has Regular, Bold and Italic), so a heading in those scripts is drawn in the nearest weight, which is Regular.

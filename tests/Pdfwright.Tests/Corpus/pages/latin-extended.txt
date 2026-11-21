@@ -1,0 +1,38 @@
+# Page corpus: Latin Extended. See Corpus/README.md for the format.
+@group latin-extended
+@family Noto Sans
+@direction ltr
+@rows 100
+@language tr
+short|heading|Türkçe, Deutsch, Polski, Tiếng Việt
+short|para|İstanbul'da ışık var: Iğdır, şeker, çay, ığ İğ, I ı İ i. Pijamalı hasta yağız şoföre çabucak güvendi.
+@language de
+short|para|Größe, Straße, Äpfel, Übung, Öl: Zwölf Boxkämpfer jagen Viktor quer über den großen Sylter Deich.
+@language pl
+short|para|Zażółć gęślą jaźń; Pchnąć w tę łódź jeża lub ośm skrzyń fig.
+@language vi
+short|para|Tiếng Việt: ắ ằ ẳ ẵ ặ, ơ, ư, đ, Ế Ề Ể Ễ Ệ. Hà Nội, Huế, Đà Nẵng, Đường Nguyễn Huệ.
+@language en
+long|heading|Quarterly report in four languages
+@language tr
+long|para|İstanbul şubesinin üçüncü çeyrek raporu hazırlandı. Iğdır, Işık ve İzmir bölgelerinde satışlar yüzde on iki arttı; çalışanların ışık, ısı ve güvenlik konusundaki önerileri toplantıda görüşüldü. Ilık bir sonbahar bekleniyor, ığ İğ ıİ iI.
+@language de
+long|para|Die Größe der Lieferung wurde in der Straße vor dem Büro geprüft. Äpfel, Übung und Öl stehen auf der Liste der Beschaffung; für zwölf Boxkämpfer reicht das große Zelt nicht aus, weshalb der Veranstalter bis Mittwoch eine Lösung suchen muss.
+@language pl
+long|para|Zażółć gęślą jaźń: w tym sprawozdaniu przedstawiamy wyniki sprzedaży, koszty łódzkiego oddziału oraz plany na następny kwartał. Pchnąć w tę łódź jeża lub ośm skrzyń fig, a potem zważyć wszystko jeszcze raz.
+@language vi
+long|para|Báo cáo quý này tóm tắt doanh số tại Hà Nội, Huế và Đà Nẵng. Đường Nguyễn Huệ có nhiều khách hơn, ắ ằ ẳ ẵ ặ, và chúng tôi dự kiến mở thêm một cửa hàng mới ở Đà Lạt vào cuối năm.
+@language en
+long|head|Name|City|Note
+@language tr
+long|row|Işıl Çağlar|Iğdır|Çay ve şeker siparişi: 12 koli
+long|row|İsmail Öztürk|İstanbul|Ürünler ışıklı ve ısıya dayanıklı
+@language de
+long|row|Jürgen Weiß|Düsseldorf|Größe XL, Straße 5, Öl und Äpfel
+long|row|Käthe Müller|Köln|Übungsbuch, 3 Stück, 29,90 EUR
+@language pl
+long|row|Łukasz Wójcik|Łódź|Zażółć gęślą jaźń, 2 skrzynie
+long|row|Żaneta Ślusarczyk|Kraków|Pchnąć w tę łódź jeża, 7 sztuk
+@language vi
+long|row|Nguyễn Thị Hương|Hà Nội|Ắ ằ ẳ ẵ ặ, đường 12, 45 kg
+long|row|Đặng Hoàng Ánh|Đà Nẵng|Ế Ề Ể Ễ Ệ, ơ ư đ, 3.500 đồng

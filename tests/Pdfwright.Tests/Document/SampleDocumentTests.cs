@@ -29,8 +29,8 @@ public class SampleDocumentTests
 
     private static PdfImage Logo() => PdfImage.FromBytes(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Images", "Files", "gradient-24x16.jpg")));
 
-    [Fact]
-    public void The_report_of_the_readme_is_a_valid_file_with_every_part_in_it()
+    /// <summary>The sample report of the README, also the golden file of the report (S6a).</summary>
+    internal static PdfDocument ReadmeReport(Action<DocumentTestKit.OptionsBuilder>? change = null)
     {
         PdfImage logo = Logo();
         PdfDocument document = new(Options(b =>
@@ -41,6 +41,7 @@ public class SampleDocumentTests
                 ? null
                 : new Columns([new Image(logo) { Width = Length.Pt(24) }, new Paragraph("Monthly report") { Alignment = TextAlignment.End, Style = new TextStyle { Color = Color.MidGray } }]);
             b.Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Alignment = TextAlignment.End };
+            change?.Invoke(b);
         }));
         document.Add(new Heading(1, "Monthly report"));
         document.Add(new Paragraph("Sales rose 12 % over the quarter. " + DocumentTestKit.LongText(60)));
@@ -77,6 +78,13 @@ public class SampleDocumentTests
         })
         { AltText = "Bar chart of sales by quarter" });
         document.Add(new Image(logo) { Width = Length.Mm(30), AltText = "Logo" });
+        return document;
+    }
+
+    [Fact]
+    public void The_report_of_the_readme_is_a_valid_file_with_every_part_in_it()
+    {
+        PdfDocument document = ReadmeReport();
 
         byte[] pdf = DocumentTestKit.Save(document);
 

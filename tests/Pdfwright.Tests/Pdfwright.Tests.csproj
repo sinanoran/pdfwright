@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pdfwright\Pdfwright.csproj" />
+    <!-- Built before the tests, not referenced: GoldenDiffTests runs the tool as a process. -->
+    <ProjectReference Include="..\..\tools\Pdfwright.GoldenDiff\Pdfwright.GoldenDiff.csproj" ReferenceOutputAssembly="false" SetTargetFramework="TargetFramework=net10.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -52,4 +52,11 @@ All notable changes to this project are recorded here. The format follows
   The internal namespace `Pdfwright.Drawing` is now `Pdfwright.Graphics`. Links on text are not public yet (`docs/known-limitations.md`).
   After review: a heading is kept with the whole of a `KeepTogether` block that follows; a callout whose padding leaves no room, a gap that leaves a cell under 4 points, and a header or footer that cannot be laid out (naming the page) fail the save with an `InvalidOperationException`; `Image.Source` is the picture; `DrawingPen` has value equality and read-only dashes; a `Drawing` draws text in the direction of its `Columns` or `Callout`.
 
+- Slice S6a of the plan, script conformance (tests and tools): a page corpus in ten script groups (Latin Extended, Greek, Cyrillic, Arabic, Hebrew, mixed direction, Devanagari, Bengali, Tamil, Thai), each a short page and a long
+  page with a 100-row table, as data files under `tests/Pdfwright.Tests/Corpus/pages`; a read-back test through the public API in which every heading, paragraph and table cell (3120 strings counting the repeated rows, 308 distinct) comes back from PdfPig, and from
+  Firefox's pdf.js when measured by hand, equal to its input in logical order with its spaces and string boundaries (and the right-to-left runs laid out right to left); failure cases for every script (a missing glyph, a font that may not be embedded, an unknown family); golden files for each script group and the
+  README report, compared by SHA-256 and written without compression, with `tools/Pdfwright.GoldenDiff` to see what differs and `PDFWRIGHT_UPDATE_GOLDENS=1` to regenerate them; seeded property and fuzz tests (random mixed-script
+  text never throws or leaves the page, a paginated table keeps every row once and its header on every page, equal bytes twice). `tools/pdfjs-check` reads whole documents.
+  Fixed: a glyph drawn as `.notdef` (a mark with no glyph in the font of its base, such as a Hebrew point after a Latin digit) is kept on the baseline; HarfBuzz's fallback mark positioning had put it below the line.
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

@@ -52,6 +52,23 @@ public class TextShaperTests
     }
 
     [Fact]
+    public void A_missing_glyph_stays_on_the_baseline_even_when_it_follows_a_base_of_another_script()
+    {
+        using ShapingFont latin = Load("NotoSans-Regular.ttf");
+        using ShapingFont hebrew = Load("NotoSansHebrew-Regular.ttf");
+
+        // A Hebrew point after a Latin digit: the cluster takes the digit's font, the two points have no glyph there, and HarfBuzz's fallback
+        // positioning of marks (the font has no mark positioning for them) moves a .notdef glyph down by about its own height, off the line and,
+        // on the last line of a page, off the page. A glyph that is drawn as .notdef is placed on the baseline.
+        ShapedParagraph paragraph = TextShaper.Shape("0ִֶ x", [latin, hebrew]);
+
+        Assert.Equal([1, 2], paragraph.Missing);
+        ShapedGlyph[] notdef = [.. paragraph.Runs.SelectMany(r => r.Glyphs).Where(g => g.Glyph == 0)];
+        Assert.Equal(2, notdef.Length);
+        Assert.All(notdef, g => Assert.Equal(0, g.YOffset));
+    }
+
+    [Fact]
     public void A_character_no_font_has_is_reported_with_its_utf16_index()
     {
         using ShapingFont latin = Load("NotoSans-Regular.ttf");

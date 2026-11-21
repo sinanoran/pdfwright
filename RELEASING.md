@@ -66,6 +66,17 @@ it as one, and there is no cost to doing so.
 - CI is green on `main` for the commit being tagged. The release workflow runs
   the tests again, but finding out at push time is worse than finding out before.
 
+### Checks only a person can make (before 0.1.0)
+
+These are for the maintainer; no test stands in for them, and the tests pass without them.
+
+- **Native-speaker review of the corpus text.** `tests/Pdfwright.Tests/Corpus/pages/*.txt` and the single lines in `Corpus/*.txt` are original, ordinary phrases, but a test cannot tell whether a sentence is natural or a word is spelled the way a reader
+  expects. Have a speaker of Turkish, German, Polish, Vietnamese, Greek, Russian, Arabic, Hebrew, Hindi, Bengali, Tamil and Thai read the lines of their language (a few minutes each, in a viewer, not in the source) and send corrections as a diff of the data file.
+- **Open the sample files in the viewers people use:** Chrome, Edge, Adobe Acrobat Reader and macOS Preview. Make them with `PDFWRIGHT_SAMPLES_DIR=<dir>` (the README report and a right-to-left report) and `PDFWRIGHT_DUMP=<dir>` (the twenty corpus documents).
+  Look for: Arabic letters joined and in the right order, Hebrew points and Arabic marks on their letters, Devanagari conjuncts and reordered vowel signs, Thai stacked marks, mixed-direction lines in the order the Unicode algorithm gives, the table's header on every page,
+  and that selecting and copying a line gives its text (an invisible U+034F in Arabic, Indic and Thai text is expected, see `docs/known-limitations.md`).
+- Run `node tools/pdfjs-check/pdfjs-check.js <dir> tests/Pdfwright.Tests/Corpus` on the dump and record the pass count and the pdf.js version in the plan.
+
 ## If the push fails
 
 - **`--skip-duplicate` swallowed it.** The push step passes this flag, so

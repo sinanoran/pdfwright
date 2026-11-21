@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Prints what differs between two PDFs: which objects were added, removed or changed, and for a changed one the lines of its dictionary and of its
+    decoded content stream. Written for a golden-file test that fails (tests/Pdfwright.Tests/Golden), where a hash says only "different".
+    It reads the file as text and finds the objects itself, so it needs nothing but the framework, and it expects what Pdfwright writes:
+    numbered objects with a direct /Length. A file with object streams is compared as the streams it has.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Pdfwright.GoldenDiff</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

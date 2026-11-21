@@ -340,7 +340,10 @@ internal static class TextShaper
         ShapedGlyph[] glyphs = new ShapedGlyph[infos.Length];
         for (int i = 0; i < infos.Length; i++)
         {
-            glyphs[i] = new ShapedGlyph((int)infos[i].Codepoint, (int)infos[i].Cluster, positions[i].XAdvance, positions[i].XOffset, positions[i].YOffset);
+            // A .notdef glyph stays on the baseline: when a mark has no glyph (a Hebrew point after a Latin digit, the font of the digit does not have it), HarfBuzz's
+            // fallback positioning of marks puts the .notdef box below the base by its own height, which on the last line of a page is outside it.
+            int yOffset = infos[i].Codepoint == 0 ? 0 : positions[i].YOffset;
+            glyphs[i] = new ShapedGlyph((int)infos[i].Codepoint, (int)infos[i].Cluster, positions[i].XAdvance, positions[i].XOffset, yOffset);
         }
 
         return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Style = style, Glyphs = glyphs };
