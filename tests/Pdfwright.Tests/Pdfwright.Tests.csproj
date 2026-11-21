@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pdfwright writes a file format, so its tests open what was written: a generated
+    file is read back by an independent extractor (PdfPig) and its text must come
+    back in logical order. Until the writer exists (slice S1), the suite guards what
+    everything else stands on: the fonts the corpus is drawn with are the fonts the
+    repository says they are, their licences are on record, they may be embedded, and
+    they cover every character of the corpus.
+
+    The suite runs anywhere the SDK does. No container, no host, no database.
+  -->
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <RootNamespace>Pdfwright.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <!-- xunit.v3 runs on Microsoft Testing Platform; this keeps `dotnet test` working. -->
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pdfwright\Pdfwright.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="HarfBuzzSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Fonts and corpus are copied beside the test assembly, so a test finds them without a path from the repository root. -->
+    <Content Include="Fonts\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Corpus\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

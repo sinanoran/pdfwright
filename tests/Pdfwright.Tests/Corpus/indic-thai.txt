@@ -1,0 +1,21 @@
+# Devanagari, Bengali, Tamil and Thai: conjuncts, reordering vowel signs, stacked marks.
+devanagari-hello|NotoSansDevanagari-Regular.ttf|नमस्ते दुनिया
+devanagari-conjuncts|NotoSansDevanagari-Regular.ttf|क्ष त्र ज्ञ श्री द्य क्त स्त्र
+devanagari-matras|NotoSansDevanagari-Regular.ttf|कि की कु कू के कै को कौ
+devanagari-sentence|NotoSansDevanagari-Regular.ttf|हिन्दी में कुछ पाठ: क्षमता, विज्ञान, प्रिय मित्र
+devanagari-mixed|NotoSans-Regular.ttf+NotoSansDevanagari-Regular.ttf|Report रिपोर्ट 2026: कुल बिक्री 1,234 रुपये
+bengali-hello|NotoSansBengali-Regular.ttf|বাংলা ভাষা
+bengali-sentence|NotoSansBengali-Regular.ttf|আমি ভাত খাই। ঢাকা শহর
+bengali-conjuncts|NotoSansBengali-Regular.ttf|ক্ষ জ্ঞ স্ত ন্ত ক্র
+tamil-hello|NotoSansTamil-Regular.ttf|தமிழ் மொழி
+tamil-greeting|NotoSansTamil-Regular.ttf|வணக்கம் உலகம்
+tamil-split-vowels|NotoSansTamil-Regular.ttf|கொ கோ கௌ கெ கே கை
+tamil-grantha|NotoSansTamil-Regular.ttf|ஸ்ரீ ஜ ஷ ஹ
+thai-hello|NotoSansThai-Regular.ttf|สวัสดีชาวโลก
+thai-marks|NotoSansThai-Regular.ttf|ที่นี่ ก็ ผู้ ปู่ น้ำ
+thai-sentence|NotoSansThai-Regular.ttf|ภาษาไทยไม่มีช่องว่างระหว่างคำ
+thai-mixed|NotoSans-Regular.ttf+NotoSansThai-Regular.ttf|Report รายงาน 2026: ยอดขายรวม 1,234 บาท
+devanagari-nukta-chandrabindu-reph|NotoSansDevanagari-Regular.ttf|ज़रूर फ़ोन करना, माँ हँसी, कार्य, वर्ष, स्थिति
+bengali-reph-prebase|NotoSans-Regular.ttf+NotoSansBengali-Regular.ttf|বর্ষা, সূর্য, পর্দা, কি কে কৈ কো কৌ
+indic-numerals|NotoSansDevanagari-Regular.ttf+NotoSansBengali-Regular.ttf+NotoSansTamil-Regular.ttf+NotoSansThai-Regular.ttf|१२३४५६७८९० ১২৩৪৫৬৭৮৯০ ௧௨௩௪௫௬௭௮௯௦ ๑๒๓๔๕๖๗๘๙๐
+long-unbreakable-hi|NotoSansDevanagari-Regular.ttf|अंतर्राष्ट्रीयकरण

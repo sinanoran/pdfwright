@@ -1,0 +1,28 @@
+# Arabic and Hebrew, alone and in mixed direction.
+arabic-hello|NotoSansArabic-Regular.ttf|مرحبا بالعالم
+arabic-lam-alef|NotoSansArabic-Regular.ttf|لا شيء يعدل الصحة؛ بلا صحة لا يدرس الطلاب
+arabic-greeting|NotoSansArabic-Regular.ttf|صباح الخير وأهلا بكم
+arabic-diacritics|NotoSansArabic-Regular.ttf|مَرْحَبًا بِكُمْ، كَيْفَ حَالُكُمْ؟
+arabic-indic-digits|NotoSansArabic-Regular.ttf|الأرقام: ١٢٣٤٥٦٧٨٩٠
+arabic-persian|NotoSansArabic-Regular.ttf|سلام دنیا، این یک آزمایش است. گچ، پژو، چای، من چای می‌خواهم
+arabic-sentence|NotoSansArabic-Regular.ttf|تقرير المبيعات الشهري للسنة المالية الحالية
+hebrew-hello|NotoSansHebrew-Regular.ttf|שלום עולם
+hebrew-points|NotoSansHebrew-Regular.ttf|שָׁלוֹם עוֹלָם הַסֵּפֶר
+hebrew-letters|NotoSansHebrew-Regular.ttf|אבגדהוזחטיכךלמםנןסעפףצץקרשת
+hebrew-sentence|NotoSansHebrew-Regular.ttf|דוח מכירות חודשי לשנת הכספים הנוכחית
+mixed-en-in-ar|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf|قال المدير: Hello World ثم ذهب إلى الاجتماع
+mixed-ar-in-en|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf|The word مرحبا means hello, and 2026 is the year.
+mixed-numbers-in-ar|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf|سعر الكتاب 25.50 ريال، والخصم -15% حتى 2026-12-31
+mixed-he-phone|NotoSans-Regular.ttf+NotoSansHebrew-Regular.ttf|טלפון: +972-3-1234567 ואימייל: a@b.example
+mixed-quotes-in-ltr|NotoSans-Regular.ttf+NotoSansHebrew-Regular.ttf|He said "שלום עולם" twice, then (אחרי זה) left.
+mixed-ar-he-en|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf+NotoSansHebrew-Regular.ttf|English مرحبا שלום English
+arabic-lam-alef-hamza|NotoSansArabic-Regular.ttf|لأن لإن لآلئ
+arabic-shadda-dagger-alef|NotoSansArabic-Regular.ttf|هٰذَا الْمُعَلِّمُ الْجَدِيدُ
+arabic-kashida|NotoSansArabic-Regular.ttf|المنتج جمــيل جــدًا
+hebrew-maqaf-gershayim|NotoSans-Regular.ttf+NotoSansHebrew-Regular.ttf|דו״ח שנתי של בית־ספר: כל־כך הרבה תלמידים
+mixed-ar-an-en-digits|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf|رقم الطلب ٣٢١ ثم 456 ثم ٧٨٩، والطابق 3 والغرفة 12B
+mixed-rlm-latin-first|NotoSans-Regular.ttf+NotoSansArabic-Regular.ttf|‏PDF هو تنسيق مستند شائع (2026)
+mixed-he-parens-mirror|NotoSans-Regular.ttf+NotoSansHebrew-Regular.ttf|הקובץ (Report [final]) נשמר; הוא אמר "תודה (רבה)" ויצא
+mixed-he-latin-phrase|NotoSans-Regular.ttf+NotoSansHebrew-Regular.ttf|קראתי את Quarterly Report המלא היום
+long-unbreakable-ar|NotoSansArabic-Regular.ttf|والمستخدمونالمتعاملونمعها
+long-unbreakable-he|NotoSansHebrew-Regular.ttf|והמתמטיקאיות

@@ -1,0 +1,16 @@
+# Latin, Greek and Cyrillic. Format: <case id>|<fonts, "+" separated, in the order a run falls back through them>|<text>
+# Every code point of the text must have a glyph in one of the listed fonts (CorpusTests). A line that begins with # is a comment.
+latin-tr-dotted-dotless|NotoSans-Regular.ttf|İstanbul'da ışık var: Iğdır, şeker, çay, ğ Ğ ü Ü ö Ö, I ı İ i
+latin-tr-sentence|NotoSans-Regular.ttf|Pijamalı hasta yağız şoföre çabucak güvendi.
+latin-de|NotoSans-Regular.ttf|Größe, Straße, Äpfel, Übung, Öl: Zwölf Boxkämpfer jagen Viktor quer über den großen Sylter Deich.
+latin-pl|NotoSans-Regular.ttf|Zażółć gęślą jaźń; Pchnąć w tę łódź jeża lub ośm skrzyń fig.
+latin-vi|NotoSans-Regular.ttf|Tiếng Việt: ắ ằ ẳ ẵ ặ, ơ, ư, đ, Ế Ề Ể Ễ Ệ. Hà Nội, Huế, Đà Nẵng, Đường
+latin-fr|NotoSans-Regular.ttf|Où est l'œuvre ? Ça va, élève, naïve, garçon, Noël, cœur.
+latin-bold|NotoSans-Bold.ttf|Quarterly report, bold weight: İstanbul, Größe
+latin-italic|NotoSans-Italic.ttf|Quarterly report, italic weight: İstanbul, Größe
+latin-numbers|NotoSans-Regular.ttf|Total: 1,234,567.89 EUR (12.5%) on 2026-11-21 at 09:30 — a 1000-row table
+greek|NotoSans-Regular.ttf|Η γρήγορη καφέ αλεπού πηδά πάνω από τον τεμπέλη σκύλο. Άλφα, βήτα, γάμμα, ΩΜΕΓΑ, λόγος, Οδυσσέας.
+cyrillic-ru|NotoSans-Regular.ttf|Съешь же ещё этих мягких французских булок, да выпей чаю.
+cyrillic-uk|NotoSans-Regular.ttf|Привіт, світе! Ґанок, їжак, є, і, м’ясо, об’єм.
+latin-kerning-ligatures|NotoSans-Regular.ttf|AVATAR Tovar Wavy Yo, office affluent fifty flow
+latin-long-unbreakable|NotoSans-Regular.ttf|Donaudampfschifffahrtsgesellschaftskapitän Rindfleischetikettierungsüberwachungsaufgabenübertragungsgesetz
