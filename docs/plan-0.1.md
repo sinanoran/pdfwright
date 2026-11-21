@@ -290,6 +290,12 @@ S4 needs S2 and S3; S5 needs S4; S6 runs from S3 on as the corpus grows and fini
 correctly): after S4, about **5 weeks of effort**. A **go or stop point** after S2 and S3's first half (week 3 to 4): if Arabic extraction and a
 Devanagari conjunct are not correct by then, the contingency of section 3 is chosen.
 
+**Known limits of the S1 writer, to be lifted where a later slice needs it:** the writer writes to its stream synchronously and unbuffered, so the
+asynchronous save of S5 must buffer (or write through a pipe) rather than call it from an async method; the page tree is flat (one `/Pages` node holding
+every page), which viewers handle well into the thousands of pages and which a balanced tree would improve; and a page's content stream is held in
+memory, with a few copies while it is compressed, so one very large page costs several times its own size at completion.
+A document's other pages are written as they end and cost nothing more.
+
 **Risks.** (1) A script with a shaping subtlety we do not know about (Tamil and Bengali reordering are the likely ones): mitigated by HarfBuzz
 doing the work and by the native-speaker review. (2) Viewer incompatibility from an own writer: the PDF subset is small and fixed, `qpdf` and
 four viewers check it. (3) The Unicode tables and Thai breaking: the conformance files make the first measurable; the second is documented as a
