@@ -47,6 +47,18 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A document's measurement by `TextMeasurer` matches only if made the same way**: the same fonts, default style, language, direction and line spacing as the document (the measurer takes `language` and `lineSpacing`).
 - **`Length` arithmetic can still overflow to infinity** (`Length.Pt(double.MaxValue) * 2`); the factories refuse a number that is not finite, and every place that takes a length refuses one that is not.
 
+## Tables (S5b)
+
+- **Automatic column widths come from a sample**: the header and the first 100 rows. A cell lower down that is wider than its column wraps (a word wider than the column is cut between characters); nothing is re-measured later, because the rows are streamed and a page already written cannot change. Give the column a fixed width or a fraction when the later rows differ from the first.
+- **The minimum width of an automatic column is its widest whole word**, measured alone in the style of its run; a place where a word could break (a hyphen) is not used to go narrower, and a word that spans runs of different styles is measured in parts.
+- **There are no cell spans** (neither columns nor rows), and no vertical alignment: text is at the top of the cell.
+- **A row taller than a page is split between lines**, at one height for all its cells; a paragraph's lines are not kept together, a split can fall anywhere between two lines of a cell, and the padding at the top of the cell is repeated on each page it continues on. A row that is not taller than a page is never split: it moves whole to the next page, which can leave a gap at the bottom of the previous one.
+- **A header taller than half a page is not repeated**, and a table with several header rows repeats all of them or none.
+- **The rows are enumerated at save time, once for each save**, so a sequence that can be enumerated only once (a reader, a one-shot iterator) works for one save only. `IAsyncEnumerable` is not accepted. Because the rows are never held, a table does not know its length: `Table.MaxRows` reads one row more than it draws, to know that there are more.
+- **A heading before a table is not kept with it**: the table can start on the next page and leave the heading at the bottom of the previous one.
+- **Each page's part of a table gets its own outer top and bottom line**, not an open edge; a row split between pages has them where it is cut.
+- **A cell's padding is physical** (`Margins`), unlike its alignment, which is logical.
+
 ## Images and the canvas
 
 - **The colour management of a PNG is ignored.** The `gAMA`, `iCCP`, `sRGB` and `cHRM` chunks are skipped, and the samples are written as device RGB, device gray or an indexed device RGB palette, so a PNG that

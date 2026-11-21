@@ -466,6 +466,35 @@ stream) and the memory held is about the size of the file (the pipe alternative 
 14. `Creation` is written whenever it is set (the sketch said "used only with `Deterministic`", which the code never did); `Deterministic` without `Creation` writes no date, and without both the date is the time of the save.
 15. The set of blocks is closed by an internal constructor and a runtime check, not by the compiler: C# cannot check a `switch` over a class hierarchy for completeness, so the flow's `switch` throws for a block it does not know. Section 5, point 1 said the compiler would check the adapter's mapping; a test must.
 
+### S5b status: the table (21 November 2026)
+
+Public now, in the root namespace, documented and in the public API snapshot: the block `Table`, with `TableColumn`, `ColumnWidth` (and `ColumnWidthKind`), `TableRow`, `TableCell`, `Borders` and `BorderLine`; `DocumentLimits.MaxTableRows` (with `DocumentLimit.MaxTableRows`),
+`Table.MaxRows` and `DocumentDiagnostics.TruncatedTables` (with `TruncatedTable`). `Table` is one more sealed member of the closed `Block` set; the flow's `switch` handles it (`Document/DocumentRenderer.Tables.cs`).
+
+**What it does.**
+
+- *Widths.* `ColumnWidth.Fixed(Length)`, `ColumnWidth.Fraction(weight)` and `ColumnWidth.Auto` (the default). The columns share the content width in this order: fixed columns take their length; each automatic column has a minimum (its widest word, measured with
+  the layout engine, plus the cell padding) and a want (its longest unbroken line plus the padding), both taken over the header and the first 100 rows; a fraction column has no content minimum, only its padding. If the minimums of all columns do not fit, every column shrinks in the same proportion and text wraps (a word wider than its cell is cut between characters, as in any paragraph).
+  Otherwise the automatic columns grow towards their wants (in proportion to how much each wants, when there is not room for all) and the fraction columns share what is left by weight (like CSS `fr`). A table without a fraction column is as wide as its columns; with one it fills the content width. The sample is the only thing buffered: when no column is automatic nothing is held, and when one is, the first 100 rows are read, measured, and then handed on to the flow, which continues the one enumeration.
+- *Streaming.* `Rows` is an `IEnumerable<TableRow>`, enumerated once for each save (of each time the table is added), at save time, never materialised: a row is laid out, drawn and dropped. Tested with a counting enumerable and with 100,000 lazy rows whose early rows are collected while the save is still running.
+- *Pagination.* A row goes whole to the next page when it does not fit. A row taller than a page (what a page can hold under the repeated header) is split between lines of its cells at one height for all cells, and the pieces continue on the following pages with the cell's padding at the top of each. The header rows are repeated on every page when `RepeatHeader` (default `true`; a header taller than half a page is not repeated, and is then drawn like any other rows). A table that starts on a page with content moves to the next page when its header and one row (or the first line of a taller row) do not fit.
+- *Fills and borders.* `HeaderFill`, `ZebraFill` (the second, fourth, ... body row, counted over the pages), a row's `Fill`, a cell's `Fill`, in that order of precedence from the least to the most specific. `Borders` has four edge kinds (`OuterHorizontal`, `OuterVertical`, `InnerHorizontal`, `InnerVertical`, each a `BorderLine` of width and colour, or null) and the presets `None`, `All`, `Horizontal` and `Outer`.
+  Each page's part of a table is closed with the outer horizontal line and opened with it again.
+- *Direction.* `Table.Direction` (else the document's) decides the order of the columns: right to left puts the first column at the right edge and the table at the right of the content area. `TextDirection.Auto` has nothing to look at for columns and means left to right; the text of each paragraph still resolves its own direction, and an explicit table direction is the base direction of the paragraphs that name none.
+- *Limits and diagnostics.* `DocumentLimits.MaxTableRows` stops the save with `PdfLimitExceededException` (`Limit` = `DocumentLimit.MaxTableRows`) when a table has more body rows; `Table.MaxRows` draws up to the limit and lists the table in `DocumentDiagnostics.TruncatedTables` (the block index and the limit), because plan section 4(h) wants "a table that exceeded a limit" reported as data, and the adapter's "N more rows" line is its own.
+  When both are set the smaller applies. A missing glyph or family in a cell is reported like any other, with the page the cell is drawn on.
+
+**Deviations from the sketch of section 5, and why.**
+
+1. `header:` may be one `TableRow` or any sequence of them (three constructors, all with the parameter names `columns`, `header` and `rows`); the header rows are copied when the table is made, `Rows` is kept as given.
+2. `IAsyncEnumerable<TableRow>` is not accepted. `SaveAsync` runs the synchronous renderer on a worker thread, so consuming an async sequence would mean blocking a thread on it; it can be added when the document layer has an asynchronous path.
+3. Two tables are equal when their columns, header rows and settings are equal and their `Rows` are the same object: comparing rows would enumerate them.
+4. `Borders` is a record of four edge kinds, not a flag enumeration, so that a width and a colour can be given per kind; `Borders.Horizontal` draws the horizontal lines (top, between, bottom) and no vertical ones.
+5. Padding is physical (`Margins`, as for the page), because a cell's left and right padding are rarely different; a cell's text alignment is logical. A paragraph in a cell keeps its own alignment when it is not `Start`; otherwise the cell's, then the column's, applies.
+6. `Table.Style` and `Table.HeaderStyle` (bold by default) are added so that a whole table or its header can be styled without styling every cell; the order is document default, table, header (in the header), cell, paragraph, run.
+7. No cell spans, no vertical alignment of cells (text is at the top), no `Columns`, `Callout`, header and footer, drawing or keep-together blocks: S5c.
+8. A heading before a table is not kept with its first row (the keep rule looks at text blocks only).
+
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream

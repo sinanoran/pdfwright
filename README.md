@@ -7,7 +7,7 @@
 
 > **Status: pre-release, nothing is published.** The writer, the text engine, the drawing canvas and (since slice S5a)
 > the first public API are in the repository: lengths, page sizes, fonts, text styles, headings, paragraphs with styled runs, spacers
-> and page breaks, `PdfDocument`, the text measurer and the diagnostics. Tables, columns, callouts, drawings, keep-together and
+> and page breaks, tables (since S5b), `PdfDocument`, the text measurer and the diagnostics. Columns, callouts, drawings, keep-together and
 > headers and footers are the next slices (see [`docs/plan-0.1.md`](docs/plan-0.1.md)); the package id `Pdfwright` is not on nuget.org.
 
 ## Why it will exist
@@ -59,6 +59,22 @@ document.Add(new Paragraph(
     new TextRun(" over the quarter."),
 ]));
 document.Add(new Paragraph("تقرير المبيعات الشهري") { Style = new TextStyle { Language = "ar" } });
+
+// A table: the rows are an IEnumerable, enumerated once when the document is saved and never held whole.
+// The header repeats on every page; a row is not split between pages unless it is taller than one.
+TableColumn[] columns =
+[
+    new(ColumnWidth.Fraction(1)),                                         // shares what is left
+    new(ColumnWidth.Fixed(Length.Mm(30))) { Alignment = TextAlignment.End },
+    new(),                                                                // auto: measured from the header and the first 100 rows
+];
+document.Add(new Table(columns, new TableRow("Customer", "Amount", "Status"), invoices.Select(i => new TableRow(i.Name, i.Amount, i.Status)))
+{
+    Borders = Borders.Horizontal,
+    HeaderFill = Color.Gray(0.9),
+    ZebraFill = Color.Gray(0.97),
+    // Direction = TextDirection.RightToLeft puts the first column at the right edge.
+});
 
 await document.SaveAsync(stream, cancellationToken);
 DocumentDiagnostics report = document.Diagnostics; // missing glyphs by language and page, page count, bytes

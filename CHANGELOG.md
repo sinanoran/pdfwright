@@ -42,4 +42,8 @@ All notable changes to this project are recorded here. The format follows
   runs of different size, font, language and colour in one line (a colour does not split the shaping of a word). Values are checked where they are set, with the property as the parameter name; `MaxBytes` holds for the finished file and a limit that is hit
   writes nothing to the stream (`PdfLimitExceededException.Limit` is a `DocumentLimit`); `FontCollection` is `IDisposable`; a family that is not in the collection is listed in `DocumentDiagnostics.MissingFamilies`. The public surface (with nullability) is recorded in `tests/Pdfwright.Tests/PublicApi/`.
 
+- Slice S5b of the plan, the table: the block `Table` with `TableColumn` (`ColumnWidth.Fixed`, `Fraction`, `Auto`; logical alignment), `TableRow`, `TableCell` (paragraphs or text, padding, fill, alignment, style), `Borders` and `BorderLine`,
+  header and zebra fills, header rows repeated on every page, rows that are never split unless taller than a page (then between the lines of the cells), right-to-left column order, automatic widths measured from the header and the first 100 rows.
+  Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole. `DocumentLimits.MaxTableRows` (`DocumentLimit.MaxTableRows`) stops a save; `Table.MaxRows` cuts a table and lists it in `DocumentDiagnostics.TruncatedTables`.
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
