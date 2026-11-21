@@ -12,6 +12,7 @@ foreach ((string file, string text) in new[]
 {
     ("BidiTables.g.cs", BidiDataGenerator.Generate(args[0])),
     ("CharacterTables.g.cs", PropertyDataGenerator.Generate(args[0])),
+    ("ScriptTables.g.cs", ScriptDataGenerator.Generate(args[0])),
 })
 {
     string path = Path.Combine(args[1], file);

@@ -31,4 +31,8 @@ All notable changes to this project are recorded here. The format follows
   ask about, generated into one packed table; UAX #14 (rules LB1 to LB31 with the Unicode 18 additions) and UAX #29 extended grapheme clusters
   (GB1 to GB999). They pass every row of `LineBreakTest.txt` (19,346) and `GraphemeBreakTest.txt` (853).
 
+- Slice S3c of the plan, script itemization (internal): the script and Script_Extensions of every code point with the ISO 15924 codes, and
+  an itemizer after UAX #24 that splits text into runs of one script (common and inherited characters join their run, a closing bracket
+  returns to the script of its opening bracket, a character used with several scripts stays in the run it is in).
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
