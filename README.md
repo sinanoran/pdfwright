@@ -3,54 +3,72 @@
 [![CI](https://github.com/sinanoran/pdfwright/actions/workflows/ci.yml/badge.svg)](https://github.com/sinanoran/pdfwright/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Pdfwright writes PDF reports: paragraphs, tables that paginate, vector charts, in every script.**
+**Pdfwright writes PDF reports: headings, paragraphs, tables that paginate and vector charts, in every script, with text that reads back in logical order.**
 
-> **Status: pre-release, nothing is published.** Slices S0 to S6 of [`docs/plan-0.1.md`](docs/plan-0.1.md) are done: the writer, the font and
-> text engines, the drawing canvas and the public document layer (headings, paragraphs with styled runs, tables that paginate, columns, callouts,
-> drawings, images, headers and footers, the text measurer and the diagnostics), with the script corpus and its golden files. Slice S7 (documentation,
-> samples, this comparison table, the changelog) and the release checks in `RELEASING.md` remain before 0.1.0; the package id `Pdfwright` is not on nuget.org.
+It is a layout engine and a PDF writer in managed C#, with one small native library for text shaping ([HarfBuzz](https://github.com/harfbuzz/harfbuzz), through
+[HarfBuzzSharp](https://github.com/mono/SkiaSharp)). Pdfwright is MIT-licensed, including for commercial use, with no second licence to buy when the project stops being a hobby.
 
-## Why it will exist
+```bash
+dotnet add package Pdfwright
+```
 
-A PDF of a report is the one export a person reads on paper or forwards unchanged. Generating it with a
-headless browser works and costs a browser: about 290 MB on disk, half a gigabyte of memory and two
-seconds for a 20-page table ([`docs/baselines.md`](docs/baselines.md)). The small native PDF backends are
-fast and light, but the one measured here writes Arabic and Hebrew as presentation forms in visual order,
-so the text cannot be searched, copied or read by a screen reader, and cannot be tagged for accessibility.
+> **Status: version 0.1 is complete and not released.** The code, tests and documentation of 0.1 are in this repository, but nothing is published: the package id `Pdfwright` is not on nuget.org yet, and
+> the command above works only once the maintainer has released 0.1.0. Until then, clone the repository and reference `src/Pdfwright/Pdfwright.csproj`. What remains is the maintainer's: a native-speaker review of the test text,
+> opening the sample files in the viewers people use, and the release itself (see [RELEASING.md](RELEASING.md)).
 
-Pdfwright will be the third way: our own layout engine and PDF writer over HarfBuzz, MIT-licensed, managed
-code with one small native library, fonts supplied by the caller and never looked up in the operating
-system, output that reads back in logical order. None of it exists yet; the plan describes it.
+Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). The package ships no font.
 
-## What version 0.1 will be
+## Why it exists
 
-Headings, paragraphs, callouts, columns, tables with pagination and a repeated header, a drawing canvas for vector charts,
-headers and footers with page numbers, embedded font subsets, right-to-left and mixed-direction text,
-Arabic, Indic and Thai shaping. **Not in 0.1:** CJK, emoji and colour fonts, forms, encryption, PDF/A,
-tagged PDF (the design carries it; it is 0.2). The whole design, the public API sketch, the targets and
-the test strategy are in [`docs/plan-0.1.md`](docs/plan-0.1.md).
+A PDF of a report is the one export a person reads on paper or forwards unchanged. The usual ways of making one each cost something:
 
-## Usage (what exists today)
+- A **headless browser** works and costs a browser: on the machine this was measured on, a 20-page table took 2 seconds and about half a gigabyte, and the browser itself is 288 MB on disk.
+- A **small native PDF backend** is fast and light, but the one measured here (Skia's) writes Arabic and Hebrew as presentation forms in visual order, so the text cannot be searched, copied or read by a screen reader.
+- A **commercial library** costs a licence, which is the thing the sibling package [Sheetwright](https://github.com/sinanoran/sheetwright) exists to avoid for spreadsheets.
 
+Pdfwright is the other way: its own layout engine over HarfBuzz and its own writer, fonts supplied by the caller and never looked up in the operating system, and output that reads back in logical order. The decision, with its
+evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
+
+## What it is, and what it is not
+
+**In version 0.1:**
+
+- Blocks: headings (levels 1 to 6), paragraphs with styled runs, spacers, page breaks, callouts (a box around blocks), columns (one to four equal cells: a KPI row), images, and keep-together.
+- **Tables** with fixed, fractional and automatic column widths, cell padding, borders and fills, a header repeated on every page, rows that are never split unless taller than a page, rows streamed from an `IEnumerable`.
+- A **drawing canvas** for charts as vectors (paths, fills, strokes, dashes, clipping, transforms, opacity, text, images) and a **text measurer** that uses the engine that draws.
+- **Headers and footers** built for each page from a `PageContext` (page number, page count), so "page x of y" needs no second pass.
+- Embedded **font subsets** (TrueType), chosen by family, weight and style with fallback by coverage.
+- **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
+- Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
+
+**Not in 0.1:** CJK (needs CFF fonts, which need a CFF subsetter), emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
+hyphenation and justified text, table cell spans, floating images, gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
+
+## Quick start
+
+A report with a heading, styled text, a paragraph in Arabic, a table and a page number in the footer (see the note on installing above):
+
+<!-- snippet: readme-quickstart -->
 ```csharp
 using Pdfwright;
+using System.Globalization;
 
-// Fonts are supplied, never discovered. A collection is parsed once, can be shared by every document, and is meant to live long (it is IDisposable: it holds native copies of the fonts).
-FontCollection fonts = new FontCollection()
-    .Add(File.ReadAllBytes("NotoSans-Regular.ttf"))
-    .Add(File.ReadAllBytes("NotoSans-Bold.ttf"))
-    .Add(File.ReadAllBytes("NotoSansArabic-Regular.ttf"));
+string fontDirectory = "fonts"; // the folder that holds the .ttf files
+using FileStream output = File.Create("report.pdf");
+
+// Fonts are supplied by the caller, never looked up in the operating system. A collection is made once and shared.
+using FontCollection fonts = new FontCollection()
+    .Add(await File.ReadAllBytesAsync(Path.Combine(fontDirectory, "NotoSans-Regular.ttf"), cancellationToken))
+    .Add(await File.ReadAllBytesAsync(Path.Combine(fontDirectory, "NotoSans-Bold.ttf"), cancellationToken))
+    .Add(await File.ReadAllBytesAsync(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf"), cancellationToken));
 
 PdfDocument document = new(new PdfDocumentOptions
 {
     Fonts = fonts,
-    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
-    PageSize = PageSize.A4,
-    Margins = Margins.Mm(top: 20, right: 15, bottom: 20, left: 15),
+    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10) },
     Title = "Monthly report",
-    Header = page => page.IsFirst ? null : new Paragraph("Monthly report") { Style = new TextStyle { Color = Color.MidGray } },
-    Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Alignment = TextAlignment.End }, // drawn inside the margins, after the body: the count is always known
-    Deterministic = true, // no clock: the same document is the same bytes
+    Language = "en",
+    Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Alignment = TextAlignment.End },
 });
 
 document.Add(new Heading(1, "Monthly report"));
@@ -60,62 +78,108 @@ document.Add(new Paragraph(
     new TextRun("12 %", new TextStyle { Weight = 700, Color = Color.Green }),
     new TextRun(" over the quarter."),
 ]));
-document.Add(new Paragraph("تقرير المبيعات الشهري") { Style = new TextStyle { Language = "ar" } });
+document.Add(new Paragraph("تقرير المبيعات الشهري"));
 
-// A table: the rows are an IEnumerable, enumerated once when the document is saved and never held whole.
-// The header repeats on every page; a row is not split between pages unless it is taller than one.
-TableColumn[] columns =
-[
-    new(ColumnWidth.Fraction(1)),                                         // shares what is left
-    new(ColumnWidth.Fixed(Length.Mm(30))) { Alignment = TextAlignment.End },
-    new(),                                                                // auto: measured from the header and the first 100 rows
-];
-document.Add(new Table(columns, new TableRow("Customer", "Amount", "Status"), invoices.Select(i => new TableRow(i.Name, i.Amount, i.Status)))
+// The rows are any sequence. They are enumerated once, when the document is saved, and never held whole.
+document.Add(new Table(
+    [new TableColumn(ColumnWidth.Fraction(1)), new TableColumn(ColumnWidth.Fixed(Length.Mm(30))) { Alignment = TextAlignment.End }, new TableColumn()],
+    new TableRow("Customer", "Amount", "Status"),
+    invoices.Select(i => new TableRow(i.Name, i.Amount.ToString("N2", CultureInfo.InvariantCulture), i.Status)))
 {
     Borders = Borders.Horizontal,
     HeaderFill = Color.Gray(0.9),
-    ZebraFill = Color.Gray(0.97),
-    // Direction = TextDirection.RightToLeft puts the first column at the right edge.
 });
 
-// A KPI row: Columns of 1 to 4 equal cells, here on a filled Callout (a note; it is split between pages when it must be, or KeepTogether = true).
-document.Add(new Callout(new Columns(
-[
-    new Paragraph([new TextRun("Revenue\n"), new TextRun("1.2 M", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
-    new Paragraph([new TextRun("Orders\n"), new TextRun("8,430", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
-    new Paragraph([new TextRun("Returns\n"), new TextRun("2.1 %", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
-])) { CornerRadius = Length.Pt(4), KeepTogether = true });
-
-// A drawing: a box and a callback that draws on a canvas in points (origin top left, y down). It runs when the document is saved.
-double[] sales = [4, 7, 5, 9, 6];
-document.Add(new Drawing(Length.Mm(120), Length.Mm(50), canvas =>
-{
-    double step = canvas.Width / sales.Length;
-    for (int i = 0; i < sales.Length; i++)
-    {
-        double height = sales[i] / 10 * (canvas.Height - 14);
-        canvas.Fill(new DrawingPathBuilder().Rectangle((i * step) + 6, canvas.Height - 14 - height, step - 12, height).Build(), Color.FromHex("#3366CC"));
-        canvas.DrawText($"Q{i + 1}", (i * step) + (step / 2), canvas.Height - 2, alignment: TextAlignment.Center);
-    }
-}) { AltText = "Bar chart of sales by quarter" });
-
-await document.SaveAsync(stream, cancellationToken);
-DocumentDiagnostics report = document.Diagnostics; // missing glyphs by language and page, page count, bytes
+await document.SaveAsync(output, cancellationToken);
 ```
 
-A drawing, a picture (`PdfImage.FromBytes(...)`, JPEG or PNG; `new Image(picture) { Width = Length.Mm(40) }` places one in the flow) and the header and footer can all
-hold a logo and a date: a header is any block built per page, for example `Columns` of an `Image` and a `Paragraph`.
+`invoices` stands for your own records. The code above is a test in this repository, `DocumentationSnippetTests`, which runs it and reads the file back; a second test fails when the README and the tested code differ, so the
+README's code is always code that compiled and ran. The same holds for every block of the [user guide](docs/guide.md).
 
-In a right-to-left document a footer such as `$"{page.Number} / {page.Count}"` is a right-to-left paragraph, so the two numbers read in bidi order: page 1 of 3 shows as "3 / 1". To keep it as written,
-set the footer paragraph's `Direction = TextDirection.LeftToRight` (the whole footer is then left to right), or wrap the text in a left-to-right isolate, `"\u2066" + text + "\u2069"` (U+2066 LRI ... U+2069 PDI, written here as C# escapes),
-which keeps that part in order inside a right-to-left line.
+There is also a runnable sample, a multi-page report with a heading, a row of KPIs in a callout, a paginated table, a bar chart, a header and footer, and Arabic and English text: see [samples](samples/README.md).
 
-`DrawingCanvas.DrawImage` stretches a picture to the rectangle it is given; the `Image` block keeps the picture's proportions (one of `Width` and `Height` set, or none) and stretches only when both are set.
-A `Drawing` sets text in the direction of the `Columns` or `Callout` it is in. `Image` and `Drawing` are also names in `System.Drawing`: where both namespaces are imported, alias ours
-(`using Image = Pdfwright.Image;`).
+## Key concepts
 
-`TextMeasurer` measures text with the engine that draws it, for placing labels. `Length` has no implicit
-conversion from a number, so a unit is never guessed.
+- **Fonts are supplied, never discovered.** A `FontCollection` is made once from TrueType bytes, parsed once, shared by every document and thread, and `IDisposable` (it holds native copies for the shaping engine). A font that forbids
+  embedding is refused with `FontNotEmbeddableException`. A character no font has is drawn as the font's empty box and reported in the diagnostics; it is never an exception.
+- **Blocks flow.** You add `Heading`, `Paragraph`, `Table`, `Columns`, `Callout`, `Drawing`, `Image`, `Spacer` and `PageBreak` to a `PdfDocument`; they flow from the top of the first page and break onto new pages as they fill.
+  There are no coordinates, except on the drawing canvas.
+- **Styles inherit.** A `TextStyle` has `Family`, `Size`, `Weight`, `Italic`, `Color` and `Language`, all optional; an unset property comes from the style around it: library defaults, the document's default style, the table or cell,
+  the paragraph, the run.
+- **Direction is logical.** Alignment and column order say *start* and *end*, so the same table is right to left when its `Direction` is. Text is written to the file in logical order, with every glyph where the bidirectional algorithm puts it.
+- **`Deterministic = true`** reads no clock, so the same document is the same bytes (with `Compress = false` the bytes are the same on every .NET version too).
+- **Diagnostics and limits.** `PdfDocument.Diagnostics` reports missing glyphs, missing families, truncated tables, the page count and the byte count. `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway
+  document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
+- **`SaveAsync` buffers.** The whole file is made in memory and then copied to the stream, so a failing document writes nothing and a stream that cannot seek works. Plan for memory about the size of the file; the rows of a table
+  are never held.
+
+## Scripts, and what was measured
+
+Every script of the test corpus has a font in the test project, and each is tested the same way: a page of text and a long page with a 100-row table that runs over three to five pages, through the public API, then read
+back by independent readers and compared with the input string for string. The corpus text is original and ordinary (it is not translated documentation); a native-speaker review of it is part of the release checklist.
+
+| Script group | Strings read back equal to the input, PdfPig (every run, in the test suite) | Firefox's pdf.js (measured by hand, 21 November 2026) |
+|---|---|---|
+| Latin Extended (Turkish, German, Polish, Vietnamese) | 313 of 313 | 313 of 313 |
+| Greek | 310 of 310 | 310 of 310 |
+| Cyrillic | 311 of 311 | 311 of 311 |
+| Arabic | 313 of 313 | 313 of 313 |
+| Hebrew | 312 of 312 | 312 of 312 (2 only up to canonical equivalence) |
+| Mixed direction | 317 of 317 | 317 of 317 |
+| Devanagari | 312 of 312 | 312 of 312 |
+| Bengali | 311 of 311 | 311 of 311 |
+| Tamil | 311 of 311 | 311 of 311 |
+| Thai | 310 of 310 | 310 of 310 |
+| **All** | **3120 of 3120** | **3120 of 3120** |
+
+A string passes when it is found whole, in logical order, with its spaces, after one normalisation (the invisible U+034F removed and runs of white space made one space). The 61 single-line cases of the mixed-direction corpus (English in
+Arabic, nested quotes, numbers, Bengali reph, four fonts in one line) read 61 of 61 through PdfPig and through pdf.js 6.3.335. Every page of the golden documents is also drawn by PDFium and compared with a stored picture, so a mark
+in the wrong place or a mirrored run is caught where text extraction would still pass.
+
+**One reader falls below that.** xpdf's `pdftotext` in its default position-ordered mode (which Evince and Okular also use for copying) reads 45 of the 61 single lines exactly: it puts a space where a glyph is drawn to the left of
+the end of the glyph before it, which shaped Arabic, Indic and Thai text does by design. Three ways of writing the glyphs were tried and none removes it; 45 is the floor the tests hold. The file is correct, and readers that follow the content
+stream get the text exactly. Chrome, Edge, Acrobat Reader and macOS Preview are checked by the maintainer before a release, not by a test. Copying text can also carry an invisible U+034F after some letters. Both are in
+[known limitations](docs/known-limitations.md).
+
+## Compared with the usual alternatives
+
+Measured on one Windows machine on 21 November 2026, one run each: baselines to beat, not benchmarks (method and how to repeat them: [docs/baselines.md](docs/baselines.md)). The scenario is a table of 1,000 rows and 6 columns over 20 A4
+pages with a repeated header. Where a cell says "not measured", nobody measured it here; where it says "documented", it comes from that project's own documentation.
+
+| | Pdfwright 0.1 | Skia's PDF backend (SkiaSharp 4.157.0) | A headless browser (Playwright, Chromium headless shell) |
+|---|---|---|---|
+| Licence | MIT (HarfBuzz: "old MIT") | SkiaSharp: MIT (read from its package) | Playwright: Apache-2.0; Chromium not assessed here |
+| Dependency on disk | HarfBuzz: `libHarfBuzzSharp` 2.2 MB (win-x64) | `libSkiaSharp` 13.2 MB and `libHarfBuzzSharp` 2.2 MB (win-x64); the Linux Skia package is a 63 MB `.nupkg` for every architecture | the browser: 288 MB (headless shell) or 453 MB (full Chromium) |
+| Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here (the plan records that Chromium extracts text well) |
+| Mixed-direction paragraph (Latin in Arabic) | itemized and ordered by UAX #9 | the stock shaper does no bidirectional itemization: a mixed line was drawn with the Arabic in isolated forms | not measured here |
+| Tagged (accessible) PDF | **not in 0.1** (planned for 0.2) | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
+| 1,000-row table, cold process | not benchmarked yet (the plan's targets are in section 7) | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms, 495 MB peak over the process tree, 154 KB |
+| Fonts | supplied by you, embedded as subsets | not assessed here | looked up by the browser on the machine, unless the page loads its own |
+| Byte-stable output (golden files) | yes (`Deterministic`, optionally `Compress = false`) | Skia writes a document id and dates; stability not assessed | not assessed here |
+
+Reading it: the browser is the most complete and costs a browser; the Skia backend is the lightest and failed the extraction criterion for the scripts that matter here; Pdfwright's claim is the third row, measured by the tests in this
+repository, and it pays for it with what is not in 0.1 (CJK, tagged PDF, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
+extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwright's own timings will be added to `docs/baselines.md` once a benchmark scenario exists.
+
+## Known limitations
+
+The full list, with the reason for each, is in [docs/known-limitations.md](docs/known-limitations.md). The ones that matter most when choosing:
+
+- No tagged PDF, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet.
+- No CJK, emoji or colour fonts; OpenType fonts with CFF outlines are refused (TrueType only).
+- No links on text, no table cell spans, no nested tables or columns, no hyphenation, no justification, no widow or orphan control, no synthetic bold or italic.
+- A table's automatic column widths come from its header and first 100 rows; a table is never held whole, so give a column a width when later rows differ.
+- The whole file is built in memory before it is written; copying text from a PDF can carry an invisible U+034F; `pdftotext`'s default mode can put spaces inside words of Arabic, Indic and Thai text.
+- Pdfwright is not a PDF editor and does not read PDF files.
+
+## Documentation
+
+- [User guide](docs/guide.md): fonts, styles, headings and paragraphs, tables, columns and callouts, drawing, images, headers and footers, right-to-left text, metadata, diagnostics and limits.
+- [Known limitations](docs/known-limitations.md)
+- [Samples](samples/README.md)
+- [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
+- [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
+- [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 
 ## Build and test
 
@@ -124,17 +188,24 @@ dotnet build Pdfwright.slnx
 dotnet test Pdfwright.slnx
 ```
 
-Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. The tests run on all four. The build uses the .NET 11
-SDK (`global.json`).
+The build uses the .NET 11 SDK (`global.json`) and the tests run on all four target frameworks. The suite opens what it writes: generated files are read back by PdfPig, checked by `qpdf --check` (install qpdf, or set
+`PDFWRIGHT_REQUIRE_QPDF=1` on CI to make its absence a failure), compared byte for byte with golden files, and drawn by PDFium and compared with stored pictures. No container, no database, no network.
+`PDFWRIGHT_SAMPLES_DIR=<dir>` keeps the sample reports as files to open in a viewer, and `PDFWRIGHT_DUMP=<dir>` keeps the twenty corpus documents.
 
 ## Measuring
 
-`benchmarks/Pdfwright.Benchmarks` is the harness. It measures a fresh process (wall time and peak
-working set, median of N runs) and holds the data of the standard scenarios, and
-`benchmarks/Pdfwright.Benchmarks/Baselines/` has the Playwright script the comparison table is made
-with. See [`docs/baselines.md`](docs/baselines.md) for the numbers and how to reproduce them.
+`benchmarks/Pdfwright.Benchmarks` is the harness: it measures a fresh process (wall time and peak working set, median of N runs) and holds the data of the standard scenarios, and
+`benchmarks/Pdfwright.Benchmarks/Baselines/` has the Playwright script the comparison table is made with.
+
+## Contributing
+
+Issues and pull requests are welcome. A change to what is written needs a test that reads the result back; a change to the public surface changes `tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt` in the same commit
+(a test fails otherwise), and a change to a code block of the documentation changes the snippet it is tested by.
+
+## Releasing
+
+Tag it. Publishing to nuget.org uses Trusted Publishing rather than a stored API key, and the checks only a person can make come first; see [RELEASING.md](RELEASING.md).
 
 ## Licence
 
-MIT, see [`LICENSE`](LICENSE). The fonts of the test corpus are SIL OFL 1.1, listed with their licences in
-[`NOTICE`](NOTICE) and `tests/Pdfwright.Tests/Fonts/`; the package ships no font.
+MIT, see [LICENSE](LICENSE). The fonts of the test corpus are SIL OFL 1.1, listed with their licences in [NOTICE](NOTICE) and `tests/Pdfwright.Tests/Fonts/`; the package ships no font.
