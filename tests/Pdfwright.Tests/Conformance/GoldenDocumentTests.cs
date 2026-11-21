@@ -31,6 +31,24 @@ public class GoldenDocumentTests
         Golden.Check($"{group}-short.pdf", DocumentTestKit.Save(built.Document));
     }
 
+    [Theory]
+    [MemberData(nameof(Groups))]
+    public void The_short_page_of_a_script_looks_like_its_stored_render(string group)
+    {
+        PageCorpus corpus = PageCorpus.LoadAll().Single(c => c.Group == group);
+        PageCorpus.Built built = corpus.Build(isLong: false, o => o.Compress = false);
+
+        RenderGolden.Check($"{group}-short.pdf", DocumentTestKit.Save(built.Document));
+    }
+
+    [Fact]
+    public void The_report_of_the_readme_looks_like_its_stored_render()
+    {
+        PdfDocument report = Document.SampleDocumentTests.ReadmeReport(o => o.Compress = false);
+
+        RenderGolden.Check("readme-report.pdf", DocumentTestKit.Save(report));
+    }
+
     [Fact]
     public void The_report_of_the_readme_is_a_golden_file()
     {

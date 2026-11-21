@@ -65,15 +65,28 @@ jobs:
       - run: dotnet test Pdfwright.slnx --no-build --configuration Release
         env:
           PDFWRIGHT_REQUIRE_QPDF: "1"
+          # The golden renders go through PDFium; a renderer that cannot load is a failure here, not a skip.
+          PDFWRIGHT_REQUIRE_RENDER: "1"
+          # One line for each page compared (differing pixels and their share), printed by the next step to see how far the platforms are from the stored PNGs.
+          PDFWRIGHT_RENDER_REPORT: ${{ runner.temp }}/pdfwright-actual/render-report.txt
           # A golden test that fails writes the bytes it made here (pdfwright-actual-*.pdf), and the next step keeps them.
           PDFWRIGHT_ACTUAL_DIR: ${{ runner.temp }}/pdfwright-actual
+
+      - name: Show how far each render is from its stored PNG
+        if: always()
+        shell: bash
+        run: sort "${{ runner.temp }}/pdfwright-actual/render-report.txt" | uniq || true
 
       - name: Keep the files a failing golden test wrote
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: golden-actual-${{ matrix.os }}
-          path: ${{ runner.temp }}/pdfwright-actual/pdfwright-actual-*.pdf
+          path: |
+            ${{ runner.temp }}/pdfwright-actual/pdfwright-actual-*.pdf
+            ${{ runner.temp }}/pdfwright-actual/pdfwright-actual-*.png
+            ${{ runner.temp }}/pdfwright-actual/pdfwright-diff-*.png
+            ${{ runner.temp }}/pdfwright-actual/render-report.txt
           if-no-files-found: ignore
 
       - name: Pack

@@ -33,6 +33,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="PdfPig" />
+    <PackageReference Include="PDFtoImage" />
     <PackageReference Include="HarfBuzzSharp" />
   </ItemGroup>
 

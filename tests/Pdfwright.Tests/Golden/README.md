@@ -43,3 +43,23 @@ so the test fails with a message instead. On CI a failing golden test writes the
 and the workflow keeps them as the artifact `golden-actual-<os>` when the test step fails, so the diff tool can be run on a failure that happened on another machine.
 Run the golden tests once more without the variable, and on another runtime, before committing.
 Never regenerate to make a red CI green without reading the diff.
+
+## Renders (`Golden/Renders`)
+
+The bytes say what the library wrote; they do not say what it **looks like**. A mark drawn in the wrong place or a mirrored glyph can leave the text that an extractor reads exactly as it was.
+So every page of every golden document is also drawn by PDFium (the `PDFtoImage` package, test-only; the licences are in `Directory.Packages.props`) at **96 dpi**, and compared with the PNG stored in
+`Golden/Renders/<name>-p<page>.png` (`RenderGolden` in `tests/Pdfwright.Tests/Pdf`; RGB, 8 bits per channel, 793 x 1122 pixels for A4, about 704 KB for the 13 files). The tests are `*_looks_like_its_stored_render`, next to the byte tests: they build the document again, so a change of the library fails both.
+
+**The comparison is tight, not a hash.** A pixel differs when no pixel of the other image within one pixel of it is within 40 (of 255) of it on every colour channel: an edge that moved by one pixel and a different anti-aliasing are not differences,
+a glyph that moved by more, a mirrored glyph, a missing dot, a light table rule that is gone and a changed colour are. A page fails when **more than one pixel** differs (the rule is absolute, not a share of the ink: a share let a missing Arabic dot pass; the numbers, the measured platform differences
+and the sensitivity proof are in `docs/plan-0.1.md`, "S6b status"). `three-pages.pdf` has **no render golden**: it names the base-14 Helvetica without embedding it, so PDFium draws a font of its own system, and the first CI run with this rule measured 48 to 1,126 differing pixels per page on Linux and macOS against the Windows PNGs (its byte golden stays). Every page whose fonts are embedded measured 0 on all three systems.
+
+**When a render test fails** the page as drawn (`pdfwright-actual-<name>-p<n>.png`) and a diff image (`pdfwright-diff-<name>-p<n>.png`: the stored page faded, the pixels that differ in red) are written to `PDFWRIGHT_ACTUAL_DIR`
+(the temporary folder when it is not set), and the CI artifact `golden-actual-<os>` keeps them. Look at the diff image before deciding anything.
+
+**Regenerating.** `PDFWRIGHT_UPDATE_GOLDENS=1` regenerates the PNGs with the PDFs (the same variable, refused under `CI` in the same way): `-method "*golden_file*"` for the PDFs, `-method "*stored_render*"` for the PNGs (eleven tests).
+Regenerate the PNGs **in a commit of their own, apart from the PDFs, and from Windows** with **one runtime's test executable** (`PDFWRIGHT_UPDATE_GOLDENS=1 tests/Pdfwright.Tests/bin/Debug/net10.0/Pdfwright.Tests.exe -method "*stored_render*"`), never with `dotnet test` over several target frameworks at once (they would write the same files in parallel).
+The stored files were made on Windows; Windows, Linux and macOS measured 0 differing pixels against them, so a PNG made on any of them is expected to pass on the others. Do not regenerate to follow a platform: if CI on one system fails a page that passes on another, look at the diff image; if it is a real change, regenerate, and if it is the platform, measure it and change `RenderGolden` with the numbers in the plan.
+`PDFWRIGHT_RENDER_REPORT=<file>` appends one line for each page compared (differing pixels and the largest group of them touching); CI prints it.
+
+**When PDFium cannot be loaded** (an architecture or an operating system with no native binary in the packages) the render tests are skipped, with the reason. `PDFWRIGHT_REQUIRE_RENDER=1` makes that a failure, and CI sets it on all three systems, as it does `PDFWRIGHT_REQUIRE_QPDF`.

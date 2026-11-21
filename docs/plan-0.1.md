@@ -254,7 +254,7 @@ The first release does not claim PDF/UA, but it is built so that adding it is ad
 4. **Unicode conformance files** drive the bidi and line-break implementations (`BidiTest.txt`, `BidiCharacterTest.txt`, `LineBreakTest.txt`
    and the grapheme tests); the pass rate is printed by CI and must stay at 100 percent of the rows the implementation claims.
 5. **Visual check:** a render of each golden page through PDFium (a test-time package such as `PDFtoImage`; its licence is checked before
-   it is used) compared with a stored PNG by a perceptual tolerance, so a shaping regression that extraction would miss (a mark drawn
+   it is used) compared with a stored PNG by a tight per-channel tolerance, so a shaping regression that extraction would miss (a mark drawn
    in the wrong place) is caught. Native-speaker review of the Arabic, Hebrew, Devanagari and Thai pages before 0.1.0 (a release-checklist
    line, not a test).
 6. **Structure and viewers:** `qpdf --check` on every generated file in CI (a process, Apache-2.0); a release checklist that opens the
@@ -541,7 +541,7 @@ All four new blocks are sealed members of the closed `Block` set; the flow's `sw
 
 ### S6a status: script conformance by extraction, golden files, failure cases and property tests (21 November 2026)
 
-Points 1, 2, 3 and 7 of section 8 are done. Point 5 (PDFium visual goldens) is **S6b**, the next slice; the native-speaker review and the viewer checks are release-checklist items for the maintainer (`RELEASING.md`), not tests.
+Points 1, 2, 3 and 7 of section 8 are done. Point 5 (PDFium visual goldens) is S6b, below; the native-speaker review and the viewer checks are release-checklist items for the maintainer (`RELEASING.md`), not tests.
 
 **The page corpus** (`tests/Pdfwright.Tests/Corpus/pages/*.txt`, format in `Corpus/README.md`; the 61 single-line cases and their tests are untouched). Ten groups: Latin Extended (Turkish with dotless ı and the İ/i pairs and `Language = "tr"`, German, Polish, Vietnamese), Greek,
 Cyrillic (Russian, Ukrainian, Bulgarian), Arabic (joining, lam-alef, diacritics, tatweel, Arabic-Indic and Western digits, numbers inside Arabic text), Hebrew (points, final forms, maqaf, gershayim), mixed direction (English in Arabic, Arabic in English, nested quotes, numbers with signs, a phone
@@ -583,6 +583,39 @@ tables of 30 to 90 rows (with a few rows taller than a page) on a 300-point page
 (`TextShaper`; the missing glyph is still reported in the diagnostics, and the known limitations say what it looks like).
 
 **What is not covered.** Visual correctness (S6b); whether the words are right for a native reader and how Chrome, Edge, Acrobat Reader and macOS Preview show the files (the release checklist); Thai word breaking (a long run of Thai breaks between grapheme clusters, as documented); bold and italic of the six script fonts (not in the test project); a CJK, emoji or colour font; the golden bytes on Linux and macOS until CI has run.
+
+### S6b status: visual golden files through PDFium (21 November 2026)
+
+Point 5 of section 8 is done (the native-speaker review stays a release-checklist item). Every page of every golden document (the ten short script pages, the README report with 3 pages: 13 pages; `three-pages.pdf` is not drawn, see below) is drawn by PDFium and compared with a stored PNG in `tests/Pdfwright.Tests/Golden/Renders` (`RenderGolden`; the tests are `*_looks_like_its_stored_render`; they build the document again, so a change of the library fails the byte test and this one).
+
+**Renderer (test-only; `src/Pdfwright` gains nothing).** `PDFtoImage` 5.4.0 (published 16 August 2026; David Sungaila), which calls PDFium and draws with SkiaSharp. Licences read from the `.nuspec` of each restored package: PDFtoImage **MIT**; `bblanchon.PDFium.Win32`, `.Linux`, `.macOS` 152.0.7961 (Benoit Blanchon) **Apache-2.0**
+(the binaries are PDFium builds, BSD-3-Clause and Apache-2.0, bundling FreeType under the FreeType Licence); `SkiaSharp`, `SkiaSharp.NativeAssets.Win32`, `.macOS` and `.Linux.NoDependencies` 4.150.1 (Microsoft) **MIT**. Nothing is GPL, LGPL or unlicensed; the comments in `Directory.Packages.props` say the same. PDFtoImage ships assets for net8.0, net9.0 and net10.0 (net11.0 takes the net10.0 one), `linux-x64` and `linux-arm64` (glibc and musl) PDFium binaries,
+the Skia Linux assets that link nothing but glibc (`NoDependencies`), and `osx-arm64` and `osx-x64`: nothing was installed on the runners, and `ubuntu-latest`, `windows-latest` and `macos-latest` (Apple silicon) all load it.
+
+**Rendering and comparison.** 96 dpi (A4 is 793 x 1122 pixels), anti-aliasing on, white background, no annotations, stored as RGB PNG, 8 bits per channel (13 files, 703,952 bytes in all; with the three pages of `three-pages.pdf` it was 16 files and 753,108 bytes; the first version stored luminance only, 352 KB, and could not see a colour). A pixel differs when no pixel of the other image within one pixel is within 40 (of 255) of it on every colour channel (a shifted edge or another anti-aliasing is not a difference; a moved, mirrored or missing glyph, a light rule that is gone or another colour is); a page fails when **more than one pixel** differs, in total. The first rule, a share of 0.05 percent of the inked pixels, was an error of the first review: on a page of 20,000 inked pixels it let 10 differing pixels pass, which is a missing Arabic dot or a moved mark, and at threshold 96 a table rule of luminance 179 (672 pixels) was not ink at all. On failure `pdfwright-actual-<name>-p<n>.png` and `pdfwright-diff-<name>-p<n>.png` (stored page faded, differences red) go to `PDFWRIGHT_ACTUAL_DIR`, and CI keeps them with the artifact `golden-actual-<os>`. `PDFWRIGHT_UPDATE_GOLDENS=1` regenerates the PNGs (refused under `CI`), `PDFWRIGHT_REQUIRE_RENDER=1` (set in `ci.yml`) turns a renderer that cannot load into a failure, otherwise the tests skip with the reason. The PNGs were made on Windows (`Golden/README.md`).
+
+**Measured basis of the tolerance.** PNGs made on Windows (x64, net10.0), compared on the first CI run with the render of `windows-latest`, `ubuntu-latest` and `macos-latest` (arm64): **0 differing pixels on every one of the 16 pages on all three systems** (measured with the first, looser rule; the figures for the rule below are in "Cross-OS measurement with the final rule"), so the cross-platform noise is 0 pixels and the limit of one pixel is a margin for a future PDFium, not for noise. Nothing in the measurement supports a share-of-ink limit; a real regression is a handful of pixels (one mark) as well as thousands (a mirrored run), and only an absolute limit sees both.
+
+**Sensitivity proof** (temporary changes of `GlyphRunWriter`, reverted; "extraction" is `ScriptConformanceTests` and `Directions`, which passed all before):
+
+| Change | Render test | Byte golden | Extraction |
+|---|---|---|---|
+| every zero-advance glyph moved right by 1/3 em | fails: arabic 6.3%, thai 5.8%, bengali 3.4%, devanagari 2.7% of the ink (mixed 1.9% and hebrew 0.28% are below 2 percent but over the final 0.05 percent limit, so they fail now) | fails (6 pages) | **passes** |
+| x mirrored inside each right-to-left run | fails: arabic 27%, hebrew 23%, mixed 16% | fails (3) | fails (6 tests: the direction check of S6a catches it) |
+| the x of two glyphs of one cluster swapped | fails: devanagari 25%, bengali 22%, thai 18%, tamil 16%, arabic 5.1%, mixed 2.2%, hebrew 0.07% | fails (7) | **passes** |
+
+Two of the three changes read back correctly through the extractor, so only the pictures (and the bytes) catch them; the byte goldens catch every change of the output but say nothing about whether it looks right, which is what the PNGs are for when a change is meant.
+**Sensitivity of the comparator on one mark (`RenderCompareTests`, net10.0, every connected ink component of every golden page).** Erasing one mark (the mark and its 1-pixel surround painted white): **4,119 of 4,119 marks of 2 pixels or more detected (100 percent)** on the 13 pages (the 423 marks of `three-pages.pdf`, measured before its render was dropped, were all detected too). Moving one small mark (2 to 15 pixels) 5 pixels to the right: **519 of 519 detected (100 percent)** on the script pages and the README report (Arabic 127, Bengali 17, Devanagari 29, Hebrew 65, mixed 128, Tamil 57, Thai 24, README p1 72). Not covered by design: a mark of a single pixel (6 of them: corners of table rules on the README page and two specks on the Hebrew page) is one pixel, and one pixel differing is tolerated; erasing it passes, moving it differs in 2 pixels and fails. The limit started at 2 pixels in total with a cluster rule; the sweep showed a moved single-pixel speck (2 isolated differing pixels) passing, so the limit is 1. 0 differing pixels were measured on all three systems for the looser rule; the final rule is measured below.
+
+The comparator also fails: a blank page, an all-black page, a shift of 2 pixels in x or y, a light rule of luminance 179 that is gone (the first rule passed it with 0 differing pixels), and a black rectangle drawn red, blue, green, mid blue or grey. It passes: identical pages and a shift of 1 pixel. It gives the same count with the two pages swapped.
+
+**Cross-OS measurement with the final rule (first CI run, 21 November 2026).** Windows, Linux and macOS: 0 differing pixels on all 13 pages with embedded fonts (the 10 script pages and the 3 README pages), at channel threshold 40 and a limit of 1 pixel. `three-pages.pdf` (not embedded Helvetica): Linux 48, 106 and 1,109 pixels, macOS 54, 114 and 1,126 pixels on its three pages, the largest touching group 2 to 10 pixels: a different substitute font, not noise, so the page was taken out of the render goldens rather than the limit loosened.
+
+**Mutations of `GlyphRunWriter` with the final rule (net10.0, reverted).** Every zero-advance glyph moved right by 1/3 em: fails 6 of 12 pages (arabic 1,129 pixels, bengali 452, devanagari 435, mixed 698, thai 598, hebrew 87); x mirrored inside each right-to-left run: fails 3 (arabic 7,273, hebrew 6,078, mixed 7,903); the x of two glyphs of one cluster swapped: fails 7 (devanagari 5,435, tamil 3,771, bengali 3,593, thai 1,841, arabic 1,309, mixed 1,050, hebrew 11, the weakest case). All pages the change touches fail.
+
+**Time.** The eleven render tests take about 1.7 seconds on one runtime (loading PDFium included) on the Windows machine of this work; the three CI jobs took 2 m 16 s (ubuntu), 2 m 54 s (windows) and 3 m 8 s (macos) in all, restore, build and every other test included.
+
+**Not covered.** A PNG is the picture of one PDFium version at one resolution (PDFium 152 here; an update of the package may move glyph edges and is a reason to look at the diff images, not a reason to widen the tolerance); a colour or light-grey text page beyond the rectangles and rules of the comparator tests (the comparison is per channel, so it would be seen, but no golden page has colour); `three-pages.pdf` is not drawn: it names Helvetica without embedding it, so PDFium draws the substituted font of each system, and the first CI run of the final rule measured it differing by 48 to 1,126 pixels per page on Linux and 54 to 1,126 on macOS (Windows 0, where the PNGs were made), while the 13 pages with embedded fonts measured 0 on all three; the earlier luminance rule (threshold 96) had hidden this; only the short pages of the scripts are drawn, not the long ones.
 
 ## 10. Repository, release and name
 

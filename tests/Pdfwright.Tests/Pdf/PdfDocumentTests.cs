@@ -203,6 +203,9 @@ public class PdfDocumentTests
         Golden.Check("three-pages.pdf", actual);
     }
 
+    // There is no render golden for three-pages.pdf on purpose: it names Helvetica without embedding it, so PDFium draws a font of its own system, and the three CI systems drew
+    // it differently (48 to 1,126 pixels on a page). The pages whose fonts are embedded measured 0 differing pixels on all three.
+
     /// <summary>A stream that only writes: nothing may seek or read it, as a response body or a pipe cannot.</summary>
     private sealed class WriteOnlyStream(Stream inner) : Stream
     {
