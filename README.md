@@ -43,7 +43,7 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
 
 **Not in 0.1:** CJK (needs CFF fonts, which need a CFF subsetter), emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
-hyphenation and justified text, table cell spans, floating images, gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
+hyphenation and justified text, table cell spans, floating images, pictures other than JPEG and PNG (no WebP, GIF, TIFF or SVG), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
 

@@ -220,6 +220,22 @@ The first release does not claim PDF/UA, but it is built so that adding it is ad
   on the corpus. Target: the version after 0.1 (0.2), once the engine slices are stable. Until then, 0.1 documents are not
   tagged, which is a known limitation (`docs/known-limitations.md`); a caller that needs an accessible form offers another one next to the PDF.
 
+**Room left in the 0.1 public API for tagging (checked 21 November 2026, before 0.1.0).** The design above was written before the public API; the API
+as released differs from it, and tagging still needs no breaking change:
+
+- There is **no `StructureRole` property and no `Scope` or `Header` on `TableCell`** in 0.1, contrary to the first point above. Neither is needed
+  to start: the role of every block follows from its type (`Heading.Level` gives `H1` to `H6`, `Paragraph` gives `P`, `Table` gives `Table`, `TR`
+  and `TD` with the rows of `Table.Header` as `TH` with column scope, `Image` and `Drawing` give `Figure`, `Callout` and `Columns` give `Div`), and
+  the header and footer are drawn by the document, so they become `Artifact` without the caller saying so. Where a caller must override that (a row
+  header, a decorative image), 0.2 adds optional `init` properties to the sealed block and cell types, which is not a breaking change.
+- **Alternative text is already in 0.1:** `Image.AltText` and `Drawing.AltText` are stored and not written yet; 0.2 writes them as `/Alt` on the
+  `Figure` element.
+- **Language is already in 0.1:** `PdfDocumentOptions.Language` and `TextStyle.Language` on runs give the catalog's `/Lang` and the spans'.
+- **Turning it on** is a new `PdfDocumentOptions.Tagged` property (an `init` property, so additive); the content-stream builder already has the
+  marked-content operator with an `MCID`, unused in 0.1.
+- The block set is closed, so a new structure (a list, a figure caption, a note) arrives as a new block type in a minor version, as the closed set
+  intends; code written against 0.1 does not change.
+
 ## 7. Performance targets and how they are measured
 
 **Baselines (section 2):** Headless Chromium through Playwright, 1,000-row table: 2,048 ms, 495 MB, 154 KB. Skia-backed spike: 279 ms, +7 MB, 590 KB.

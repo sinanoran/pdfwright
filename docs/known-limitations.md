@@ -74,6 +74,8 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **The canvas text has no wrapping:** `DrawingCanvas.DrawText` breaks only at hard line breaks; use `TextMeasurer` to wrap or fit text.
 - **A header or footer is one block drawn inside the margin**, with no splitting and no table; one taller than what the margin leaves (the margin minus the offset) fails the save, and so does a block that cannot be laid out there; the exception names the page and says whether it was the header or the footer. Its callback runs once for each page after the whole body is laid out, so it should be a pure function of the `PageContext`.
 - **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
+- **Pictures are JPEG or PNG only.** `PdfImage.FromBytes` refuses WebP, GIF, BMP, TIFF, HEIC, SVG and every other format with an `ArgumentException`;
+  convert them before. Arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused too. A WebP decoder is not part of 0.1.
 - **The picture of a `PdfImage` is held decoded** (a PNG's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
 
 ## Fonts and scripts
@@ -90,7 +92,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **Limits of an image: 65,535 pixels on a side and 100 million pixels in all.** Anything larger is refused with an exception before memory is allocated, and so is a header that promises more rows than its compressed data can hold.
   A PNG is decoded whole: besides the file itself, the reader holds the compressed image data once (a copy of the IDAT chunks of exactly their size, up to about the size of the file) and the decoded samples
   (4 bytes a pixel for an RGBA picture, so about 400 MB for one of 100 million pixels, and 300 MB for RGB), and one row at a time otherwise.
-- **A chunk of a PNG that the reader does not know and that is critical** (its type begins with a capital letter) is refused with an `ImageFormatException`, as the format says a
+- **A chunk of a PNG that the reader does not know and that is critical** (its type begins with a capital letter) is refused (`PdfImage.FromBytes` throws an `ArgumentException`), as the format says a
   decoder must; an unknown ancillary chunk is skipped.
 - **The canvas writes the operands of a transform (`cm`) with ten significant digits, and everything else it writes (path coordinates, line widths, dash lengths) with five decimals.** A transform that
   shrinks or turns by a tiny amount keeps its value, and one that cannot be undone (a determinant of zero, or beyond the range of a number) is refused. But a path under a large scale, in data units with
