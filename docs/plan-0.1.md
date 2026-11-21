@@ -707,7 +707,7 @@ when he has chosen.
 1. **Own writer (B) rather than Skia (A).** *Recommended: B, with the stop point after S2 and S3's first half and the contingency of section 3.*
    The spike evidence is in section 2.
 2. **Is "no CJK in 0.1" acceptable?** CJK through a font directory needs CFF (OpenType) fonts, so a CFF subsetter
-   (about 10 days) is the first item after 0.1 (call it 0.2 with tagged PDF). TrueType-flavoured CJK fonts would work in 0.1 without it.
+   (about 10 days) is the first item after 0.1 (call it 0.2 with tagged PDF). TrueType-flavoured CJK fonts are accepted in 0.1 without it, but untested: no CJK text is in the corpus (see `docs/known-limitations.md`).
    *Recommended: yes, CJK in 0.2.*
 3. **Tagged PDF in 0.2, not 0.1** (section 6). *Recommended: yes, and written as a known limitation until then.*
 4. **The name** (section 10). *Recommended: Pdfwright (the name says what it does, in Sheetwright's pattern).*
