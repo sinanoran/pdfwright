@@ -353,6 +353,26 @@ So the remaining work is exactly the two open defects, now with a measuring harn
 S4 writes runs with `TJ` adjustments and one `Tm` per run (removes the spaces), and decides the `ActualText` question for the continuation glyphs of a cluster
 (measured on pdf.js, which respects an explicit mapping). The criterion for S4 is the table above with every row at 61 of 61, modulo characters the reader adds itself.
 
+### What the first S4 experiments showed (21 November 2026, `GlyphRunWriter`)
+
+Three ways of writing a shaped run were measured on the same 61 files, and one change to `ToUnicode`:
+
+| Experiment | PdfPig | pdf.js | xpdf default |
+|---|---|---|---|
+| One `Tm` per glyph, logical order (kept) | 61 | 27 | 36 |
+| One `Tm` per run, `TJ` adjustments | 61 | 27 | 29 |
+| Glyphs without advance written first in a cluster | 61 | | 25 |
+| **Continuation codes mapped to U+034F instead of empty (kept)** | 61 (U+034F removed) | **56** | |
+
+- **pdf.js:** the junk was the whole problem. With the combining grapheme joiner (invisible, default-ignorable, transparent to Arabic joining) as the text of a code that
+  continues a cluster, 56 of 61 lines come out right (ignoring the spaces its text layer does not mark, and the joiner). The five left are lines with stacked marks
+  (`arabic-diacritics`, `arabic-kashida`, `arabic-persian`, `arabic-shadda-dagger-alef`, `hebrew-points`), which pdf.js orders by position. An `ActualText` span has
+  not been tried and is the next thing to measure for those.
+- **xpdf's position-ordered mode cannot be brought to 61 of 61 by the layouts tried**: it puts a space wherever a glyph is drawn to the left of the end of the glyph before it
+  (a vowel sign drawn before its consonant, a mark placed by an offset), and none of the three orders removes that. This is a heuristic of one reader, not a defect of the
+  file, so the criterion for S4 is **PdfPig 61 of 61, pdf.js at 61 of 61 once the five mark lines are understood, and xpdf reported but not required**; viewers that matter
+  to users (Acrobat, Chrome, Preview) are in the release checklist (section 8, point 6).
+
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream

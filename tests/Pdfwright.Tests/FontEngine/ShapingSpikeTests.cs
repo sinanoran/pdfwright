@@ -137,7 +137,7 @@ public class ShapingSpikeTests
 
         using PdfDocument document = PdfDocument.Open(pdf);
         string extracted = document.GetPage(1).Text;
-        Assert.Equal(c.Text, extracted);
+        Assert.Equal(c.Text, extracted.Replace("͏", string.Empty, StringComparison.Ordinal)); // see PdfEmbeddedFont: continuation glyphs map to U+034F
         PdfTestKit.AssertQpdfAccepts(pdf, "shaping-" + id);
 
         // The text above does not depend on which glyph is drawn: every code must lead to the glyph the shaper chose.
