@@ -17,12 +17,17 @@ namespace Pdfwright.Pdf;
 /// A code is the glyph's id the first time the glyph is drawn for a text. When the same glyph is drawn for another text (a
 /// consonant alone and the same consonant inside a conjunct, U+2126 and U+03A9, a ligature in two words), it gets a code of
 /// its own, above the font's glyph count, and a <c>CIDToGIDMap</c> sends both codes to the one glyph. Every code then has exactly one
-/// text in <c>ToUnicode</c>, so a reader that follows it extracts the text that was drawn. A code that stands for no text maps to the empty string, which
-/// some readers (pdf.js) do not honour: see the assessment in <c>docs/plan-0.1.md</c>.
+/// text in <c>ToUnicode</c>, so a reader that follows it extracts the text that was drawn. A code that stands for no text (the rest of a cluster) maps to
+/// U+034F COMBINING GRAPHEME JOINER, not to the empty string: pdf.js turns an empty mapping into the code itself, which put junk characters
+/// into every Arabic and Indic line (27 of 61 corpus lines clean, 56 with the joiner). The joiner is invisible, a default-ignorable that does not
+/// break the joining of Arabic letters, and a reader that ignores it gets the text exactly; a test strips it.
 /// </para>
 /// </remarks>
 internal sealed class PdfEmbeddedFont
 {
+    /// <summary>U+034F COMBINING GRAPHEME JOINER: the text of a code that only continues a cluster (see the class remarks).</summary>
+    internal const string ContinuationText = "\u034F";
+
     private readonly TrueTypeFont _font;
     private readonly Dictionary<(int Glyph, string Text), int> _codes = [];
     private readonly SortedDictionary<int, (int Glyph, string Text)> _byCode = [];
@@ -55,7 +60,7 @@ internal sealed class PdfEmbeddedFont
     /// <summary>
     /// Records that the document draws a glyph for a text (the source characters of its cluster) and gives the code to draw it
     /// with, which <c>ToUnicode</c> will map back to exactly that text when the document is copied from or searched. A glyph that
-    /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and extracts as nothing.
+    /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and <c>ToUnicode</c> maps it to <see cref="ContinuationText"/>.
     /// </summary>
     /// <returns>
     /// The code of the glyph for this text: write it with <see cref="Code"/>. Codes are handed out in the order of the calls, so
@@ -263,7 +268,7 @@ internal sealed class PdfEmbeddedFont
     /// </summary>
     private string ToUnicodeMap()
     {
-        List<KeyValuePair<int, (int Glyph, string Text)>> mapped = [.. _byCode]; // a code with no text (the rest of a cluster) maps to the empty string
+        List<KeyValuePair<int, (int Glyph, string Text)>> mapped = [.. _byCode]; // a code with no text (the rest of a cluster) maps to U+034F, see the class remarks
         StringBuilder cmap = new();
         cmap.Append("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n");
         cmap.Append("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n");
@@ -276,7 +281,7 @@ internal sealed class PdfEmbeddedFont
             foreach (KeyValuePair<int, (int Glyph, string Text)> pair in chunk)
             {
                 cmap.Append('<').Append(pair.Key.ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
-                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text))).Append(">\n");
+                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text.Length == 0 ? ContinuationText : pair.Value.Text))).Append(">\n");
             }
 
             cmap.Append("endbfchar\n");

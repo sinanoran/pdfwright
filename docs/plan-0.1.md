@@ -345,13 +345,42 @@ condition is triggered; go to S4.** What each reader makes of the same 61 files:
 | Reader | Result |
 |---|---|
 | PdfPig (content order) | 61 of 61 byte-exact, in the test suite |
-| pdf.js (Firefox's viewer) | logical order and mixed direction correct; 27 of 61 clean, **every other line differs only by junk characters from codes whose `ToUnicode` entry is empty**; mapping those codes to U+034F removes the junk but leaves invisible characters in the text and pdf.js still adds spaces inside Indic clusters, so it is not the fix |
+| pdf.js (Firefox's viewer) | logical order and mixed direction correct; 27 of 61 clean, **every other line differs only by junk characters from codes whose `ToUnicode` entry is empty**; a first experiment mapping those codes to U+034F removed the junk (the next section measures it properly and keeps it) |
 | xpdf `pdftotext` 4.06 default (position order) | about 36 of 61 exact once the embedding controls (U+202A to U+202C) it adds itself are removed and a no-break space is read as a space (23 of 61 without that), about 40 if combining marks may stand before their base, 48 not counting spaces; the rest differ by spaces inside clusters (one `Tm` per glyph) and by spaces lost or moved where the direction changes |
 | xpdf `-raw` | spaces between letters (one `Tm` per glyph) |
 
 So the remaining work is exactly the two open defects, now with a measuring harness (`PDFWRIGHT_DUMP=<folder>` keeps the files, then read them with the readers above):
-S4 writes runs with `TJ` adjustments and one `Tm` per run (removes the spaces), and decides the `ActualText` question for the continuation glyphs of a cluster
-(measured on pdf.js, which respects an explicit mapping). The criterion for S4 is the table above with every row at 61 of 61, modulo characters the reader adds itself.
+The first S4 experiments (next section) tried `TJ` runs (worse in xpdf, not adopted) and `ActualText` (ignored by pdf.js, not adopted), and found the pdf.js fix in the mapping of the continuation codes.
+The criterion for S4 is stated at the end of the next section, which supersedes the one that stood here ("every row at 61 of 61").
+
+### What the first S4 experiments showed (21 November 2026, `GlyphRunWriter`)
+
+Three ways of writing a shaped run were measured on the same 61 files, and one change to `ToUnicode`:
+
+| Experiment | PdfPig | pdf.js | xpdf default |
+|---|---|---|---|
+| One `Tm` per glyph, logical order (kept) | 61 | 27 | 36 |
+| One `Tm` per run, `TJ` adjustments | 61 | 27 | 29 |
+| Glyphs without advance written first in a cluster | 61 | | 25 |
+| HarfBuzz cluster level 1 (monotone characters) | 61 | 56 | 44 (joiner removed) |
+| `ActualText` around multi-glyph clusters, continuation codes empty | not applicable (PdfPig ignores it) | 27, junk doubled | 35 |
+| **Continuation codes mapped to U+034F instead of empty (kept)** | 61 (U+034F removed) | **56** | **44** with the joiner removed, 23 without |
+
+- **pdf.js:** the junk was the whole problem. With the combining grapheme joiner (invisible, default-ignorable, transparent to Arabic joining) as the text of a code that
+  continues a cluster, 56 of 61 lines come out right (ignoring the spaces its text layer does not mark, and the joiner). The five left are lines with stacked marks
+  (`arabic-diacritics`, `arabic-kashida`, `arabic-shadda-dagger-alef`, `hebrew-points`), which pdf.js orders by position, and `arabic-persian`, where pdf.js drops
+  the zero width non-joiner of "می‌خواهم" although the file maps its code to U+200C. `ActualText` was tried: pdf.js ignores it (and then shows the junk twice), and xpdf
+  does not improve (35), so it is not preferred over the joiner. Cluster level 1 changes little (31 files need the joiner instead of 34).
+- **The price of the joiner:** every reader now sees U+034F in copied text (34 of the 61 lines carry it). It is invisible and does not break Arabic joining, but it breaks plain
+  string matching (`Contains`, grep, tokenizers that keep it inside the word), and because its combining class is 0 it blocks canonical reordering when a position-ordered reader
+  puts it between a letter and its own marks (normalised text then differs from the source). This is written into `docs/known-limitations.md`. Fewer continuation glyphs
+  (fonts or shaping settings that draw a letter as one glyph) is the way to reduce it; it is not a 0.1 goal.
+- **xpdf's position-ordered mode cannot be brought to 61 of 61 by the layouts tried**: it puts a space wherever a glyph is drawn to the left of the end of the glyph before it
+  (a vowel sign drawn before its consonant, a mark placed by an offset), and none of the three orders removes that. This is a heuristic of one reader, not a defect of the
+  file, so the criterion for S4 is **PdfPig 61 of 61 (byte-exact, joiner removed), pdf.js at 61 of 61 once the five lines above are understood, xpdf not below its floor of 44
+  (`XpdfRegressionFloorTests`, which runs where `pdftotext` is installed; the 36 first agreed is the floor measured with the empty mapping)**; poppler's own position-ordered mode
+  (Evince, Okular) was never measured, and the viewers that matter to users (Acrobat, Chrome, Preview) are in the release checklist (section 8, point 6). The stop condition's
+  "a fix that works in pdf.js, Acrobat, Preview and Chrome together" is read as: the pdf.js fix exists (the joiner), the others are checked at release.
 
 ## 10. Repository, release and name
 

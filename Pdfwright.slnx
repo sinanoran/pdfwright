@@ -17,6 +17,7 @@
   <Folder Name="/docs/">
     <File Path="docs/plan-0.1.md" />
     <File Path="docs/baselines.md" />
+    <File Path="docs/known-limitations.md" />
   </Folder>
   <Folder Name="/solution items/">
     <File Path="README.md" />
