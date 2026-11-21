@@ -346,7 +346,7 @@ condition is triggered; go to S4.** What each reader makes of the same 61 files:
 |---|---|
 | PdfPig (content order) | 61 of 61 byte-exact, in the test suite |
 | pdf.js (Firefox's viewer) | logical order and mixed direction correct; 27 of 61 clean, **every other line differs only by junk characters from codes whose `ToUnicode` entry is empty**; mapping those codes to U+034F removes the junk but leaves invisible characters in the text and pdf.js still adds spaces inside Indic clusters, so it is not the fix |
-| xpdf `pdftotext` default (position order) | 36 of 61 exact after removing the direction marks it adds itself, 40 of 61 ignoring the order of combining marks; the rest differ by spaces inside clusters (one `Tm` per glyph) and by spaces lost or moved where the direction changes |
+| xpdf `pdftotext` 4.06 default (position order) | about 36 of 61 exact once the embedding controls (U+202A to U+202C) it adds itself are removed and a no-break space is read as a space (23 of 61 without that), about 40 if combining marks may stand before their base, 48 not counting spaces; the rest differ by spaces inside clusters (one `Tm` per glyph) and by spaces lost or moved where the direction changes |
 | xpdf `-raw` | spaces between letters (one `Tm` per glyph) |
 
 So the remaining work is exactly the two open defects, now with a measuring harness (`PDFWRIGHT_DUMP=<folder>` keeps the files, then read them with the readers above):

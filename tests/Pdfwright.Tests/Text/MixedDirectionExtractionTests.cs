@@ -42,7 +42,7 @@ public class MixedDirectionExtractionTests
     }
 
     /// <summary>Draws one paragraph on one page: runs placed by the bidi order of their levels, glyphs emitted in logical order.</summary>
-    internal static byte[] Draw(string text, string[] fontFiles, out ShapedParagraph paragraph)
+    internal static byte[] Draw(string text, string[] fontFiles, out ShapedParagraph paragraph, out double[] runOrigins)
     {
         ShapingFont[] fonts = [.. fontFiles.Select(Font)];
         paragraph = TextShaper.Shape(text, fonts);
@@ -51,6 +51,7 @@ public class MixedDirectionExtractionTests
         byte[] levels = [.. paragraph.Runs.Select(r => r.Level)];
         int[] visual = UnicodeBidi.VisualOrder(levels, 0, levels.Length);
         double[] originX = new double[paragraph.Runs.Count];
+        runOrigins = originX;
         double x = 20;
         foreach (int index in visual)
         {
@@ -113,13 +114,42 @@ public class MixedDirectionExtractionTests
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// The runs stand left to right in the order the bidi algorithm gives the characters in them, worked out a second way: per character
+    /// (the end-of-line rule, then the visual order of the code points), not per run as <see cref="Draw"/> does.
+    /// </summary>
+    private static void AssertRunsAreInBidiOrder(string text, ShapedParagraph paragraph, double[] origins)
+    {
+        int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
+        BidiResult bidi = UnicodeBidi.Resolve(codePoints);
+        byte[] levels = UnicodeBidi.LineLevels(bidi, 0, codePoints.Length);
+        int[] visual = UnicodeBidi.VisualOrder(levels, 0, levels.Length);
+        int[] rank = new int[codePoints.Length];
+        for (int position = 0; position < visual.Length; position++)
+        {
+            rank[visual[position]] = position;
+        }
+
+        int[] runRank = [.. paragraph.Runs.Select(run => Enumerable.Range(0, codePoints.Length)
+            .Where(i => utf16Index[i] >= run.Utf16Start && utf16Index[i] < run.Utf16Start + run.Utf16Length)
+            .Min(i => rank[i]))];
+
+        int[] byPosition = [.. Enumerable.Range(0, origins.Length).OrderBy(r => origins[r])];
+        int[] byRank = [.. Enumerable.Range(0, origins.Length).OrderBy(r => runRank[r])];
+        Assert.Equal(byRank, byPosition);
+        for (int r = 1; r < byPosition.Length; r++)
+        {
+            Assert.True(origins[byPosition[r]] > origins[byPosition[r - 1]], "two runs start at the same place");
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Cases))]
     public void A_corpus_line_reads_back_exactly_as_it_was_written(string id)
     {
         CorpusTests.Case c = CorpusTests.Load().Single(x => x.Id == id);
 
-        byte[] pdf = Draw(c.Text, c.Fonts, out ShapedParagraph paragraph);
+        byte[] pdf = Draw(c.Text, c.Fonts, out ShapedParagraph paragraph, out double[] origins);
 
         // Set PDFWRIGHT_DUMP to a folder to keep the files, to read them with other readers (pdftotext, pdf.js, a viewer).
         if (Environment.GetEnvironmentVariable("PDFWRIGHT_DUMP") is { Length: > 0 } dump)
@@ -130,6 +160,8 @@ public class MixedDirectionExtractionTests
 
         using PdfDocument document = PdfDocument.Open(pdf);
         Assert.Empty(paragraph.Missing);
+        Assert.DoesNotContain(paragraph.Runs.SelectMany(r => r.Glyphs), g => g.Glyph == 0);
+        AssertRunsAreInBidiOrder(c.Text, paragraph, origins);
         Assert.Equal(c.Text, document.GetPage(1).Text);
         PdfTestKit.AssertQpdfAccepts(pdf, "mixed-" + id);
     }

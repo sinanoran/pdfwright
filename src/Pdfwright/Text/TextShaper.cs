@@ -17,9 +17,9 @@ internal sealed class ShapingFont : IDisposable
         Font = font;
 
         // The bytes are copied to native memory that HarfBuzz owns until it releases the blob: a managed buffer it did not pin could move.
-        ReadOnlySpan<byte> bytes = font.Bytes;
+        byte[] bytes = font.RawBytes;
         IntPtr native = Marshal.AllocHGlobal(bytes.Length);
-        Marshal.Copy(bytes.ToArray(), 0, native, bytes.Length);
+        Marshal.Copy(bytes, 0, native, bytes.Length);
         _blob = new Blob(native, bytes.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(native));
         _face = new Face(_blob, 0);
         Shaper = new HarfBuzzSharp.Font(_face);
@@ -73,7 +73,10 @@ internal sealed class ShapedParagraph
 
     internal required List<ShapedRun> Runs { get; init; }
 
-    /// <summary>The characters no font had a glyph for (as UTF-16 indices): they are drawn as the first font's .notdef glyph.</summary>
+    /// <summary>
+    /// The characters no font had a glyph for (as UTF-16 indices): they are drawn as the .notdef glyph of the font chosen for them. Characters that
+    /// need no glyph (joiners, direction marks, variation selectors, control characters) are never listed.
+    /// </summary>
     internal required List<int> Missing { get; init; }
 }
 
@@ -84,8 +87,11 @@ internal sealed class ShapedParagraph
 internal static class TextShaper
 {
     /// <summary>
-    /// Shapes <paramref name="text"/> as one paragraph. <paramref name="fonts"/> is the fallback list: a character uses the font of the
-    /// character before it when that font has a glyph for it (so a run is not cut at every space), otherwise the first font that does.
+    /// Shapes <paramref name="text"/> as one paragraph (it must not hold a paragraph separator before its last character: split with
+    /// <see cref="UnicodeBidi.Paragraphs"/> first, or <see cref="ArgumentException"/> is thrown; tabs and other control characters are for the
+    /// caller to turn into spaces). <paramref name="fonts"/> is the fallback list in order of preference. No language is set unless
+    /// <paramref name="language"/> is given (then it applies to every run); the beginning and end of text flags of HarfBuzz are not set, so
+    /// the text is taken as it is written and a combining mark at its start gets no dotted circle.
     /// </summary>
     internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null)
     {
@@ -99,7 +105,7 @@ internal static class TextShaper
         int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
         if (codePoints.Length == 0)
         {
-            return new ShapedParagraph { ParagraphLevel = 0, Runs = [], Missing = [] };
+            return new ShapedParagraph { ParagraphLevel = paragraphLevel == 1 ? (byte)1 : (byte)0, Runs = [], Missing = [] };
         }
 
         BidiResult bidi = UnicodeBidi.Resolve(codePoints, paragraphLevel);
@@ -130,40 +136,109 @@ internal static class TextShaper
         return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing };
     }
 
+    /// <summary>
+    /// Characters that need no glyph of their own: HarfBuzz hides the default-ignorable ones (joiners, direction marks, variation selectors)
+    /// whatever the font's character map says, and control characters (tab, line feed) are for the layer above to turn into space or breaks.
+    /// They take the font of their neighbours and are never reported as missing.
+    /// </summary>
+    internal static bool NeedsNoGlyph(int codePoint) =>
+        codePoint is < 0x20 or (>= 0x7F and <= 0x9F)
+            or 0x00AD or 0x034F or 0x061C or 0x115F or 0x1160 or (>= 0x17B4 and <= 0x17B5) or (>= 0x180B and <= 0x180F)
+            or (>= 0x200B and <= 0x200F) or (>= 0x202A and <= 0x202E) or (>= 0x2060 and <= 0x206F) or 0x3164
+            or (>= 0xFE00 and <= 0xFE0F) or 0xFEFF or 0xFFA0 or (>= 0xFFF0 and <= 0xFFF8) or (>= 0xE0000 and <= 0xE0FFF);
+
+    /// <summary>
+    /// A font for every character, chosen per grapheme cluster so that a base and its marks are never split between fonts. A cluster of a real
+    /// script takes the first font in the list that has a glyph for all of it (so the order of the list is the order of preference); spaces,
+    /// digits and punctuation, which belong to no script, stay in the font of the text before them when it covers them, so that a run is not
+    /// cut at every space. When no font covers a whole cluster, the first font that covers its first character is used.
+    /// </summary>
     private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, List<int> missing)
     {
+        bool[] boundaries = UnicodeGraphemeBreaker.Boundaries(codePoints);
         int[] chosen = new int[codePoints.Length];
         int previous = 0;
-        for (int i = 0; i < codePoints.Length; i++)
+        for (int start = 0; start < codePoints.Length;)
         {
-            int pick = -1;
-            if (fonts[previous].Font.GlyphForCodePoint(codePoints[i]) != 0)
+            int end = start + 1;
+            while (end < codePoints.Length && !boundaries[end])
             {
-                pick = previous;
+                end++;
             }
-            else
+
+            int pick = PickFont(codePoints, start, end, previous, fonts, out bool anyMissing);
+            for (int i = start; i < end; i++)
             {
-                for (int f = 0; f < fonts.Count; f++)
+                chosen[i] = pick;
+                if (anyMissing && !NeedsNoGlyph(codePoints[i]) && fonts[pick].Font.GlyphForCodePoint(codePoints[i]) == 0)
                 {
-                    if (fonts[f].Font.GlyphForCodePoint(codePoints[i]) != 0)
-                    {
-                        pick = f;
-                        break;
-                    }
+                    missing.Add(utf16Index[i]);
                 }
             }
 
-            if (pick < 0)
-            {
-                pick = previous;
-                missing.Add(utf16Index[i]);
-            }
-
-            chosen[i] = pick;
             previous = pick;
+            start = end;
         }
 
         return chosen;
+    }
+
+    private static int PickFont(int[] codePoints, int start, int end, int previous, IReadOnlyList<ShapingFont> fonts, out bool anyMissing)
+    {
+        anyMissing = false;
+        int first = -1;
+        for (int i = start; i < end; i++)
+        {
+            if (!NeedsNoGlyph(codePoints[i]))
+            {
+                first = i;
+                break;
+            }
+        }
+
+        if (first < 0)
+        {
+            return previous; // only characters that need no glyph
+        }
+
+        bool neutral = ScriptData.ScriptOf(codePoints[first]) == ScriptData.Common;
+        if (neutral && Covers(fonts[previous], codePoints, start, end))
+        {
+            return previous;
+        }
+
+        for (int f = 0; f < fonts.Count; f++)
+        {
+            if (Covers(fonts[f], codePoints, start, end))
+            {
+                return f;
+            }
+        }
+
+        for (int f = 0; f < fonts.Count; f++)
+        {
+            if (fonts[f].Font.GlyphForCodePoint(codePoints[first]) != 0)
+            {
+                anyMissing = true; // the marks after the base are drawn without their glyphs
+                return f;
+            }
+        }
+
+        anyMissing = true;
+        return previous;
+    }
+
+    private static bool Covers(ShapingFont font, int[] codePoints, int start, int end)
+    {
+        for (int i = start; i < end; i++)
+        {
+            if (!NeedsNoGlyph(codePoints[i]) && font.Font.GlyphForCodePoint(codePoints[i]) == 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language)

@@ -170,6 +170,9 @@ internal sealed class TrueTypeFont
     /// <summary>The font file as it was read: what a hash of the font is taken over.</summary>
     internal ReadOnlySpan<byte> Bytes => _data;
 
+    /// <summary>The same bytes as an array, for a consumer that needs one to copy from; it must not be changed.</summary>
+    internal byte[] RawBytes => _data;
+
     /// <summary>
     /// Whether the licence allows embedding a <b>subset</b>, which is all Pdfwright does: fsType 0 (installable), 4 (preview and
     /// print) and 8 (editable) allow it; restricted licence (bit 1), no subsetting (bit 8) and bitmap-only embedding (bit 9) do not.
