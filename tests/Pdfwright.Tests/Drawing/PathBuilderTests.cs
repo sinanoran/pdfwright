@@ -1,5 +1,5 @@
-using Pdfwright.Drawing;
-using Path = Pdfwright.Drawing.Path;
+using Pdfwright.Graphics;
+using Path = Pdfwright.Graphics.Path;
 
 namespace Pdfwright.Tests.Drawing;
 

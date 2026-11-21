@@ -11,6 +11,8 @@ public sealed class PdfDocumentOptions
     private readonly Margins _margins = Margins.Mm(top: 20, right: 15, bottom: 20, left: 15);
     private readonly TextDirection _direction = TextDirection.Auto;
     private readonly DocumentLimits _limits = new();
+    private readonly Length? _headerOffset;
+    private readonly Length? _footerOffset;
 
     /// <summary>The fonts the document may use. Required; the collection must hold at least one font when the document is created.</summary>
     /// <exception cref="ArgumentNullException">The value is <see langword="null"/>.</exception>
@@ -76,6 +78,33 @@ public sealed class PdfDocumentOptions
 
             _margins = value;
         }
+    }
+
+    /// <summary>
+    /// Builds the header of each page, or <see langword="null"/> for none. It is called once for each page, in page order, after the whole body has been laid out (so the page count is known; see <see cref="PageContext.Count"/>), and may return
+    /// <see langword="null"/> for a page with no header (the first, say). The block is laid out at the content width and drawn <b>inside the top margin</b>, its top <see cref="HeaderOffset"/> below the top edge of the page;
+    /// the body's area is not changed. It may be a paragraph, a heading, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, not a table or a page break. Its own space before and after
+    /// are ignored. A header taller than the room the margin leaves (the top margin minus the offset) fails the save with an <see cref="InvalidOperationException"/> naming the page. The callback must be a pure function of its argument.
+    /// </summary>
+    public Func<PageContext, Block?>? Header { get; init; }
+
+    /// <summary>The footer of each page, built like <see cref="Header"/> and drawn <b>inside the bottom margin</b>, its bottom <see cref="FooterOffset"/> above the bottom edge of the page.</summary>
+    public Func<PageContext, Block?>? Footer { get; init; }
+
+    /// <summary>The distance from the top edge of the page to the top of the header, or <see langword="null"/> for half the top margin. Not more than the top margin.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
+    public Length? HeaderOffset
+    {
+        get => _headerOffset;
+        init => _headerOffset = Check.Space(value, nameof(HeaderOffset));
+    }
+
+    /// <summary>The distance from the bottom edge of the page to the bottom of the footer, or <see langword="null"/> for half the bottom margin. Not more than the bottom margin.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
+    public Length? FooterOffset
+    {
+        get => _footerOffset;
+        init => _footerOffset = Check.Space(value, nameof(FooterOffset));
     }
 
     /// <summary>The document's title, shown by readers in the window title.</summary>

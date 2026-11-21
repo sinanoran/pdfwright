@@ -34,6 +34,27 @@ sealed class Borders : IEquatable<Borders>
   property static Borders Horizontal { get; }
   property static Borders None { get; }
   property static Borders Outer { get; }
+sealed class Callout : Block, IEquatable<Block>, IEquatable<Callout>
+  ctor(Block content)
+  ctor(IEnumerable<Block> content)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Callout? other)
+  method Boolean Equals(Object? obj)
+  method Boolean PrintMembers(System.Text.StringBuilder builder)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(Callout? left, Callout? right)
+  operator static Boolean op_Inequality(Callout? left, Callout? right)
+  property Boolean KeepTogether { get; init; }
+  property BorderLine? Border { get; init; }
+  property Color? Fill { get; init; }
+  property IReadOnlyList<Block> Content { get; }
+  property Length CornerRadius { get; init; }
+  property Length? SpaceAfter { get; init; }
+  property Length? SpaceBefore { get; init; }
+  property Margins Padding { get; init; }
+  property TextDirection? Direction { get; init; }
+  property Type EqualityContract { get; }
 struct Color : IEquatable<Color>
   method Boolean Equals(Color other)
   method Boolean Equals(Object obj)
@@ -73,6 +94,23 @@ enum ColumnWidthKind : IComparable, IConvertible, IFormattable, ISpanFormattable
   Fixed = 1
   Fraction = 2
   field Int32 value__
+sealed class Columns : Block, IEquatable<Block>, IEquatable<Columns>
+  ctor(IEnumerable<Block> cells)
+  ctor(IEnumerable<IEnumerable<Block>> cells)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Columns? other)
+  method Boolean Equals(Object? obj)
+  method Boolean PrintMembers(System.Text.StringBuilder builder)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(Columns? left, Columns? right)
+  operator static Boolean op_Inequality(Columns? left, Columns? right)
+  property IReadOnlyList<IReadOnlyList<Block>> Cells { get; }
+  property Length Gap { get; init; }
+  property Length? SpaceAfter { get; init; }
+  property Length? SpaceBefore { get; init; }
+  property TextDirection? Direction { get; init; }
+  property Type EqualityContract { get; }
 sealed class DocumentDiagnostics
   property IReadOnlyList<MissingGlyph> MissingGlyphs { get; }
   property IReadOnlyList<String> MissingFamilies { get; }
@@ -90,6 +128,71 @@ sealed class DocumentLimits
   property Int32? MaxPages { get; init; }
   property Int32? MaxTableRows { get; init; }
   property Int64? MaxBytes { get; init; }
+sealed class Drawing : Block, IEquatable<Block>, IEquatable<Drawing>
+  ctor(Length width, Length height, Action<DrawingCanvas> draw)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Drawing? other)
+  method Boolean Equals(Object? obj)
+  method Boolean PrintMembers(System.Text.StringBuilder builder)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(Drawing? left, Drawing? right)
+  operator static Boolean op_Inequality(Drawing? left, Drawing? right)
+  property Action<DrawingCanvas> Draw { get; }
+  property Length Height { get; }
+  property Length Width { get; }
+  property Length? SpaceAfter { get; init; }
+  property Length? SpaceBefore { get; init; }
+  property String? AltText { get; init; }
+  property Type EqualityContract { get; }
+sealed class DrawingCanvas
+  method Void Clip(DrawingPath path, FillRule rule = FillRule.NonZero)
+  method Void DrawImage(PdfImage image, Double x, Double y, Double width, Double height, Double opacity = 1)
+  method Void DrawText(String text, Double x, Double y, TextStyle? style = null, TextAlignment alignment = TextAlignment.Start, TextDirection? direction = null, Double opacity = 1)
+  method Void Fill(DrawingPath path, Color color, Double opacity = 1, FillRule rule = FillRule.NonZero)
+  method Void Restore()
+  method Void Rotate(Double degrees)
+  method Void Save()
+  method Void Scale(Double sx, Double sy)
+  method Void Stroke(DrawingPath path, Color color, Double width = 1)
+  method Void Stroke(DrawingPath path, DrawingPen pen)
+  method Void Transform(Double a, Double b, Double c, Double d, Double e, Double f)
+  method Void Translate(Double dx, Double dy)
+  property Double Height { get; }
+  property Double Width { get; }
+sealed class DrawingPath
+  property Boolean IsEmpty { get; }
+sealed class DrawingPathBuilder
+  ctor()
+  method DrawingPath Build()
+  method DrawingPathBuilder Arc(Double cx, Double cy, Double rx, Double ry, Double startDegrees, Double sweepDegrees)
+  method DrawingPathBuilder Close()
+  method DrawingPathBuilder CubicTo(Double x1, Double y1, Double x2, Double y2, Double x3, Double y3)
+  method DrawingPathBuilder Ellipse(Double cx, Double cy, Double rx, Double ry)
+  method DrawingPathBuilder LineTo(Double x, Double y)
+  method DrawingPathBuilder MoveTo(Double x, Double y)
+  method DrawingPathBuilder QuadraticTo(Double x1, Double y1, Double x2, Double y2)
+  method DrawingPathBuilder Rectangle(Double x, Double y, Double width, Double height)
+  method DrawingPathBuilder RoundedRectangle(Double x, Double y, Double width, Double height, Double radiusX, Double radiusY)
+sealed class DrawingPen : IEquatable<DrawingPen>
+  ctor(Color color, Double width = 1, LineCap cap = LineCap.Butt, LineJoin join = LineJoin.Miter, Double miterLimit = 10, IEnumerable<Double>? dashes = null, Double dashPhase = 0, Double opacity = 1)
+  method Boolean Equals(DrawingPen? other)
+  method Boolean Equals(Object? obj)
+  method Int32 GetHashCode()
+  operator static Boolean op_Equality(DrawingPen? left, DrawingPen? right)
+  operator static Boolean op_Inequality(DrawingPen? left, DrawingPen? right)
+  property Color Color { get; }
+  property Double DashPhase { get; }
+  property Double MiterLimit { get; }
+  property Double Opacity { get; }
+  property Double Width { get; }
+  property IReadOnlyList<Double> Dashes { get; }
+  property LineCap Cap { get; }
+  property LineJoin Join { get; }
+enum FillRule : IComparable, IConvertible, IFormattable, ISpanFormattable
+  EvenOdd = 1
+  NonZero = 0
+  field Int32 value__
 sealed class FontCollection : IDisposable
   ctor()
   method FontCollection Add(Byte[] fontData)
@@ -117,6 +220,24 @@ sealed class Heading : Block, IEquatable<Block>, IEquatable<Heading>
   property Length? SpaceBefore { get; init; }
   property TextAlignment Alignment { get; init; }
   property TextDirection? Direction { get; init; }
+  property Type EqualityContract { get; }
+sealed class Image : Block, IEquatable<Block>, IEquatable<Image>
+  ctor(PdfImage source)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Image? other)
+  method Boolean Equals(Object? obj)
+  method Boolean PrintMembers(System.Text.StringBuilder builder)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(Image? left, Image? right)
+  operator static Boolean op_Inequality(Image? left, Image? right)
+  property Length? Height { get; init; }
+  property Length? SpaceAfter { get; init; }
+  property Length? SpaceBefore { get; init; }
+  property Length? Width { get; init; }
+  property PdfImage Source { get; }
+  property String? AltText { get; init; }
+  property TextAlignment Alignment { get; init; }
   property Type EqualityContract { get; }
 struct Length : IComparable<Length>, IEquatable<Length>
   method Boolean Equals(Length other)
@@ -147,6 +268,16 @@ struct Length : IComparable<Length>, IEquatable<Length>
   property Double Millimeters { get; }
   property Double Points { get; }
   property static Length Zero { get; }
+enum LineCap : IComparable, IConvertible, IFormattable, ISpanFormattable
+  Butt = 0
+  Round = 1
+  Square = 2
+  field Int32 value__
+enum LineJoin : IComparable, IConvertible, IFormattable, ISpanFormattable
+  Bevel = 2
+  Miter = 0
+  Round = 1
+  field Int32 value__
 struct Margins : IEquatable<Margins>
   ctor(Length top, Length right, Length bottom, Length left)
   method Boolean Equals(Margins other)
@@ -184,6 +315,12 @@ sealed class PageBreak : Block, IEquatable<Block>, IEquatable<PageBreak>
   operator static Boolean op_Equality(PageBreak? left, PageBreak? right)
   operator static Boolean op_Inequality(PageBreak? left, PageBreak? right)
   property Type EqualityContract { get; }
+sealed class PageContext
+  property Boolean IsFirst { get; }
+  property Boolean IsLast { get; }
+  property Int32 Count { get; }
+  property Int32 Number { get; }
+  property PageSize PageSize { get; }
 struct PageSize : IEquatable<PageSize>
   ctor(Length width, Length height)
   method Boolean Equals(Object? obj)
@@ -210,6 +347,7 @@ sealed class Paragraph : Block, IEquatable<Block>, IEquatable<Paragraph>
   method String ToString()
   operator static Boolean op_Equality(Paragraph? left, Paragraph? right)
   operator static Boolean op_Inequality(Paragraph? left, Paragraph? right)
+  property Boolean KeepTogether { get; init; }
   property Double LineSpacing { get; init; }
   property IReadOnlyList<TextRun> Runs { get; }
   property Length? SpaceAfter { get; init; }
@@ -232,7 +370,11 @@ sealed class PdfDocumentOptions
   property DateTimeOffset? Creation { get; init; }
   property DocumentLimits Limits { get; init; }
   property FontCollection Fonts { get; init; }
+  property Func<PageContext, Block?>? Footer { get; init; }
+  property Func<PageContext, Block?>? Header { get; init; }
   property IReadOnlyList<TextStyle>? HeadingStyles { get; init; }
+  property Length? FooterOffset { get; init; }
+  property Length? HeaderOffset { get; init; }
   property Margins Margins { get; init; }
   property PageSize PageSize { get; init; }
   property String? Author { get; init; }
@@ -242,6 +384,11 @@ sealed class PdfDocumentOptions
   property String? Title { get; init; }
   property TextDirection Direction { get; init; }
   property TextStyle? DefaultStyle { get; init; }
+sealed class PdfImage
+  method static PdfImage FromBytes(ReadOnlySpan<Byte> bytes)
+  property Boolean HasTransparency { get; }
+  property Int32 PixelHeight { get; }
+  property Int32 PixelWidth { get; }
 sealed class PdfLimitExceededException : InvalidOperationException, System.Runtime.Serialization.ISerializable
   property DocumentLimit Limit { get; }
   property Int64 Maximum { get; }

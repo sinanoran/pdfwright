@@ -25,7 +25,7 @@ public class BlockTests
     {
         Type[] blocks = [.. typeof(Block).Assembly.GetExportedTypes().Where(t => t != typeof(Block) && typeof(Block).IsAssignableFrom(t))];
 
-        Assert.Equal(["Heading", "PageBreak", "Paragraph", "Spacer", "Table"], blocks.Select(t => t.Name).Order());
+        Assert.Equal(["Callout", "Columns", "Drawing", "Heading", "Image", "PageBreak", "Paragraph", "Spacer", "Table"], blocks.Select(t => t.Name).Order());
         Assert.All(blocks, t =>
         {
             Assert.True(t.IsSealed, t.Name);

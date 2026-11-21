@@ -1,4 +1,4 @@
-namespace Pdfwright.Drawing;
+namespace Pdfwright.Graphics;
 
 /// <summary>The kinds of segment a <see cref="Path"/> holds, each one operator of a content stream.</summary>
 internal enum PathSegmentKind

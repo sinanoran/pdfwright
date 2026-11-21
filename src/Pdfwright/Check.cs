@@ -31,12 +31,12 @@ internal static class Check
         return value;
     }
 
-    /// <summary>An optional font size: finite and more than zero.</summary>
-    internal static Length? Size(Length? value, string name)
+    /// <summary>An optional size (a font size unless another <paramref name="noun"/> is given): finite and more than zero.</summary>
+    internal static Length? Size(Length? value, string name, string noun = "A font size")
     {
         if (value is { } length && (!length.IsFinite || !(length > Length.Zero)))
         {
-            throw new ArgumentOutOfRangeException(name, length, "A font size is a positive, finite length.");
+            throw new ArgumentOutOfRangeException(name, length, $"{noun} is a positive, finite length.");
         }
 
         return value;

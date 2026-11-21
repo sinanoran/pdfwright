@@ -1,6 +1,6 @@
-using Pdfwright.Drawing;
+using Pdfwright.Graphics;
 using Pdfwright.Pdf;
-using Path = Pdfwright.Drawing.Path;
+using Path = Pdfwright.Graphics.Path;
 
 namespace Pdfwright.Tests.Drawing;
 

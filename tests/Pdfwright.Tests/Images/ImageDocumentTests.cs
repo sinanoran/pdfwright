@@ -1,5 +1,5 @@
 using System.Text;
-using Pdfwright.Drawing;
+using Pdfwright.Graphics;
 using Pdfwright.Images;
 using Pdfwright.Pdf;
 using Pdfwright.Tests.Drawing;

@@ -24,7 +24,7 @@ system, output that reads back in logical order. None of it exists yet; the plan
 
 ## What version 0.1 will be
 
-Headings, paragraphs, tables with pagination and a repeated header, a drawing canvas for vector charts,
+Headings, paragraphs, callouts, columns, tables with pagination and a repeated header, a drawing canvas for vector charts,
 headers and footers with page numbers, embedded font subsets, right-to-left and mixed-direction text,
 Arabic, Indic and Thai shaping. **Not in 0.1:** CJK, emoji and colour fonts, forms, encryption, PDF/A,
 tagged PDF (the design carries it; it is 0.2). The whole design, the public API sketch, the targets and
@@ -48,6 +48,8 @@ PdfDocument document = new(new PdfDocumentOptions
     PageSize = PageSize.A4,
     Margins = Margins.Mm(top: 20, right: 15, bottom: 20, left: 15),
     Title = "Monthly report",
+    Header = page => page.IsFirst ? null : new Paragraph("Monthly report") { Style = new TextStyle { Color = Color.MidGray } },
+    Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Alignment = TextAlignment.End }, // drawn inside the margins, after the body: the count is always known
     Deterministic = true, // no clock: the same document is the same bytes
 });
 
@@ -76,9 +78,41 @@ document.Add(new Table(columns, new TableRow("Customer", "Amount", "Status"), in
     // Direction = TextDirection.RightToLeft puts the first column at the right edge.
 });
 
+// A KPI row: Columns of 1 to 4 equal cells, here on a filled Callout (a note; it is split between pages when it must be, or KeepTogether = true).
+document.Add(new Callout(new Columns(
+[
+    new Paragraph([new TextRun("Revenue\n"), new TextRun("1.2 M", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
+    new Paragraph([new TextRun("Orders\n"), new TextRun("8,430", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
+    new Paragraph([new TextRun("Returns\n"), new TextRun("2.1 %", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
+])) { CornerRadius = Length.Pt(4), KeepTogether = true });
+
+// A drawing: a box and a callback that draws on a canvas in points (origin top left, y down). It runs when the document is saved.
+double[] sales = [4, 7, 5, 9, 6];
+document.Add(new Drawing(Length.Mm(120), Length.Mm(50), canvas =>
+{
+    double step = canvas.Width / sales.Length;
+    for (int i = 0; i < sales.Length; i++)
+    {
+        double height = sales[i] / 10 * (canvas.Height - 14);
+        canvas.Fill(new DrawingPathBuilder().Rectangle((i * step) + 6, canvas.Height - 14 - height, step - 12, height).Build(), Color.FromHex("#3366CC"));
+        canvas.DrawText($"Q{i + 1}", (i * step) + (step / 2), canvas.Height - 2, alignment: TextAlignment.Center);
+    }
+}) { AltText = "Bar chart of sales by quarter" });
+
 await document.SaveAsync(stream, cancellationToken);
 DocumentDiagnostics report = document.Diagnostics; // missing glyphs by language and page, page count, bytes
 ```
+
+A drawing, a picture (`PdfImage.FromBytes(...)`, JPEG or PNG; `new Image(picture) { Width = Length.Mm(40) }` places one in the flow) and the header and footer can all
+hold a logo and a date: a header is any block built per page, for example `Columns` of an `Image` and a `Paragraph`.
+
+In a right-to-left document a footer such as `$"{page.Number} / {page.Count}"` is a right-to-left paragraph, so the two numbers read in bidi order: page 1 of 3 shows as "3 / 1". To keep it as written,
+set the footer paragraph's `Direction = TextDirection.LeftToRight` (the whole footer is then left to right), or wrap the text in a left-to-right isolate, `"\u2066" + text + "\u2069"` (U+2066 LRI ... U+2069 PDI, written here as C# escapes),
+which keeps that part in order inside a right-to-left line.
+
+`DrawingCanvas.DrawImage` stretches a picture to the rectangle it is given; the `Image` block keeps the picture's proportions (one of `Width` and `Height` set, or none) and stretches only when both are set.
+A `Drawing` sets text in the direction of the `Columns` or `Callout` it is in. `Image` and `Drawing` are also names in `System.Drawing`: where both namespaces are imported, alias ours
+(`using Image = Pdfwright.Image;`).
 
 `TextMeasurer` measures text with the engine that draws it, for placing labels. `Length` has no implicit
 conversion from a number, so a unit is never guessed.

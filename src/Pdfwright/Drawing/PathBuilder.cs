@@ -1,4 +1,4 @@
-namespace Pdfwright.Drawing;
+namespace Pdfwright.Graphics;
 
 /// <summary>Builds a <see cref="Path"/> one operation after another. Every number is checked when it is given, so a path that exists is always finite.</summary>
 internal sealed class PathBuilder

@@ -1,14 +1,4 @@
-namespace Pdfwright.Drawing;
-
-/// <summary>How a closed shape's inside is decided: by winding number, or by counting how many edges a ray crosses.</summary>
-internal enum FillRule
-{
-    /// <summary>Non-zero winding (<c>f</c>, <c>W</c>).</summary>
-    NonZero,
-
-    /// <summary>Even-odd (<c>f*</c>, <c>W*</c>).</summary>
-    EvenOdd,
-}
+namespace Pdfwright.Graphics;
 
 /// <summary>What a fill is painted with: a colour, an opacity and the rule that decides what is inside.</summary>
 internal sealed class Brush

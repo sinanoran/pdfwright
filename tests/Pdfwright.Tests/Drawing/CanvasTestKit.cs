@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using Pdfwright.Drawing;
+using Pdfwright.Graphics;
 using Pdfwright.Pdf;
 
 namespace Pdfwright.Tests.Drawing;
@@ -51,7 +51,7 @@ internal static class CanvasTestKit
         return new Drawn(text.Split('\n', StringSplitOptions.RemoveEmptyEntries), states, [.. resourceNames]);
     }
 
-    internal static Pdfwright.Drawing.Path Rect(double x, double y, double w, double h) => new PathBuilder().Rectangle(x, y, w, h).Build();
+    internal static Pdfwright.Graphics.Path Rect(double x, double y, double w, double h) => new PathBuilder().Rectangle(x, y, w, h).Build();
 
     /// <summary>The numbers before the operator of a line such as <c>1 0 0 -1 0 842 cm</c>.</summary>
     internal static double[] Numbers(string line) =>

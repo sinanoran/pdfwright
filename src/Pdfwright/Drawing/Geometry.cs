@@ -1,4 +1,4 @@
-namespace Pdfwright.Drawing;
+namespace Pdfwright.Graphics;
 
 /// <summary>A place on the canvas: <see cref="X"/> from the left edge and <see cref="Y"/> down from the top.</summary>
 internal readonly record struct Point(double X, double Y);
