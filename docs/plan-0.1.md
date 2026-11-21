@@ -405,6 +405,22 @@ pdf.js is at 61 of 61; it is measured by `tools/pdfjs-check` (not part of CI) an
 equality: in `hebrew-points` one glyph carries two points (U+05B8 U+05C1) and pdf.js reverses them, and the two orders are canonically equivalent. The size switch and the other costs are in
 `docs/known-limitations.md`.
 
+### S4d status: the drawing canvas and images (21 November 2026)
+
+Built, all `internal` (the public surface is S5): `Drawing/Canvas` over a `PdfPageWriter` and a box (the box's left edge and top edge in page space, a width and a height). Its origin is the top left with y down, and
+the flip is the one `cm` the canvas writes when it starts (`1 0 0 -1 left top cm`); `End` closes any save still open, and a `Restore` with none open is an error. `Save`/`Restore`, `Translate`, `Scale`, `Rotate` (degrees,
+clockwise as seen on the canvas), `Transform`, `Clip` (non-zero or even-odd, until the matching restore), `Fill(Path, Brush)`, `Stroke(Path, Pen)`, `DrawText` and `DrawImage`. `Path` is immutable and built by `PathBuilder`
+(move, line, cubic, quadratic raised exactly to a cubic, `Arc` in curves of at most 90 degrees, rectangle, rounded rectangle, ellipse, close; a coordinate that is not finite is an `ArgumentException`).
+The canvas tracks the colours, the line style and the opacity it has written and writes an operator only when the value changes; fill and stroke opacity are one `ExtGState` for each (`ca`, `CA`) pair
+(`PdfPageWriter.UseOpacity(fill, stroke)`). Text goes through `ParagraphLayouter` with no maximum width and `ParagraphLayout.Draw`, inside a `q` with a local flip back so that the glyphs are not mirrored; the
+point is the start of the first baseline, and `Start`/`Center`/`End` place the text's block against it (logical, so `Start` is the right edge of a right-to-left paragraph).
+Images (`Images/`): an `ImageSource` is parsed once and written once to a document (`PdfDocumentWriter.GetOrAddShared`, keyed by the object). A JPEG goes in as it came, with `DCTDecode`, after its markers have
+been walked (baseline, extended and progressive Huffman, 8 bits; 1, 3 or 4 components; an Adobe CMYK file gets `/Decode [1 0 1 0 1 0 1 0]`; arithmetic coding, 12 bits, lossless and any file that is cut short
+are refused). A PNG is read by an own decoder (every chunk CRC checked; all five filters; colour types 0, 2, 3, 4, 6 at the bit depths the format allows; Adam7), written as 8-bit device samples that
+the document's compression turns into `FlateDecode`, with alpha (or a `tRNS`) as an `/SMask`, and a palette as `/Indexed` unless it has transparency. Limits: 65,535 pixels on a side and 100 million in all, checked
+before anything is allocated; damage is an `ImageFormatException`. Left out of the brief: there is no `TextStyle` yet (the canvas takes a size, a brush and a language), and `ArcTo` (tangent arcs) was not built, only `Arc` by centre and angles.
+The colour management of a PNG is ignored (`docs/known-limitations.md`).
+
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream

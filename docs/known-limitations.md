@@ -29,6 +29,19 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - The writer writes to its stream synchronously and unbuffered, and holds one page's content stream in memory; the page tree is flat (see the plan).
 
+## Images and the canvas
+
+- **The colour management of a PNG is ignored.** The `gAMA`, `iCCP`, `sRGB` and `cHRM` chunks are skipped, and the samples are written as device RGB, device gray or an indexed device RGB palette, so a PNG that
+  carries a profile or a gamma other than the display's is drawn with its raw numbers. A 16-bit sample is rounded to 8 bits, and a gray of 1, 2 or 4 bits is stretched to 8.
+- **Limits of an image: 65,535 pixels on a side and 100 million pixels in all.** Anything larger is refused with an exception before memory is allocated, and so is a header that promises more rows than its compressed data can hold.
+  A PNG is decoded whole (an RGBA picture of 100 million pixels needs about 500 MB while it is read).
+- **A JPEG is passed through, not decoded.** Its markers are read for the size, the number of components and the Adobe marker, and the file is written as it is; a reader that cannot decode a file the
+  walk accepted will not show it. Arithmetic coding, 12-bit samples, lossless and hierarchical modes and a height given in a later segment are refused; an Adobe CMYK file is assumed to be inverted
+  (`/Decode [1 0 1 0 1 0 1 0]`). The embedded colour profile and the orientation of a JPEG are ignored.
+- **A PNG's samples are compressed by the document, not by the image.** With the compression of the document switched off (`PdfCompression.None`) they are written as they are, and a very small image
+  (under 64 bytes) is not compressed in any case.
+- **The canvas assumes the graphics state of the page is at its defaults when it starts**, so a page that set an opacity or a colour itself before starting a canvas has that state inside it.
+
 ## Copied text and the combining grapheme joiner
 
 - A reader that shows the Unicode of a code that stands for no text of its own (pdf.js) would show the code itself, so such codes map to U+034F, and copying text out of a
