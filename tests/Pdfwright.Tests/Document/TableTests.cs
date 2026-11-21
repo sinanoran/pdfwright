@@ -77,13 +77,47 @@ public class TableTests
     }
 
     [Fact]
-    public void When_the_minimums_do_not_fit_every_column_shrinks_in_the_same_proportion()
+    public void When_the_minimums_do_not_fit_the_columns_that_are_too_wide_share_what_is_left_equally()
     {
         double[] widths = Widths(150, [0, 100], [0, 0], new TableColumn(ColumnWidth.Fixed(Length.Pt(200))), new TableColumn());
 
         Assert.Equal(150, widths.Sum(), 6);
-        Assert.Equal(200 * 150 / 300.0, widths[0], 6);
-        Assert.Equal(100 * 150 / 300.0, widths[1], 6);
+        Assert.Equal(75, widths[0], 6);
+        Assert.Equal(75, widths[1], 6);
+    }
+
+    [Fact]
+    public void A_column_whose_minimum_is_within_its_share_keeps_it_and_one_long_word_narrows_only_its_own_column()
+    {
+        double[] widths = Widths(300, [40, 35, 700], [40, 35, 700], new TableColumn(), new TableColumn(), new TableColumn());
+
+        Assert.Equal([40, 35, 225], widths);
+    }
+
+    [Fact]
+    public void Water_filling_goes_on_until_no_column_more_fits_its_share()
+    {
+        // The share is 133.3, then 150: 100 fits the first, 140 only the second, and the 500 is left with the rest.
+        double[] widths = Widths(400, [100, 140, 500], [100, 140, 500], new TableColumn(), new TableColumn(), new TableColumn());
+
+        Assert.Equal([100, 140, 160], widths);
+        Assert.Equal([100, 175, 175], Widths(450, [100, 200, 500], [100, 200, 500], new TableColumn(), new TableColumn(), new TableColumn()));
+    }
+
+    [Fact]
+    public void One_very_long_identifier_does_not_cut_the_words_of_the_short_columns()
+    {
+        PdfDocument document = new(DocumentTestKit.Options(o => o.PageSize = PageSize.A5));
+        document.Add(new Table([new(), new(), new()], new TableRow("Short", "Word", "Other"),
+            [new TableRow("a", new string('Q', 75), "b"), new TableRow("Hello world foo")]) { Borders = Borders.All });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(pdf);
+        string[] words = [.. read.GetPage(1).GetWords().Select(w => w.Text)];
+        Assert.Contains("Short", words);
+        Assert.Contains("Word", words);
+        Assert.Contains("Other", words);
     }
 
     [Fact]
@@ -779,5 +813,126 @@ public class TableTests
         byte[] second = DocumentTestKit.Save(Document(table));
 
         Assert.Equal(first, second);
+    }
+
+    // --- review fixes ----------------------------------------------------------------------------------------------------------
+
+    private static IEnumerable<T> Counted<T>(IEnumerable<T> source, Action onRead)
+    {
+        foreach (T item in source)
+        {
+            onRead();
+            yield return item;
+        }
+    }
+
+    [Fact]
+    public void A_row_limit_with_automatic_columns_reads_at_most_one_row_more_than_it_draws()
+    {
+        int read = 0;
+        IEnumerable<TableRow> rows = Counted(Enumerable.Range(0, 1000).Select(i => new TableRow($"a{i}", $"b{i}")), () => read++);
+
+        PdfDocument document = Document(new Table([new(), new()], rows) { MaxRows = 3 });
+        _ = DocumentTestKit.Save(document);
+
+        Assert.Equal(4, read);
+        Assert.Single(document.Diagnostics.TruncatedTables);
+    }
+
+    [Fact]
+    public void A_row_that_is_not_drawn_does_not_change_the_widths_of_the_automatic_columns()
+    {
+        static double SecondColumn(string fourth)
+        {
+            TableRow[] rows = [new("a0", "b0"), new("a1", "b1"), new("a2", "b2"), new(fourth, "b3")];
+            PdfDocument document = Document(new Table([new(), new()], rows) { MaxRows = 3 });
+            byte[] pdf = DocumentTestKit.Save(document);
+            using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(pdf);
+            return Left(read.GetPage(1), "b0");
+        }
+
+        Assert.Equal(SecondColumn("a3"), SecondColumn(new string('W', 40)), 0.01);
+    }
+
+    [Fact]
+    public void The_document_limit_also_bounds_the_sample_read_for_automatic_columns()
+    {
+        int read = 0;
+        IEnumerable<TableRow> rows = Counted(Enumerable.Range(0, 1000).Select(i => new TableRow($"a{i}")), () => read++);
+
+        PdfDocument document = Document(new Table([new()], rows) { MaxRows = 50 }, o => o.Limits = new DocumentLimits { MaxTableRows = 5 });
+        Assert.Throws<PdfLimitExceededException>(() => DocumentTestKit.Save(document));
+
+        Assert.Equal(6, read);
+    }
+
+    [Fact]
+    public void The_row_read_past_the_limit_is_not_laid_out_so_its_missing_family_is_not_listed()
+    {
+        TableRow past = new([new TableCell("b") { Style = new TextStyle { Family = "Nonexistent Family" } }]);
+        PdfDocument document = Document(new Table([new TableColumn(ColumnWidth.Fixed(Length.Pt(50)))], [new TableRow("a"), past]) { MaxRows = 1 });
+
+        _ = DocumentTestKit.Save(document);
+
+        Assert.Empty(document.Diagnostics.MissingFamilies);
+        Assert.Single(document.Diagnostics.TruncatedTables);
+    }
+
+    [Fact]
+    public void The_row_read_past_the_limit_is_not_checked_so_it_cannot_have_too_many_cells()
+    {
+        PdfDocument document = Document(new Table([new TableColumn(ColumnWidth.Fixed(Length.Pt(50)))], [new TableRow("a"), new TableRow("b", "c")]) { MaxRows = 1 });
+
+        _ = DocumentTestKit.Save(document);
+
+        Assert.Single(document.Diagnostics.TruncatedTables);
+    }
+
+    [Fact]
+    public void A_row_that_fits_a_page_moves_whole_below_a_header_that_is_not_repeated()
+    {
+        // The header is taller than half a page so it is not repeated; the row is about 0.6 of a page, which does not fit under it but fits a page of its own.
+        PdfDocument document = Document(
+            new Table([new(ColumnWidth.Fraction(1))], new TableRow(DocumentTestKit.LongText(300, "h")), [new TableRow(DocumentTestKit.LongText(300, "b")), new TableRow("last")]) { Borders = Borders.All },
+            o => o.PageSize = PageSize.A5);
+
+        string[] pages = DocumentTestKit.PageTexts(DocumentTestKit.Save(document));
+
+        int Page(string word) => Array.FindIndex(pages, t => t.Contains(word, StringComparison.Ordinal)) + 1;
+        Assert.Equal(1, Page("h0"));
+        Assert.Equal(Page("b0"), Page("b299"));
+        Assert.True(Page("b0") > Page("h299"));
+    }
+
+    [Fact]
+    public void A_row_that_does_not_fit_under_a_repeated_header_still_moves_whole()
+    {
+        PdfDocument document = Document(
+            new Table([new(ColumnWidth.Fraction(1))], new TableRow("Head"), [new TableRow("first"), new TableRow(DocumentTestKit.LongText(330, "b")), new TableRow("last")]) { Borders = Borders.All },
+            o => o.PageSize = PageSize.A5);
+
+        string[] pages = DocumentTestKit.PageTexts(DocumentTestKit.Save(document));
+
+        Assert.Equal(Array.FindIndex(pages, t => t.Contains("b0", StringComparison.Ordinal)), Array.FindIndex(pages, t => t.Contains("b329", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void A_row_made_of_no_text_names_texts_as_the_culprit_and_a_row_of_cells_can_be_given_as_a_list_of_arguments()
+    {
+        Assert.Throws<ArgumentException>("texts", () => new TableRow(Array.Empty<string>()));
+        Assert.Throws<ArgumentException>("cells", () => new TableRow(Array.Empty<TableCell>()));
+        Assert.Equal(2, new TableRow(new TableCell("a"), new TableCell("b")).Cells.Count);
+    }
+
+    [Fact]
+    public void Tables_with_separate_but_equal_row_lists_are_unequal_and_a_list_changed_after_add_changes_the_output()
+    {
+        Assert.NotEqual(new Table(Two, [new TableRow("a")]), new Table(Two, [new TableRow("a")]));
+
+        List<TableRow> rows = [new("a0")];
+        PdfDocument document = Document(new Table(Two, rows));
+        rows.Add(new TableRow("late0"));
+
+        Assert.Contains("late0", string.Concat(DocumentTestKit.PageTexts(DocumentTestKit.Save(document))), StringComparison.Ordinal);
     }
 }

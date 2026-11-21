@@ -312,6 +312,7 @@ sealed class TableColumn : IEquatable<TableColumn>
 sealed class TableRow : IEquatable<TableRow>
   ctor(IEnumerable<TableCell> cells)
   ctor(String[] texts)
+  ctor(TableCell[] cells)
   method Boolean Equals(Object? obj)
   method Boolean Equals(TableRow? other)
   method Int32 GetHashCode()

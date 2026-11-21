@@ -191,6 +191,14 @@ public sealed record TableRow
         }
     }
 
+    /// <summary>A row of the given cells.</summary>
+    /// <param name="cells">The cells, at least one.</param>
+    /// <exception cref="ArgumentException">There is no cell, or one is null.</exception>
+    public TableRow(params TableCell[] cells)
+        : this((IEnumerable<TableCell>)cells)
+    {
+    }
+
     /// <summary>A row of cells that are each a paragraph of the given text.</summary>
     /// <param name="texts">The texts, at least one.</param>
     /// <exception cref="ArgumentException">There is no text.</exception>
@@ -227,6 +235,11 @@ public sealed record TableRow
     private static IEnumerable<TableCell> Texts(string[] texts)
     {
         ArgumentNullException.ThrowIfNull(texts);
+        if (texts.Length == 0)
+        {
+            throw new ArgumentException("A row has at least one cell.", nameof(texts));
+        }
+
         return texts.Select(t => new TableCell(t ?? throw new ArgumentNullException(nameof(texts), "A text is null.")));
     }
 }
@@ -323,14 +336,17 @@ public sealed record Borders
 /// list, or a sequence that can be started again, when a document is saved more than once. (<c>IAsyncEnumerable</c> is not accepted: a save works on a worker thread and the writer is synchronous, so consuming one would block a thread on it.)</para>
 /// <para><b>Column widths.</b> The columns take the content width of the page in this order. Fixed columns take their length. Automatic columns are measured from the cells of the header and of the first 100 rows: the narrowest a
 /// column can be is its widest word (the minimum content width) and the widest it would want is its longest unbroken line (the maximum), each plus the cell padding. Fraction columns have no content minimum. When the minimums of all columns
-/// (fixed lengths, automatic minimums, and the padding of fraction columns) do not fit, every column is shrunk in the same proportion and text wraps (a word wider than its cell is cut between characters). When they fit, the automatic columns grow towards their maximums
+/// (fixed lengths, automatic minimums, and the padding of fraction columns) do not fit, the room is shared by water-filling: a column whose minimum is within an equal share of what is left keeps it,
+/// and only the wider columns are cut down, to an equal share of what the others leave, so one very long word narrows its own column and not the short ones. The text then wraps (a word wider than its cell is cut between characters).
+/// The minimum of a fraction column is the <see cref="CellPadding"/> of the table; a cell with a bigger padding of its own falls back to an inner width of 1 point in a column that narrow. When they fit, the automatic columns grow towards their maximums
 /// (in proportion to how much each wants, if there is not room for all), and the fraction columns share what is left in proportion to their weights. A table with no fraction column is as wide as its columns; one with a fraction column fills the content width.
 /// A column is measured only from the sample, so a cell lower down that is wider than the column wraps.</para>
 /// <para><b>Direction.</b> Columns run from the start edge: left to right in a table whose <see cref="Direction"/> is <see cref="TextDirection.LeftToRight"/>, right to left in a right-to-left one. When the table's direction is not set the document's
 /// <see cref="PdfDocumentOptions.Direction"/> is used, and <see cref="TextDirection.Auto"/> there means left to right for the order of the columns (the text of each paragraph still finds its own direction). A table whose direction is set to
 /// left-to-right or right-to-left also sets that direction for its paragraphs that do not name one.</para>
+/// <para><b>Copied and live.</b> <see cref="Columns"/> and <see cref="Header"/> are copied when the table is made. <see cref="Rows"/> is kept as given and is live: a list that is changed after the table was added changes what is saved.</para>
 /// <para>Two tables are equal when their columns and header rows (one by one) and settings are equal and their <see cref="Rows"/> are the same object: a sequence of rows is not compared element by element, because that would
-/// enumerate it.</para>
+/// enumerate it. Two tables with separate row lists that hold equal rows are therefore not equal.</para>
 /// </remarks>
 public sealed record Table : Block
 {
@@ -425,7 +441,7 @@ public sealed record Table : Block
         init => _cellPadding = Check.Padding(value, nameof(CellPadding));
     }
 
-    /// <summary>A style for the text of every cell, over the paragraph's own: no, under it, and over the document's default; <see langword="null"/> for none.</summary>
+    /// <summary>A style for the text of every cell: it is over the document's default and under the cells' own styles and the paragraphs' own styles; <see langword="null"/> for none.</summary>
     public TextStyle? Style { get; init; }
 
     /// <summary>A style for the text of the header rows, over <see cref="Style"/>; bold by default.</summary>

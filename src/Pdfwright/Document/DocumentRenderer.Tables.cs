@@ -11,7 +11,8 @@ internal sealed partial class DocumentRenderer
 
     /// <summary>
     /// The widths of the columns, in the order of the table's columns, inside <paramref name="available"/> points. Fixed columns take their length; the minimum of an automatic column is
-    /// <paramref name="autoMin"/> and what it wants is <paramref name="autoMax"/>; a fraction column's minimum is <paramref name="fractionMin"/>. When the minimums do not fit every column shrinks in the same proportion;
+    /// <paramref name="autoMin"/> and what it wants is <paramref name="autoMax"/>; a fraction column's minimum is <paramref name="fractionMin"/>. When the minimums do not fit the columns share the room by water-filling: a column whose minimum is within an equal share of what is left keeps it, and
+    /// only the wider ones are cut down, to an equal share of what the others leave;
     /// otherwise the automatic columns grow towards their wants (in proportion to how much each wants when there is not room for all) and the fraction columns share the rest by weight.
     /// </summary>
     internal static double[] ColumnWidths(IReadOnlyList<TableColumn> columns, double available, double[] autoMin, double[] autoMax, double fractionMin)
@@ -33,10 +34,34 @@ internal sealed partial class DocumentRenderer
         double[] result = new double[n];
         if (total > available)
         {
-            double scale = available / total;
+            // Water-filling: the columns whose minimum is within the equal share of the room left keep it (until no more do), and the rest divide what remains equally.
+            bool[] kept = new bool[n];
+            double left = Math.Max(0, available);
+            int open = n;
+            bool changed = true;
+            while (changed && open > 0)
+            {
+                changed = false;
+                double share = left / open;
+                for (int i = 0; i < n; i++)
+                {
+                    if (!kept[i] && min[i] <= share)
+                    {
+                        kept[i] = true;
+                        result[i] = min[i];
+                        left -= min[i];
+                        open--;
+                        changed = true;
+                    }
+                }
+            }
+
             for (int i = 0; i < n; i++)
             {
-                result[i] = min[i] * scale;
+                if (!kept[i])
+                {
+                    result[i] = left / open;
+                }
             }
 
             return result;
@@ -96,6 +121,23 @@ internal sealed partial class DocumentRenderer
             {
                 _sample.Add(row);
             }
+        }
+
+        /// <summary>Whether there is another row; it is pulled and held, not laid out.</summary>
+        internal bool HasNext()
+        {
+            if (_next < _sample.Count)
+            {
+                return true;
+            }
+
+            if (Pull() is { } row)
+            {
+                _sample.Add(row);
+                return true;
+            }
+
+            return false;
         }
 
         internal TableRow? Next()
@@ -227,6 +269,7 @@ internal sealed partial class DocumentRenderer
         private bool _started;
         private bool _fragmentOpen;
         private bool _fresh;
+        private bool _unrepeatedHeaderOnPage;
         private int _rowsInFragment;
 
         internal TableRun(DocumentRenderer renderer, Table table, int blockIndex)
@@ -291,25 +334,23 @@ internal sealed partial class DocumentRenderer
             int count = 0;
             int? tableMax = _table.MaxRows;
             int? limit = _r._options.Limits.MaxTableRows;
+            bool tableFirst = tableMax is { } tm && (limit is not { } lm || tm <= lm);
             while (true)
             {
                 _r._cancellation.ThrowIfCancellationRequested();
-                bool tableFirst = tableMax is { } tm && (limit is not { } lm || tm <= lm);
-                if (tableFirst && count == tableMax)
+                if (EffectiveLimit() is { } stop && count == stop)
                 {
-                    if (pending is not null)
+                    // A row past the limit is only looked for: never laid out, checked or counted.
+                    if (_source.HasNext())
                     {
-                        _r._truncated.Add(new TruncatedTable(_blockIndex, tableMax!.Value));
-                    }
-
-                    break;
-                }
-
-                if (limit is { } max && count == max)
-                {
-                    if (pending is not null)
-                    {
-                        throw new PdfLimitExceededException(DocumentLimit.MaxTableRows, max);
+                        if (tableFirst)
+                        {
+                            _r._truncated.Add(new TruncatedTable(_blockIndex, tableMax!.Value));
+                        }
+                        else
+                        {
+                            throw new PdfLimitExceededException(DocumentLimit.MaxTableRows, limit!.Value);
+                        }
                     }
 
                     break;
@@ -333,8 +374,26 @@ internal sealed partial class DocumentRenderer
             }
         }
 
+        /// <summary>The number of body rows drawn at most: the least of the table's own limit and the document's; <see langword="null"/> for none.</summary>
+        private int? EffectiveLimit()
+        {
+            int? limit = _r._options.Limits.MaxTableRows;
+            return (_table.MaxRows, limit) switch
+            {
+                ({ } a, { } b) => Math.Min(a, b),
+                ({ } a, null) => a,
+                (null, { } b) => b,
+                _ => null,
+            };
+        }
+
         private RowPlan? NextRow(int bodyIndex)
         {
+            if (EffectiveLimit() is { } stop && bodyIndex >= stop)
+            {
+                return null;
+            }
+
             TableRow? row = _source.Next();
             if (row is null)
             {
@@ -359,7 +418,8 @@ internal sealed partial class DocumentRenderer
             double padding = _table.CellPadding.Left.Points + _table.CellPadding.Right.Points;
             if (columns.Any(c => c.Width.Kind == ColumnWidthKind.Auto))
             {
-                _source.Prefetch(AutoSampleRows);
+                int? drawn = EffectiveLimit();
+                _source.Prefetch(drawn is { } d ? (int)Math.Min(AutoSampleRows, (long)d + 1) : AutoSampleRows);
                 Array.Fill(autoMin, padding);
                 Array.Fill(autoMax, padding);
                 foreach (TableRow row in _table.Header)
@@ -367,7 +427,8 @@ internal sealed partial class DocumentRenderer
                     Sample(row, true, autoMin, autoMax);
                 }
 
-                foreach (TableRow row in _source.Sample)
+                // Only the rows that will be drawn are measured: the one read past the limit is there to know that the table goes on.
+                foreach (TableRow row in _source.Sample.Take(drawn ?? int.MaxValue))
                 {
                     Sample(row, false, autoMin, autoMax);
                 }
@@ -502,6 +563,7 @@ internal sealed partial class DocumentRenderer
         {
             CloseFragment();
             _r.ClosePage();
+            _unrepeatedHeaderOnPage = false;
         }
 
         /// <summary>Places one row, in one piece on this page, or on the next, or in pieces between lines when it is taller than a page.</summary>
@@ -522,7 +584,9 @@ internal sealed partial class DocumentRenderer
 
                 double capacity = _r._contentHeight - (_repeat ? _headerHeight : 0);
                 bool whole = cursor.All(c => c == 0);
-                if (!_fresh && ((whole && height <= capacity + 1e-9) || row.MinCut(cursor) > remaining + 1e-9))
+                // Moving to the next page helps unless this page is already as empty as that one will be: a page that holds only a header which will not be repeated is not.
+                bool moveHelps = !_fresh || _unrepeatedHeaderOnPage;
+                if (moveHelps && ((whole && height <= capacity + 1e-9) || row.MinCut(cursor) > remaining + 1e-9))
                 {
                     NewPage();
                     continue;
@@ -626,6 +690,10 @@ internal sealed partial class DocumentRenderer
             if (!row.IsHeader)
             {
                 _fresh = false;
+            }
+            else if (!_repeat)
+            {
+                _unrepeatedHeaderOnPage = true;
             }
         }
 
