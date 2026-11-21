@@ -140,7 +140,11 @@ internal sealed partial class DocumentRenderer
     }
 
     private Stack BuildStack(IReadOnlyList<Block> blocks, double width, double maxHeight, TextDirection direction) =>
-        new([.. blocks.Select(block => BuildItem(block, width, maxHeight, direction))]);
+        new([.. blocks.SelectMany(block => BuildItems(block, width, maxHeight, direction))]);
+
+    /// <summary>The items of a block inside a stack: one, except for a list, which is one paragraph after another.</summary>
+    private IEnumerable<Item> BuildItems(Block block, double width, double maxHeight, TextDirection direction) =>
+        block is ItemList list ? BuildList(list, width, direction, 0, _base.Apply(list.Style).Size * 0.6) : [BuildItem(block, width, maxHeight, direction)];
 
     /// <summary>Lays a block out at a width: <paramref name="maxHeight"/> is the most height a picture may take, what a page can hold at the place the block is.</summary>
     private Item BuildItem(Block block, double width, double maxHeight, TextDirection direction)

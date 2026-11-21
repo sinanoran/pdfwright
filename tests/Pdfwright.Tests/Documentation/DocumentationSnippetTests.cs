@@ -345,6 +345,44 @@ public class DocumentationSnippetTests
     }
 
     [Fact]
+    public async Task Lists_have_markers_a_hanging_indent_and_a_nested_list()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts, DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10) } });
+
+        // <snippet guide-lists>
+        // A bulleted list of texts, and a numbered one that starts at 3.
+        document.Add(new ItemList(["Revenue grew in every region.", "Returns fell to 2.1 %."]));
+        document.Add(new ItemList(["Check the totals", "Send the report", "File the copy"]) { Marker = ListMarker.Decimal, Start = 3 });
+
+        // An item may hold more paragraphs and a list of its own, one level deep.
+        document.Add(new ItemList(
+        [
+            new ListItem([new Paragraph("Regions"), new ItemList(["North", "South"]) { Marker = ListMarker.LowerAlpha }]),
+            new ListItem("Products"),
+        ])
+        {
+            Indent = Length.Pt(14),                 // from the start edge to the marker
+            MarkerGap = Length.Pt(6),               // from the widest marker to the text
+            ItemSpacing = Length.Pt(3),             // between two items
+            MarkerStyle = new TextStyle { Weight = 700 },
+        });
+
+        // In a right-to-left list the marker is at the right edge and the text hangs to its left.
+        document.Add(new ItemList(["البند الأول", "البند الثاني"]) { Direction = TextDirection.RightToLeft, Marker = ListMarker.ArabicIndicDecimal });
+        // </snippet>
+
+        string[] pages = await SaveAndReadAsync(document, cancellationToken);
+        Assert.Contains("Revenue grew in every region.", pages[0]);
+        Assert.Contains("5.", pages[0]);
+        Assert.Contains("a.", pages[0]);
+        Assert.Contains("البند الثاني", pages[0]);
+        Assert.Empty(document.Diagnostics.MissingGlyphs);
+        DocumentTestKit.AssertValid(_pdf!, "documentation");
+    }
+
+    [Fact]
     public async Task A_drawing_draws_a_bar_chart_with_labels_placed_by_the_measurer()
     {
         FontCollection fonts = DocumentTestKit.Fonts;

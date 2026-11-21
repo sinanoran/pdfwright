@@ -23,19 +23,20 @@ Two type names are also names in `System.Drawing`: `Drawing` and `Image`. Where 
 5. [Tables](#tables)
 6. [Tables of many rows](#tables-of-many-rows)
 7. [Columns and callouts](#columns-and-callouts)
-8. [Drawing: charts and figures](#drawing-charts-and-figures)
-9. [Measuring text](#measuring-text)
-10. [Images](#images)
-11. [Headers and footers](#headers-and-footers)
-12. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
-13. [Metadata and deterministic output](#metadata-and-deterministic-output)
-14. [Diagnostics and limits](#diagnostics-and-limits)
-15. [Threads and lifetimes](#threads-and-lifetimes)
+8. [Lists](#lists)
+9. [Drawing: charts and figures](#drawing-charts-and-figures)
+10. [Measuring text](#measuring-text)
+11. [Images](#images)
+12. [Headers and footers](#headers-and-footers)
+13. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
+14. [Metadata and deterministic output](#metadata-and-deterministic-output)
+15. [Diagnostics and limits](#diagnostics-and-limits)
+16. [Threads and lifetimes](#threads-and-lifetimes)
 
 ## How a document is made
 
 A `PdfDocument` is made from `PdfDocumentOptions`, given blocks with `Add`, and saved. The blocks flow from the top of the first page down and break onto new pages as they fill:
-`Heading`, `Paragraph`, `Spacer`, `PageBreak`, `Table`, `Columns`, `Callout`, `Drawing` and `Image`. There is no page object to manage and no coordinate to compute.
+`Heading`, `Paragraph`, `Spacer`, `PageBreak`, `Table`, `ItemList`, `Columns`, `Callout`, `Drawing` and `Image`. There is no page object to manage and no coordinate to compute.
 
 Lengths are `Length` values (`Length.Pt`, `Mm`, `Cm`, `In`), and there is no implicit conversion from a number, so a unit is never guessed. Page sizes are `PageSize.A4`, `A5`, `Letter` and `Legal`
 (and `Landscape()` turns one on its side), margins are `Margins` (20 mm at the top and bottom and 15 mm at the sides by default), and colours are `Color` values (`Color.FromHex("#3366CC")`,
@@ -304,6 +305,43 @@ document.Add(new Callout([new Heading(3, "Note"), new Paragraph("A note is a few
 
 Columns are one level deep: no columns inside columns (also through a callout), and no table or page break in a cell or a callout. A callout inside a column cell or another callout is not split, and one taller than a
 page fails the save with an `InvalidOperationException`. `Direction` on `Columns` and `Callout` sets the order of cells and the direction of the paragraphs inside.
+
+## Lists
+
+`ItemList` is a list of items, each after a marker. It is not called `List`, which would clash with `System.Collections.Generic.List<T>` in nearly every file. An item is a `ListItem`: a paragraph (the marker stands before it), and, if you want,
+more paragraphs under it and nested lists. A list of plain texts takes the strings directly. The markers are `ListMarker.Bullet` (the default), `Decimal`, `LowerAlpha`, `UpperAlpha` and `ArabicIndicDecimal`, and `Start` is the number of the first item.
+
+<!-- snippet: guide-lists -->
+```csharp
+// A bulleted list of texts, and a numbered one that starts at 3.
+document.Add(new ItemList(["Revenue grew in every region.", "Returns fell to 2.1 %."]));
+document.Add(new ItemList(["Check the totals", "Send the report", "File the copy"]) { Marker = ListMarker.Decimal, Start = 3 });
+
+// An item may hold more paragraphs and a list of its own, one level deep.
+document.Add(new ItemList(
+[
+    new ListItem([new Paragraph("Regions"), new ItemList(["North", "South"]) { Marker = ListMarker.LowerAlpha }]),
+    new ListItem("Products"),
+])
+{
+    Indent = Length.Pt(14),                 // from the start edge to the marker
+    MarkerGap = Length.Pt(6),               // from the widest marker to the text
+    ItemSpacing = Length.Pt(3),             // between two items
+    MarkerStyle = new TextStyle { Weight = 700 },
+});
+
+// In a right-to-left list the marker is at the right edge and the text hangs to its left.
+document.Add(new ItemList(["البند الأول", "البند الثاني"]) { Direction = TextDirection.RightToLeft, Marker = ListMarker.ArabicIndicDecimal });
+```
+
+- **Hanging indent.** The lines of an item that wrap are aligned with the text of its first line, not with the marker. The text of every item starts at the same place, whatever the width of its marker (`9.` and `10.`).
+- **Direction.** The marker is on the start edge of its item: the right one when the item's paragraph is right to left. The direction is the paragraph's own `Direction`, else the list's, else the enclosing `Columns` or `Callout`'s, else the document's;
+  with `TextDirection.Auto` each item's text decides. A marker is set in the direction of its item, so in a right-to-left item `1.` shows the full stop to the left of the digit, where readers of Arabic and Hebrew expect it.
+  `ArabicIndicDecimal` writes the digits U+0660 to U+0669; the font has to have them, and a marker that no font can draw is reported in `DocumentDiagnostics.MissingGlyphs` with its page like any other character.
+- **Pages.** A list flows like paragraphs: items are split between pages by their lines, and a marker is drawn with the first line of its item, so it never stands alone at the bottom of a page. A heading before a list stays with its first line.
+- **Where.** A list may be in the flow, in a `Callout` and in a cell of `Columns`. It cannot be in a header or a footer. Nesting is one level deep: a nested list may not hold a list, and trying to makes an `ArgumentException`.
+- **Spacing.** `ItemSpacing` is the space below each paragraph of an item (0.3 of the font size by default); `SpaceBefore` and `SpaceAfter` are the space around the whole list (0.6 of the font size below, by default).
+  `Style` is the style of the paragraphs and the markers, and `MarkerStyle` is laid over it for the markers only.
 
 ## Drawing: charts and figures
 

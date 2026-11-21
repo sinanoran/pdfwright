@@ -239,6 +239,29 @@ sealed class Image : Block, IEquatable<Block>, IEquatable<Image>
   property String? AltText { get; init; }
   property TextAlignment Alignment { get; init; }
   property Type EqualityContract { get; }
+sealed class ItemList : Block, IEquatable<Block>, IEquatable<ItemList>
+  ctor(IEnumerable<ListItem> items)
+  ctor(IEnumerable<String> items)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(ItemList? other)
+  method Boolean Equals(Object? obj)
+  method Boolean PrintMembers(System.Text.StringBuilder builder)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(ItemList? left, ItemList? right)
+  operator static Boolean op_Inequality(ItemList? left, ItemList? right)
+  property IReadOnlyList<ListItem> Items { get; }
+  property Int32 Start { get; init; }
+  property Length Indent { get; init; }
+  property Length MarkerGap { get; init; }
+  property Length? ItemSpacing { get; init; }
+  property Length? SpaceAfter { get; init; }
+  property Length? SpaceBefore { get; init; }
+  property ListMarker Marker { get; init; }
+  property TextDirection? Direction { get; init; }
+  property TextStyle? MarkerStyle { get; init; }
+  property TextStyle? Style { get; init; }
+  property Type EqualityContract { get; }
 struct Length : IComparable<Length>, IEquatable<Length>
   method Boolean Equals(Length other)
   method Boolean Equals(Object? obj)
@@ -277,6 +300,24 @@ enum LineJoin : IComparable, IConvertible, IFormattable, ISpanFormattable
   Bevel = 2
   Miter = 0
   Round = 1
+  field Int32 value__
+sealed class ListItem : IEquatable<ListItem>
+  ctor(Block content)
+  ctor(IEnumerable<Block> content)
+  ctor(String text)
+  method Boolean Equals(ListItem? other)
+  method Boolean Equals(Object? obj)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(ListItem? left, ListItem? right)
+  operator static Boolean op_Inequality(ListItem? left, ListItem? right)
+  property IReadOnlyList<Block> Content { get; }
+enum ListMarker : IComparable, IConvertible, IFormattable, ISpanFormattable
+  ArabicIndicDecimal = 2
+  Bullet = 0
+  Decimal = 1
+  LowerAlpha = 3
+  UpperAlpha = 4
   field Int32 value__
 struct Margins : IEquatable<Margins>
   ctor(Length top, Length right, Length bottom, Length left)

@@ -11,10 +11,11 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
 ### Added
 
 - **A document layer for reports.** `PdfDocument` is made from `PdfDocumentOptions` (fonts, default style, page size, margins, metadata, direction, header and footer, limits) and saved with `Save` or `SaveAsync`.
-  Blocks flow down the page and break onto new pages: `Heading` (levels 1 to 6), `Paragraph` (styled runs, logical alignment, line spacing, keep-together), `Spacer`, `PageBreak`, `Table`, `Columns`, `Callout`, `Drawing` and `Image`.
+  Blocks flow down the page and break onto new pages: `Heading` (levels 1 to 6), `Paragraph` (styled runs, logical alignment, line spacing, keep-together), `Spacer`, `PageBreak`, `Table`, `ItemList`, `Columns`, `Callout`, `Drawing` and `Image`.
   Values are `Length` (points, millimetres, centimetres, inches; no implicit conversion from a number), `PageSize`, `Margins` and `Color`, and are checked where they are set.
 - **Tables** with fixed, fractional and automatic column widths (measured from the header and the first 100 rows), cell padding, borders, header, zebra, row and cell fills, logical alignment, right-to-left column order, a header repeated
   on every page, and rows that are never split unless taller than a page. Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole; `Table.MaxRows` cuts a table and reports it.
+- **Lists**: `ItemList` with bullet, decimal, letter and Arabic-Indic markers, a start number, an indent and a marker gap, item spacing, a hanging indent (wrapped lines align with the text), one level of nested lists, and the marker on the right in a right-to-left item. Items split between pages by their lines with the marker kept with the first line; a list may be in a callout or a column cell.
 - **Columns and callouts**: one to four equal cells for a KPI row, and a box with a fill, border, padding and corner radius that is split between pages or kept together.
 - **A drawing canvas** for charts as vectors: paths (lines, rectangles, rounded rectangles, ellipses, arcs, curves), fills with either rule, strokes with dashes, caps and joins, clipping, transforms, opacity, text through the
   document's fonts, and images, in points with the origin at the top left. **`PdfImage.FromBytes`** reads JPEG (passed through) and PNG (decoded, with transparency).
