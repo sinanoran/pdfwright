@@ -18,4 +18,9 @@ All notable changes to this project are recorded here. The format follows
   output to a stream that need not be seekable. Tested by reading generated files back with PdfPig, checking them with qpdf,
   and comparing the uncompressed bytes with a golden file.
 
+- Slice S2 of the plan, the font engine (internal): a TrueType reader that checks every table, glyph range, composite and
+  character map against the file when it is parsed (formats 4 and 12), the embedding licence rules of OS/2 `fsType`, a subsetter
+  that keeps glyph ids, and the embedded font object (Type 0 / CIDFontType2 with `Identity-H`, widths, `ToUnicode`, a
+  deterministic subset tag). Tested against nine fonts in nine scripts, with HarfBuzz as a second reader, PdfPig and qpdf.
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
