@@ -52,7 +52,8 @@ internal static class UnicodeBidi
     /// character passed as two surrogates is two characters of class L). <paramref name="paragraphLevel"/> is 0 (left to right),
     /// 1 (right to left) or <see cref="AutoLevel"/>. A paragraph separator (class B) may only be the last character: the standard
     /// splits paragraphs first (P1), and rules P2, BD9, X5c and X10 would otherwise reach across the separator, so text that holds
-    /// one earlier is refused. Split it with <see cref="Paragraphs"/>.
+    /// one earlier is refused. Split it with <see cref="Paragraphs"/>. A carriage return and line feed that are the last two characters are
+    /// one separator and are accepted, as <see cref="Paragraphs"/> returns them.
     /// </summary>
     /// <exception cref="ArgumentException">A paragraph separator is not the last character.</exception>
     internal static BidiResult Resolve(ReadOnlySpan<int> text, int paragraphLevel = AutoLevel)
@@ -67,7 +68,9 @@ internal static class UnicodeBidi
         for (int i = 0; i < count; i++)
         {
             initial[i] = BidiData.ClassOf(text[i]);
-            if (initial[i] == BidiClass.B && i < count - 1)
+            // A carriage return that is followed by the line feed that ends the text is one separator with it (the standard keeps CR LF together, as Paragraphs does).
+            bool endsWithCrLf = text[i] == 0x0D && i == count - 2 && text[i + 1] == 0x0A;
+            if (initial[i] == BidiClass.B && i < count - 1 && !endsWithCrLf)
             {
                 throw new ArgumentException($"A paragraph separator (U+{text[i]:X4}) at index {i} is not the last character: split the text with UnicodeBidi.Paragraphs first.", nameof(text));
             }
