@@ -34,7 +34,7 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
 
 ### Not in this version
 
-CJK, emoji and colour fonts, forms, encryption, PDF/A, tagged (accessible) PDF, links on text, hyphenation, justification, table cell spans, widow and orphan control, synthetic bold and italic, and any use of system fonts.
+Tested CJK (fonts with CFF outlines, which most CJK fonts are, are refused; a TrueType CJK font is accepted but untested), vertical text, dictionary line breaking for Thai, Lao, Khmer and Burmese, emoji and colour fonts, forms, encryption, PDF/A, tagged (accessible) PDF, links on text, hyphenation, justification, table cell spans, widow and orphan control, synthetic bold and italic, and any use of system fonts.
 Each is named, with the reason, in `docs/known-limitations.md`.
 
 ### Internal, not public API

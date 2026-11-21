@@ -95,6 +95,8 @@ fonts.Dispose(); // when the application is done with it, not after each documen
 - A font whose licence forbids embedding (OS/2 `fsType` restricted, no subsetting, or bitmap only) is refused with `FontNotEmbeddableException`, and nothing is added. Only the glyphs a document
   uses are embedded, as a subset.
 - OpenType fonts with CFF outlines (most `.otf` files) are refused with an `ArgumentException`; CFF support is planned after 0.1.
+- CJK text is not tested in 0.1. Most CJK fonts have CFF outlines and are refused; a CJK font with TrueType outlines is accepted, and its text is shaped, embedded and broken
+  between characters by the Unicode rules, but no CJK text is in the test corpus, and there is no vertical text.
 
 **Choosing a font.** A style names a `Family` (compared without regard to case), a `Weight` (400 regular, 700 bold) and `Italic`. The font whose weight is nearest is used, and there is **no synthetic
 bold or italic**: a family without a bold font draws bold text in its nearest weight, and one without an italic draws upright. Supply the fonts of the styles you use.
@@ -184,7 +186,7 @@ document.Add(new Heading(2, "Details"));
 - **Keeping things together.** A heading is kept with the first line of the next block (the whole of a drawing, an image or a row of columns), and with the whole of a `KeepTogether` paragraph or callout that follows it when that fits a page. It is not kept with a table: a heading directly above a table can be left at the bottom of a page, with the table starting on the next. `Paragraph.KeepTogether` and `Callout.KeepTogether` move
   a block that does not fit the rest of the page to the next one instead of splitting it. A block taller than a page is split whatever it asks. There is no widow or orphan control.
 - **Page breaks.** `PageBreak` ends the page; two in a row make a blank page.
-- **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation or dictionary breaking for Thai.
+- **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation and no dictionary breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
 
 ## Tables
 

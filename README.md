@@ -42,7 +42,7 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 - **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
 
-**Not in 0.1:** CJK (needs CFF fonts, which need a CFF subsetter), emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
+**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
 hyphenation and justified text, table cell spans, floating images, pictures other than JPEG and PNG (no WebP, GIF, TIFF or SVG), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
@@ -159,7 +159,7 @@ pages with a repeated header. Where a cell says "not measured", nobody measured 
 | Byte-stable output (golden files) | yes (`Deterministic`, optionally `Compress = false`) | Skia writes a document id and dates; stability not assessed | not assessed here |
 
 Reading it: the browser is the most complete and costs a browser; the Skia backend is the lightest and failed the extraction criterion for the scripts that matter here; Pdfwright's claim is the third row, measured by the tests in this
-repository, and it pays for it with what is not in 0.1 (CJK, tagged PDF, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
+repository, and it pays for it with what is not in 0.1 (tested CJK, tagged PDF, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
 extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwright's own timings will be added to `docs/baselines.md` once a benchmark scenario exists.
 
 ## Known limitations
@@ -167,7 +167,9 @@ extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwrigh
 The full list, with the reason for each, is in [docs/known-limitations.md](docs/known-limitations.md). The ones that matter most when choosing:
 
 - No tagged PDF, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet.
-- No CJK, emoji or colour fonts; OpenType fonts with CFF outlines are refused (TrueType only).
+- CJK is not tested or claimed: OpenType fonts with CFF outlines (most CJK fonts, such as the `.otf` Noto Sans CJK) are refused; a CJK font with TrueType outlines is accepted, its text is shaped,
+  embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. No vertical text, emoji or colour fonts.
+- No dictionary line breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
 - No links on text, no table cell spans, no nested tables or columns, no hyphenation, no justification, no widow or orphan control, no synthetic bold or italic.
 - A table's automatic column widths come from its header and first 100 rows; a table is never held whole, so give a column a width when later rows differ.
 - The whole file is built in memory before it is written; copying text from a PDF can carry an invisible U+034F; `pdftotext`'s default mode can put spaces inside words of Arabic, Indic and Thai text.
