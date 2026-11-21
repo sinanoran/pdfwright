@@ -186,7 +186,7 @@ document.Add(new Heading(2, "Details"));
 - **Keeping things together.** A heading is kept with the first line of the next block (the whole of a drawing, an image or a row of columns), and with the whole of a `KeepTogether` paragraph or callout that follows it when that fits a page. It is not kept with a table: a heading directly above a table can be left at the bottom of a page, with the table starting on the next. `Paragraph.KeepTogether` and `Callout.KeepTogether` move
   a block that does not fit the rest of the page to the next one instead of splitting it. A block taller than a page is split whatever it asks. There is no widow or orphan control.
 - **Page breaks.** `PageBreak` ends the page; two in a row make a blank page.
-- **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation and no dictionary breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces breaks between characters, not between words.
+- **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation and no dictionary breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
 
 ## Tables
 

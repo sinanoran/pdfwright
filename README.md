@@ -169,7 +169,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - No tagged PDF, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet.
 - CJK is not tested or claimed: OpenType fonts with CFF outlines (most CJK fonts, such as the `.otf` Noto Sans CJK) are refused; a CJK font with TrueType outlines is accepted, its text is shaped,
   embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. No vertical text, emoji or colour fonts.
-- No dictionary line breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces breaks between characters, not between words.
+- No dictionary line breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
 - No links on text, no table cell spans, no nested tables or columns, no hyphenation, no justification, no widow or orphan control, no synthetic bold or italic.
 - A table's automatic column widths come from its header and first 100 rows; a table is never held whole, so give a column a width when later rows differ.
 - The whole file is built in memory before it is written; copying text from a PDF can carry an invisible U+034F; `pdftotext`'s default mode can put spaces inside words of Arabic, Indic and Thai text.
