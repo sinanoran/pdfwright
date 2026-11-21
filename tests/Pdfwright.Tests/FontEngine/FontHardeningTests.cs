@@ -244,7 +244,7 @@ public class FontHardeningTests
     public void A_glyph_drawn_for_other_text_gets_a_code_of_its_own_and_the_same_text_gets_the_same_code()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(NotoSans()));
         int a = font.Font.GlyphForCodePoint('A');
 
@@ -264,7 +264,7 @@ public class FontHardeningTests
     public void Two_texts_of_one_glyph_extract_as_their_own_text_through_a_glyph_map()
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions()))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions()))
         {
             PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(NotoSans()));
             int a = font.Font.GlyphForCodePoint('A');
@@ -289,7 +289,7 @@ public class FontHardeningTests
     {
         using MemoryStream stream = new();
         PdfEmbeddedFont font;
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             font = new(document, TrueTypeFont.Parse(NotoSans()));
             int a = font.Font.GlyphForCodePoint('A');
@@ -306,7 +306,7 @@ public class FontHardeningTests
     public void A_glyph_cannot_be_recorded_once_the_document_is_complete()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(NotoSans()));
         document.BeginPage(100, 100).End();
         document.Complete();
@@ -318,7 +318,7 @@ public class FontHardeningTests
     public void The_advance_is_the_whole_number_the_widths_array_carries()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         TrueTypeFont parsed = TrueTypeFont.Parse(NotoSans());
         PdfEmbeddedFont font = new(document, parsed);
 

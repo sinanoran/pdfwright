@@ -50,7 +50,7 @@ public class EmbeddedFontTests
     private static byte[] Draw(string fontFile, params string[] lines)
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Title = "Embedded font", Language = "en", Created = PdfTestKit.Created }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Title = "Embedded font", Language = "en", Created = PdfTestKit.Created }))
         {
             PdfEmbeddedFont font = new(document, Font(fontFile));
             foreach (string line in lines)
@@ -93,7 +93,7 @@ public class EmbeddedFontTests
     {
         CorpusTests.Case c = CorpusTests.Load().Single(x => x.Id == id);
 
-        using PdfDocument document = PdfDocument.Open(Draw(c.Fonts[0], c.Text));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(Draw(c.Fonts[0], c.Text));
 
         Assert.Equal(Squeeze(c.Text), Squeeze(document.GetPage(1).Text));
     }
@@ -104,7 +104,7 @@ public class EmbeddedFontTests
         string line = "Quarterly report: İstanbul, Größe, Ω Ж";
         byte[] pdf = Draw("NotoSans-Regular.ttf", line);
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         string? fontName = document.GetPage(1).Letters.Select(l => l.FontName).Distinct().Single();
 
         Assert.Matches("^[A-Z]{6}\\+NotoSans-Regular$", fontName);
@@ -122,7 +122,7 @@ public class EmbeddedFontTests
         Assert.Equal(first, second);
         string Tag(byte[] pdf)
         {
-            using PdfDocument d = PdfDocument.Open(pdf);
+            using UglyToad.PdfPig.PdfDocument d = UglyToad.PdfPig.PdfDocument.Open(pdf);
             return d.GetPage(1).Letters[0].FontName![..6];
         }
 
@@ -134,7 +134,7 @@ public class EmbeddedFontTests
     {
         // A ligature or a stacked mark is one glyph for a cluster of characters; ToUnicode gives the whole cluster back.
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions()))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions()))
         {
             PdfEmbeddedFont font = new(document, Font("NotoSans-Regular.ttf"));
             PdfPageWriter page = document.BeginPage(300, 300);
@@ -145,7 +145,7 @@ public class EmbeddedFontTests
             document.Complete();
         }
 
-        using PdfDocument pdf = PdfDocument.Open(stream.ToArray());
+        using UglyToad.PdfPig.PdfDocument pdf = UglyToad.PdfPig.PdfDocument.Open(stream.ToArray());
 
         Assert.Equal("ffi", pdf.GetPage(1).Text);
     }
@@ -156,7 +156,7 @@ public class EmbeddedFontTests
         // The route a right-to-left run will take: drawn in visual order, with its text in logical order beside it.
         // PdfPig does not apply ActualText (it reads the glyphs), so the content stream is read directly.
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont font = new(document, Font("NotoSans-Regular.ttf"));
             PdfPageWriter page = document.BeginPage(300, 300);
@@ -186,7 +186,7 @@ public class EmbeddedFontTests
 
         TrueTypeFont font = TrueTypeFont.Parse(restricted);
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
 
         Assert.True(original.MayEmbedSubset);
         Assert.False(font.MayEmbedSubset);
@@ -197,7 +197,7 @@ public class EmbeddedFontTests
     public void A_glyph_outside_the_font_is_refused()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfEmbeddedFont font = new(document, Font("NotoSans-Regular.ttf"));
 
         Assert.Throws<ArgumentOutOfRangeException>(() => font.UseGlyph(font.Font.GlyphCount, "x"));

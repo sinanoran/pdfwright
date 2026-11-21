@@ -4,7 +4,7 @@ namespace Pdfwright.Text;
 /// How much room text takes. It asks <see cref="ParagraphLayouter"/>, the engine that draws, with the same <see cref="ParagraphOptions"/> that
 /// draw, so a measured size and a drawn size are one computation and cannot disagree.
 /// </summary>
-internal static class TextMeasurer
+internal static class ParagraphMeasurer
 {
     /// <summary>
     /// The width of the widest line, the height of all lines (their pitches added) and the number of lines of <paramref name="text"/> laid

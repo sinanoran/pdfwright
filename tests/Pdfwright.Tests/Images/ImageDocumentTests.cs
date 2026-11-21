@@ -32,7 +32,7 @@ public class ImageDocumentTests
     private static byte[] Document(PdfCompression compression, Action<Canvas> draw, int pages = 1)
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = compression, Created = PdfTestKit.Created }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = compression, Created = PdfTestKit.Created }))
         {
             for (int i = 0; i < pages; i++)
             {
@@ -58,7 +58,7 @@ public class ImageDocumentTests
         ImageSource image = ImageSource.FromBytes(file);
         byte[] pdf = Document(PdfCompression.Flate, c => c.DrawImage(image, 20, 30, 120, 80));
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         IPdfImage placed = Assert.Single(document.GetPage(1).GetImages());
         Assert.Equal(24, placed.WidthInSamples);
         Assert.Equal(16, placed.HeightInSamples);
@@ -100,7 +100,7 @@ public class ImageDocumentTests
         (_, byte[] samples, byte[]? alpha, _) = PngDecoderTests.Expected(13, 11, 8, 6, null, null);
         byte[] pdf = Document(PdfCompression.Flate, c => c.DrawImage(image, 10, 10, 130, 110));
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         IPdfImage placed = Assert.Single(document.GetPage(1).GetImages());
         Assert.Equal(13, placed.WidthInSamples);
         Assert.Equal(11, placed.HeightInSamples);
@@ -129,7 +129,7 @@ public class ImageDocumentTests
         (_, byte[] samples, _, _) = PngDecoderTests.Expected(21, 13, depth, type, palette, null);
         byte[] pdf = Document(PdfCompression.Flate, c => c.DrawImage(image, 0, 0, 21, 13));
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         IPdfImage placed = Assert.Single(document.GetPage(1).GetImages());
         Assert.Equal(21, placed.WidthInSamples);
         Assert.Equal("FlateDecode", Filter(placed));
@@ -181,7 +181,7 @@ public class ImageDocumentTests
 
         Assert.Equal(1, Count(first, "/Subtype /Image"));
         Assert.Equal(1, Count(second, "/Subtype /Image"));
-        using PdfDocument document = PdfDocument.Open(first);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(first);
         Assert.Equal(3, document.NumberOfPages);
         Assert.Equal(3, document.GetPage(2).GetImages().Count());
     }

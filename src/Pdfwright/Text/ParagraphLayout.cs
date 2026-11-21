@@ -74,11 +74,11 @@ internal sealed class ParagraphLayout
 {
     private readonly TrueTypeFont[] _fonts;
 
-    internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0)
+    internal ParagraphLayout(string text, IReadOnlyList<RunStyle> styles, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0)
     {
         ParagraphLevel = paragraphLevel;
         Text = text;
-        Size = size;
+        Styles = styles;
         Lines = lines;
         Missing = missing;
         _fonts = [.. fonts.Select(f => f.Font)];
@@ -89,8 +89,11 @@ internal sealed class ParagraphLayout
     /// <summary>The text that was laid out; the <see cref="LaidOutLine.Start"/> of each line indexes into it.</summary>
     internal string Text { get; }
 
-    /// <summary>The font size in points.</summary>
-    internal double Size { get; }
+    /// <summary>The styles the text is set in; a run's <see cref="ShapedRun.Style"/> indexes into it. One style for a paragraph set in one.</summary>
+    internal IReadOnlyList<RunStyle> Styles { get; }
+
+    /// <summary>The font size in points of the first style (the size of a paragraph set in one).</summary>
+    internal double Size => Styles[0].Size;
 
     /// <summary>The base level of the paragraph, as the bidirectional algorithm resolved it: 0 for left to right, 1 for right to left.</summary>
     internal byte ParagraphLevel { get; }
@@ -121,8 +124,9 @@ internal sealed class ParagraphLayout
     /// <paramref name="embedded"/> and <paramref name="fontResourceNames"/> hold one entry for each font that was given to
     /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be the very font (the same <see cref="TrueTypeFont"/> object) the paragraph was laid out with at that place.
     /// </summary>
+    /// <remarks><paramref name="firstLine"/> and <paramref name="lineCount"/> (all the rest when negative) draw only some of the lines, the first of them with its top at <paramref name="top"/>: the flow of a document uses it to split a paragraph between pages. A style with a colour sets the fill colour before its runs.</remarks>
     /// <exception cref="ArgumentException">The arrays do not match the fonts the paragraph was laid out with.</exception>
-    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont?[] embedded, string?[] fontResourceNames, double left, double top)
+    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont?[] embedded, string?[] fontResourceNames, double left, double top, int firstLine = 0, int lineCount = -1)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
@@ -134,7 +138,13 @@ internal sealed class ParagraphLayout
         }
 
         // A font that no run uses may be null (it need not be embedded); one that a run uses must be there and be the very font.
-        HashSet<int> used = [.. Lines.SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
+        int count = lineCount < 0 ? Lines.Count - firstLine : lineCount;
+        if (firstLine < 0 || firstLine + count > Lines.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(firstLine), firstLine, $"Lines {firstLine} to {firstLine + count} are outside the {Lines.Count} lines of the paragraph.");
+        }
+
+        HashSet<int> used = [.. Lines.Skip(firstLine).Take(count).SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
         for (int i = 0; i < _fonts.Length; i++)
         {
             if (!used.Contains(i) && embedded[i] is null && fontResourceNames[i] is null)
@@ -155,13 +165,21 @@ internal sealed class ParagraphLayout
 
         content.BeginText();
         double lineTop = top;
-        foreach (LaidOutLine line in Lines)
+        Color? current = null;
+        foreach (LaidOutLine line in Lines.Skip(firstLine).Take(count))
         {
             double baseline = lineTop - line.Ascent;
             foreach (PlacedRun placed in line.Runs)
             {
                 int font = placed.Run.FontIndex;
-                GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, Size);
+                RunStyle style = Styles[placed.Run.Style];
+                if (style.Color is { } color && current != color)
+                {
+                    _ = color.IsGray ? content.FillGray(color.R) : content.FillRgb(color.R, color.G, color.B);
+                    current = color;
+                }
+
+                GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, style.Size);
             }
 
             lineTop -= line.Pitch;

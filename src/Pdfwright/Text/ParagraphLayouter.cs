@@ -7,7 +7,7 @@ namespace Pdfwright.Text;
 /// Lays one paragraph out in lines: the paragraph is shaped once, as a whole (so that joining and context do not depend on where lines
 /// break), the break opportunities of UAX #14 that fall on a glyph cluster boundary are filled greedily up to the width, each line gets the
 /// bidi order of its own characters (UAX #9 rules L1 and L2) and is placed in the width by its alignment. The width a line is measured with
-/// is the one it is drawn with, so <see cref="TextMeasurer"/> and drawing cannot disagree. Because the paragraph is shaped once, kerning
+/// is the one it is drawn with, so <see cref="ParagraphMeasurer"/> and drawing cannot disagree. Because the paragraph is shaped once, kerning
 /// across a place where a line breaks (a pair on either side of a hyphen) is kept, not undone at the edge of the line.
 /// </summary>
 internal static class ParagraphLayouter
@@ -53,8 +53,9 @@ internal static class ParagraphLayouter
         }
 
         // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab, and the bidi algorithm reads the tab itself (a segment separator, rule L1).
-        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text);
-        State state = new(text, paragraph, fonts, options);
+        (IReadOnlyList<RunStyle> styles, ShapeStyling? styling) = Styling(text, fonts, options);
+        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text, styling);
+        State state = new(text, paragraph, fonts, options, styles);
         List<Raw> raws = [];
         int start = 0;
         int candidate = 0;
@@ -85,7 +86,8 @@ internal static class ParagraphLayouter
         {
             if (raws[i].FirstFont < 0)
             {
-                (double ascent, double descent) = state.Metrics(NearestContentFont(raws, i));
+                Raw nearest = NearestContent(raws, i);
+                (double ascent, double descent) = nearest.FirstFont >= 0 ? state.Metrics(nearest.FirstFont, nearest.FirstStyle) : state.Metrics(styles[0].FontOrder[0], 0);
                 raws[i] = raws[i] with { Ascent = ascent, Descent = descent };
             }
         }
@@ -116,17 +118,68 @@ internal static class ParagraphLayouter
             });
         }
 
-        return new ParagraphLayout(text, options.Size, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel);
+        return new ParagraphLayout(text, styles, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel);
     }
 
-    /// <summary>The first font of the content of the closest line to <paramref name="index"/> that has any: the line before, else the line after, else the first font.</summary>
-    private static int NearestContentFont(List<Raw> raws, int index)
+    /// <summary>The styles of the paragraph and what the shaper needs to set it in them: with no styles in the options, one style of the options' size and language over every font.</summary>
+    private static (IReadOnlyList<RunStyle> Styles, ShapeStyling? Styling) Styling(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
+    {
+        if (options.Styles is not { } styles)
+        {
+            return ([new RunStyle { FontOrder = [.. Enumerable.Range(0, fonts.Count)], Size = options.Size, Language = options.Language }], null);
+        }
+
+        if (styles.Count == 0)
+        {
+            throw new ArgumentException("Styles must not be empty.", nameof(options));
+        }
+
+        IReadOnlyList<StyledSpan> spans = options.Spans ?? [];
+        if (spans.Count == 0 && text.Length > 0)
+        {
+            throw new ArgumentException("Styles need spans that tile the text.", nameof(options));
+        }
+
+        foreach (RunStyle style in styles)
+        {
+            if (!(style.Size > 0) || double.IsInfinity(style.Size))
+            {
+                throw new ArgumentOutOfRangeException(nameof(options), style.Size, "The size of a style must be a positive number.");
+            }
+
+            if (style.FontOrder.Length == 0 || style.FontOrder.Any(i => (uint)i >= (uint)fonts.Count))
+            {
+                throw new ArgumentException("The font order of a style is not empty and names fonts of the list.", nameof(options));
+            }
+        }
+
+        int at = 0;
+        foreach (StyledSpan span in spans)
+        {
+            if (span.Start != at || span.Length < 0 || (uint)span.Style >= (uint)styles.Count)
+            {
+                throw new ArgumentException("The spans must tile the text in order and name styles of the list.", nameof(options));
+            }
+
+            at += span.Length;
+        }
+
+        if (at != text.Length)
+        {
+            throw new ArgumentException($"The spans cover {at} characters and the text has {text.Length}.", nameof(options));
+        }
+
+        return (styles, new ShapeStyling { Spans = spans, FontOrders = [.. styles.Select(s => s.FontOrder)], Languages = [.. styles.Select(s => s.Language)] });
+    }
+
+    /// <summary>The closest line to <paramref name="index"/> that has content (the one before, else the one after), or the line itself when there is none: the line whose font a line with nothing visible takes.</summary>
+    private static Raw NearestContent(List<Raw> raws, int index)
     {
         for (int i = index - 1; i >= 0; i--)
         {
             if (raws[i].FirstFont >= 0)
             {
-                return raws[i].FirstFont;
+                return raws[i];
             }
         }
 
@@ -134,11 +187,11 @@ internal static class ParagraphLayouter
         {
             if (raws[i].FirstFont >= 0)
             {
-                return raws[i].FirstFont;
+                return raws[i];
             }
         }
 
-        return 0;
+        return raws[index];
     }
 
     /// <summary>The left edge of a line's content in a box: logical alignment, with a line that is too wide aligned to the start.</summary>
@@ -168,8 +221,8 @@ internal static class ParagraphLayouter
     }
 
     /// <summary>A line before alignment: its runs are at x positions measured from the left edge of the line's own sequence of runs.</summary>
-    /// <remarks><paramref name="FirstFont"/> is the font of the first run of the content in logical order, or -1 for a line with nothing visible.</remarks>
-    private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, int FirstFont, List<Placement> Runs);
+    /// <remarks><paramref name="FirstFont"/> is the font of the first run of the content in logical order, or -1 for a line with nothing visible; <paramref name="FirstStyle"/> is that run's style.</remarks>
+    private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, int FirstFont, int FirstStyle, List<Placement> Runs);
 
     /// <summary>A run on a line while the line is being built: <see cref="X"/> is first its place in the row of runs and then, after alignment, its place from the paragraph's left edge.</summary>
     private sealed class Placement(ShapedRun run, double width, bool isTrailingSpace)
@@ -189,7 +242,7 @@ internal static class ParagraphLayouter
         private readonly ShapedParagraph _paragraph;
         private readonly IReadOnlyList<ShapingFont> _fonts;
         private readonly ParagraphOptions _options;
-        private readonly double[] _scale;
+        private readonly IReadOnlyList<RunStyle> _styles;
         private readonly double[] _prefix;
         private readonly bool[] _boundary;
         private readonly int[] _codePointOf;
@@ -197,19 +250,14 @@ internal static class ParagraphLayouter
         private readonly GlyphOrder[] _glyphOrder;
         private readonly bool[] _anywhere;
 
-        internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
+        internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles)
         {
             _paragraph = paragraph;
             _fonts = fonts;
             _options = options;
+            _styles = styles;
             Count = text.Length;
             int[] utf16 = paragraph.Utf16Index;
-
-            _scale = new double[fonts.Count];
-            for (int f = 0; f < fonts.Count; f++)
-            {
-                _scale[f] = options.Size / fonts[f].Font.UnitsPerEm;
-            }
 
             // The width of everything left of each UTF-16 index: a glyph's advance sits at its cluster, so the width of a text range is
             // the difference of two prefix sums, and a range that does not start and end on cluster boundaries is never asked for.
@@ -222,7 +270,7 @@ internal static class ParagraphLayouter
             {
                 ShapedRun run = paragraph.Runs[r];
                 _boundary[run.Utf16Start] = true;
-                double scale = _scale[run.FontIndex];
+                double scale = Scale(run);
                 bool ascending = true;
                 bool descending = true;
                 for (int g = 0; g < run.Glyphs.Length; g++)
@@ -451,6 +499,7 @@ internal static class ParagraphLayouter
             double ascent = 0;
             double descent = 0;
             int firstFont = -1;
+            int firstStyle = 0;
             foreach (Placement piece in pieces)
             {
                 if (piece.IsTrailingSpace)
@@ -461,8 +510,13 @@ internal static class ParagraphLayouter
 
                 width += piece.Width;
                 contentLeft = Math.Min(contentLeft, piece.X);
-                firstFont = firstFont < 0 ? piece.Run.FontIndex : firstFont;
-                (double pieceAscent, double pieceDescent) = Metrics(piece.Run.FontIndex);
+                if (firstFont < 0)
+                {
+                    firstFont = piece.Run.FontIndex;
+                    firstStyle = piece.Run.Style;
+                }
+
+                (double pieceAscent, double pieceDescent) = Metrics(piece.Run.FontIndex, piece.Run.Style);
                 ascent = Math.Max(ascent, pieceAscent);
                 descent = Math.Max(descent, pieceDescent);
             }
@@ -474,7 +528,7 @@ internal static class ParagraphLayouter
                 contentLeft = (_paragraph.ParagraphLevel & 1) == 1 ? trailingWidth : 0;
             }
 
-            return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, pieces);
+            return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, firstStyle, pieces);
         }
 
         /// <summary>One stretch of <paramref name="run"/> on a line: the glyphs whose clusters lie in [from, to), in the order of the level they now have.</summary>
@@ -501,7 +555,7 @@ internal static class ParagraphLayouter
                 return null;
             }
 
-            double scale = _scale[run.FontIndex];
+            double scale = Scale(run);
             double advance = 0;
             foreach (ShapedGlyph glyph in glyphs)
             {
@@ -510,7 +564,7 @@ internal static class ParagraphLayouter
 
             ShapedRun piece = glyphs == run.Glyphs
                 ? run
-                : new ShapedRun { Utf16Start = from, Utf16Length = to - from, Level = level, Script = run.Script, FontIndex = run.FontIndex, Glyphs = glyphs };
+                : new ShapedRun { Utf16Start = from, Utf16Length = to - from, Level = level, Script = run.Script, FontIndex = run.FontIndex, Style = run.Style, Glyphs = glyphs };
             return new Placement(piece, advance, trailing);
         }
 
@@ -575,11 +629,15 @@ internal static class ParagraphLayouter
             return low;
         }
 
-        /// <summary>The ascent and the descent of a font at the paragraph's size, in points, both positive.</summary>
-        internal (double Ascent, double Descent) Metrics(int fontIndex)
+        /// <summary>The factor from font units to points of a run: its style's size over its font's units per em.</summary>
+        private double Scale(ShapedRun run) => _styles[run.Style].Size / _fonts[run.FontIndex].Font.UnitsPerEm;
+
+        /// <summary>The ascent and the descent of a font at the size of a style, in points, both positive.</summary>
+        internal (double Ascent, double Descent) Metrics(int fontIndex, int style)
         {
             TrueTypeFont font = _fonts[fontIndex].Font;
-            return (Math.Abs(font.Ascender) * _scale[fontIndex], Math.Abs(font.Descender) * _scale[fontIndex]);
+            double scale = _styles[style].Size / font.UnitsPerEm;
+            return (Math.Abs(font.Ascender) * scale, Math.Abs(font.Descender) * scale);
         }
     }
 

@@ -18,7 +18,7 @@ internal static class PdfTestKit
         Stream target = output ?? memory;
         using (PdfDocumentWriter document = new(
             target,
-            new PdfDocumentOptions
+            new PdfWriterOptions
             {
                 Compression = compression,
                 Title = "Rapor İstanbul 2026",

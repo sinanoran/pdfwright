@@ -18,7 +18,7 @@ public class PdfDocumentTests
     public void A_reader_finds_the_pages_their_sizes_and_the_metadata(bool flate)
     {
         PdfCompression compression = flate ? PdfCompression.Flate : PdfCompression.None;
-        using PdfDocument document = PdfDocument.Open(PdfTestKit.ThreePages(compression));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(PdfTestKit.ThreePages(compression));
 
         Assert.Equal(3, document.NumberOfPages);
         Assert.Equal((595d, 842d), (document.GetPage(1).Width, document.GetPage(1).Height));
@@ -36,7 +36,7 @@ public class PdfDocumentTests
     public void The_text_of_every_page_reads_back(bool flate)
     {
         PdfCompression compression = flate ? PdfCompression.Flate : PdfCompression.None;
-        using PdfDocument document = PdfDocument.Open(PdfTestKit.ThreePages(compression));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(PdfTestKit.ThreePages(compression));
 
         Assert.Contains("Hello PDF, first page", document.GetPage(1).Text);
         Assert.Contains("Second page, landscape (with brackets and a backslash \\)", document.GetPage(2).Text);
@@ -47,7 +47,7 @@ public class PdfDocumentTests
     [Fact]
     public void A_link_to_an_address_reads_back_with_its_address_and_the_link_to_a_page_is_there()
     {
-        using PdfDocument document = PdfDocument.Open(PdfTestKit.ThreePages(PdfCompression.None));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(PdfTestKit.ThreePages(PdfCompression.None));
 
         List<Annotation> links = document.GetPage(1).GetAnnotations().Where(a => a.Type == AnnotationType.Link).ToList();
 
@@ -107,7 +107,7 @@ public class PdfDocumentTests
     public void A_document_without_a_creation_date_has_no_date_at_all()
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             document.BeginPage(100, 100).End();
             document.Complete();
@@ -136,7 +136,7 @@ public class PdfDocumentTests
     public void An_object_that_was_allocated_and_never_written_is_reported_when_the_file_is_finished()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         document.AllocateObject();
         document.BeginPage(100, 100).End();
 
@@ -149,7 +149,7 @@ public class PdfDocumentTests
     public void A_page_that_is_not_ended_a_second_page_started_early_and_an_empty_document_are_refused()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
 
         Assert.Throws<InvalidOperationException>(document.Complete);
         PdfPageWriter page = document.BeginPage(100, 100);
@@ -163,7 +163,7 @@ public class PdfDocumentTests
     public void A_link_to_a_page_that_does_not_exist_is_reported_when_the_document_is_complete()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
         page.AddPageLink(new PdfRectangle(0, 0, 10, 10), targetPage: 5, x: 0, y: 0);
         page.End();
@@ -177,7 +177,7 @@ public class PdfDocumentTests
     public void An_opacity_outside_zero_to_one_and_a_non_ascii_address_are_refused()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => page.UseOpacity(1.5));

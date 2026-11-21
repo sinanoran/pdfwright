@@ -23,7 +23,7 @@ public class TextMeasurerTests
         ShapingFont[] fonts = LayoutTestKit.Fonts(c.Fonts);
         ParagraphOptions options = new() { Size = 11, MaxWidth = width, LineSpacing = 1.25, Alignment = TextAlignment.Center };
 
-        (double measuredWidth, double height, int lines) = TextMeasurer.Measure(c.Text, fonts, options);
+        (double measuredWidth, double height, int lines) = ParagraphMeasurer.Measure(c.Text, fonts, options);
 
         ParagraphLayout layout = ParagraphLayouter.Layout(c.Text, fonts, options);
         Assert.Equal(layout.Width, measuredWidth);
@@ -37,7 +37,7 @@ public class TextMeasurerTests
         ShapingFont font = LayoutTestKit.Font(LayoutTestKit.Latin);
         const string text = "Total: 1,234 EUR AVATAR office";
 
-        (double width, _, int lines) = TextMeasurer.Measure(text, [font], new ParagraphOptions { Size = 12 });
+        (double width, _, int lines) = ParagraphMeasurer.Measure(text, [font], new ParagraphOptions { Size = 12 });
 
         Assert.Equal(1, lines);
         Assert.Equal(Advance(text, font, 12), width, Tolerance);
@@ -52,7 +52,7 @@ public class TextMeasurerTests
         ShapingFont font = LayoutTestKit.Font(LayoutTestKit.Latin);
         double expected = (font.Font.Ascender - font.Font.Descender) * 12.0 / font.Font.UnitsPerEm * spacing;
 
-        (_, double height, int lines) = TextMeasurer.Measure("Quarterly report", [font], new ParagraphOptions { Size = 12, LineSpacing = spacing });
+        (_, double height, int lines) = ParagraphMeasurer.Measure("Quarterly report", [font], new ParagraphOptions { Size = 12, LineSpacing = spacing });
 
         Assert.Equal(1, lines);
         Assert.Equal(expected, height, Tolerance);
@@ -87,7 +87,7 @@ public class TextMeasurerTests
             }
         }
 
-        (_, double height, int measured) = TextMeasurer.Measure(string.Join(' ', words), [font], new ParagraphOptions { Size = size, MaxWidth = width });
+        (_, double height, int measured) = ParagraphMeasurer.Measure(string.Join(' ', words), [font], new ParagraphOptions { Size = size, MaxWidth = width });
 
         Assert.Equal(lines, measured);
         Assert.Equal(lines * (font.Font.Ascender - font.Font.Descender) * size / font.Font.UnitsPerEm, height, Tolerance);
@@ -99,8 +99,8 @@ public class TextMeasurerTests
         ShapingFont font = LayoutTestKit.Font(LayoutTestKit.Latin);
         const string text = "Quarterly report for the whole organisation";
 
-        (double small, double smallHeight, _) = TextMeasurer.Measure(text, [font], new ParagraphOptions { Size = 10 });
-        (double large, double largeHeight, _) = TextMeasurer.Measure(text, [font], new ParagraphOptions { Size = 20 });
+        (double small, double smallHeight, _) = ParagraphMeasurer.Measure(text, [font], new ParagraphOptions { Size = 10 });
+        (double large, double largeHeight, _) = ParagraphMeasurer.Measure(text, [font], new ParagraphOptions { Size = 20 });
 
         Assert.Equal(small * 2, large, Tolerance);
         Assert.Equal(smallHeight * 2, largeHeight, Tolerance);
@@ -111,6 +111,6 @@ public class TextMeasurerTests
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
 
-        Assert.Throws<ArgumentException>(() => TextMeasurer.Measure("one\ntwo", fonts, new ParagraphOptions { Size = 12 }));
+        Assert.Throws<ArgumentException>(() => ParagraphMeasurer.Measure("one\ntwo", fonts, new ParagraphOptions { Size = 12 }));
     }
 }

@@ -60,7 +60,7 @@ public class MixedDirectionExtractionTests
         }
 
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont[] embedded = [.. fonts.Select(f => new PdfEmbeddedFont(document, f.Font))];
             PdfPageWriter page = document.BeginPage(Math.Max(595, x + 20), 842);
@@ -124,7 +124,7 @@ public class MixedDirectionExtractionTests
             File.WriteAllBytes(Path.Combine(dump, id + ".pdf"), pdf);
         }
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         Assert.Empty(paragraph.Missing);
         Assert.DoesNotContain(paragraph.Runs.SelectMany(r => r.Glyphs), g => g.Glyph == 0);
         AssertRunsAreInBidiOrder(c.Text, paragraph, origins);

@@ -79,6 +79,7 @@ internal sealed class TrueTypeFont
             throw new InvalidDataException($"The font's unitsPerEm ({UnitsPerEm}) is outside 16 to 16384.");
         }
 
+        IsItalic = (U16(head + 44) & 0x0002) != 0;
         XMin = I16(head + 36);
         YMin = I16(head + 38);
         XMax = I16(head + 40);
@@ -117,6 +118,13 @@ internal sealed class TrueTypeFont
 
             EmbeddingPermission = U16(os2.Offset + 8);
             WeightClass = U16(os2.Offset + 4);
+            if (os2.Length >= 64)
+            {
+                // fsSelection: bit 0 is italic, bit 6 is regular (which overrides a macStyle that says italic).
+                int selection = U16(os2.Offset + 62);
+                IsItalic = (selection & 0x0001) != 0 || (IsItalic && (selection & 0x0040) == 0);
+            }
+
             if (os2.Length >= 90 && U16(os2.Offset) >= 2)
             {
                 CapHeight = I16(os2.Offset + 88);
@@ -155,6 +163,9 @@ internal sealed class TrueTypeFont
     internal int CapHeight { get; } = 0;
 
     internal int WeightClass { get; } = 400;
+
+    /// <summary>The font is italic or oblique: OS/2 <c>fsSelection</c> bit 0, or the <c>head</c> table's <c>macStyle</c> bit 1 when the OS/2 table does not say.</summary>
+    internal bool IsItalic { get; }
 
     /// <summary>The OS/2 <c>fsType</c>: what the font's licence says about embedding (0 when there is no OS/2 table).</summary>
     internal int EmbeddingPermission { get; }

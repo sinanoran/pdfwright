@@ -5,7 +5,7 @@ using System.Text;
 namespace Pdfwright.Pdf;
 
 /// <summary>What the writer puts in the document's own metadata. Nothing is ever read from the machine or the clock.</summary>
-internal sealed class PdfDocumentOptions
+internal sealed class PdfWriterOptions
 {
     internal PdfCompression Compression { get; init; } = PdfCompression.Flate;
 
@@ -42,7 +42,7 @@ internal readonly record struct PdfRectangle(double Left, double Bottom, double 
 internal sealed class PdfDocumentWriter : IDisposable
 {
     private readonly PdfFile _file;
-    private readonly PdfDocumentOptions _options;
+    private readonly PdfWriterOptions _options;
     private readonly PdfReference _pagesRoot;
     private readonly List<PdfReference> _pages = [];
     private readonly List<PendingDestination> _destinations = [];
@@ -51,7 +51,7 @@ internal sealed class PdfDocumentWriter : IDisposable
     private PdfPageWriter? _open;
     private bool _completed;
 
-    internal PdfDocumentWriter(Stream output, PdfDocumentOptions options)
+    internal PdfDocumentWriter(Stream output, PdfWriterOptions options)
     {
         _options = options;
         _file = new PdfFile(output, options.Compression);

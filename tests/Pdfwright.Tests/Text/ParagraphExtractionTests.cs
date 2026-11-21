@@ -46,7 +46,7 @@ public class ParagraphExtractionTests
             File.WriteAllBytes(Path.Combine(dump, $"layout-{id}-{width?.ToString() ?? "none"}.pdf"), pdf);
         }
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         Assert.Equal(Strip(c.Text), Strip(document.GetPage(1).Text));
         if (width == 90)
         {

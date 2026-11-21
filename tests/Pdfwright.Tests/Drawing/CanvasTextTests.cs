@@ -17,7 +17,7 @@ public class CanvasTextTests
     private static byte[] Page(Action<Canvas, PdfPageWriter> draw, double width = 400)
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None, Created = PdfTestKit.Created }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None, Created = PdfTestKit.Created }))
         {
             PdfPageWriter page = document.BeginPage(width, PageHeight);
             using (Canvas canvas = new(page, 0, PageHeight, width, PageHeight))
@@ -34,7 +34,7 @@ public class CanvasTextTests
 
     private static IReadOnlyList<Letter> LettersOf(byte[] pdf)
     {
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         return [.. document.GetPage(1).Letters];
     }
 
@@ -105,7 +105,7 @@ public class CanvasTextTests
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfPageWriter page = document.BeginPage(400, PageHeight);
             using (Canvas canvas = new(page, 40, 250, 200, 100))
@@ -148,7 +148,7 @@ public class CanvasTextTests
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
         const string text = "Alignment";
         IReadOnlyList<Letter> letters = LettersOf(Page((c, _) => c.DrawText(text, fonts, 18, new Point(200, 120), alignment)));
-        double width = TextMeasurer.Measure(text, fonts, new ParagraphOptions { Size = 18 }).Width;
+        double width = ParagraphMeasurer.Measure(text, fonts, new ParagraphOptions { Size = 18 }).Width;
 
         double left = letters.Min(l => l.StartBaseLine.X);
         double right = letters.Max(l => l.EndBaseLine.X);
@@ -172,7 +172,7 @@ public class CanvasTextTests
         CorpusTests.Case c = LayoutTestKit.Case("arabic-hello");
         ShapingFont[] fonts = LayoutTestKit.Fonts(c.Fonts);
         IReadOnlyList<Letter> letters = LettersOf(Page((canvas, _) => canvas.DrawText(c.Text, fonts, 18, new Point(250, 120), alignment)));
-        double width = TextMeasurer.Measure(c.Text, fonts, new ParagraphOptions { Size = 18 }).Width;
+        double width = ParagraphMeasurer.Measure(c.Text, fonts, new ParagraphOptions { Size = 18 }).Width;
 
         double left = letters.Min(l => l.StartBaseLine.X);
         double right = letters.Max(l => l.EndBaseLine.X);
@@ -219,7 +219,7 @@ public class CanvasTextTests
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
         const string text = "Measured and drawn with one engine";
-        (double width, _, _) = TextMeasurer.Measure(text, fonts, new ParagraphOptions { Size = 12 });
+        (double width, _, _) = ParagraphMeasurer.Measure(text, fonts, new ParagraphOptions { Size = 12 });
         IReadOnlyList<Letter> letters = LettersOf(Page((c, _) => c.DrawText(text, fonts, 12, new Point(10, 40))));
         double drawn = letters.Max(l => l.EndBaseLine.X) - letters.Min(l => l.StartBaseLine.X);
         Assert.Equal(width, drawn, 0.5);
@@ -256,7 +256,7 @@ public class CanvasTextTests
             c.DrawText("Second", fonts, 12, new Point(10, 80));
         });
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         Assert.Single(document.GetPage(1).Letters.Select(l => l.FontName).Distinct());
         Assert.Equal("FirstSecond", string.Concat(document.GetPage(1).Letters.Select(l => l.Value)));
     }
