@@ -87,11 +87,11 @@ public static class BidiDataGenerator
         return output.ToString();
     }
 
-    private static string Literal(int value) => "0x" + value.ToString("X", CultureInfo.InvariantCulture);
+    internal static string Literal(int value) => "0x" + value.ToString("X", CultureInfo.InvariantCulture);
 
-    private static int Hex(string text) => int.Parse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    internal static int Hex(string text) => int.Parse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
-    private static void AppendArray(StringBuilder output, string type, string name, IEnumerable<string> values)
+    internal static void AppendArray(StringBuilder output, string type, string name, IEnumerable<string> values)
     {
         output.Append("    internal static readonly ").Append(type).Append("[] ").Append(name).Append(" =\n    [\n");
         int column = 0;
@@ -115,7 +115,7 @@ public static class BidiDataGenerator
     }
 
     /// <summary>The data lines of a UCD file: the fields before the comment, split on semicolons and trimmed.</summary>
-    private static IEnumerable<string[]> DataLines(string path)
+    internal static IEnumerable<string[]> DataLines(string path)
     {
         foreach (string raw in File.ReadLines(path))
         {

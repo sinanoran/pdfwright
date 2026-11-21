@@ -27,4 +27,8 @@ All notable changes to this project are recorded here. The format follows
   a generator (`tools/Pdfwright.UnicodeGen`) that makes the class, bracket and mirroring tables, and UAX #9 (explicit levels, isolates, weak and
   neutral types, paired brackets, implicit levels, L1 and L2). It passes every row of `BidiTest.txt` (770,241) and `BidiCharacterTest.txt` (91,707).
 
+- Slice S3b of the plan, line breaking and grapheme clusters (internal): the line break class, grapheme break class and the properties their rules
+  ask about, generated into one packed table; UAX #14 (rules LB1 to LB31 with the Unicode 18 additions) and UAX #29 extended grapheme clusters
+  (GB1 to GB999). They pass every row of `LineBreakTest.txt` (19,346) and `GraphemeBreakTest.txt` (853).
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
