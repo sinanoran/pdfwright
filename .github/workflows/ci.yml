@@ -37,11 +37,25 @@ jobs:
       - name: Install qpdf
         shell: bash
         run: |
-          case "$RUNNER_OS" in
-            Linux) sudo apt-get update && sudo apt-get install -y qpdf ;;
-            macOS) brew install qpdf ;;
-            Windows) choco install qpdf -y --no-progress ;;
-          esac
+          # The package feeds fail now and then (a Chocolatey 5xx failed a run without failing this step): try three times,
+          # and fail here, with the reason, if qpdf is still not on the path.
+          install() {
+            case "$RUNNER_OS" in
+              Linux) sudo apt-get update && sudo apt-get install -y qpdf ;;
+              macOS) brew install qpdf ;;
+              Windows) choco install qpdf -y --no-progress ;;
+            esac
+          }
+          for attempt in 1 2 3; do
+            install && break
+            echo "qpdf install attempt $attempt failed"; sleep $((attempt * 15))
+          done
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # Chocolatey puts the shim on the machine path, which this shell does not see until the next step.
+            ls "/c/ProgramData/chocolatey/bin/qpdf.exe" >/dev/null 2>&1 || ls /c/Program Files/qpdf*/bin/qpdf.exe >/dev/null 2>&1 || { echo "qpdf was not installed"; exit 1; }
+          else
+            command -v qpdf >/dev/null || { echo "qpdf was not installed"; exit 1; }
+          fi
 
       - run: dotnet restore Pdfwright.slnx
 
