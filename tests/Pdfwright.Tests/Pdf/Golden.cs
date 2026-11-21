@@ -1,0 +1,55 @@
+using System.Security.Cryptography;
+
+namespace Pdfwright.Tests.Pdf;
+
+/// <summary>
+/// Golden files: a deterministic document is compared with the file committed in <c>Golden/</c> by SHA-256 and regenerated only on purpose
+/// (<c>PDFWRIGHT_UPDATE_GOLDENS=1</c>, or <c>PDFWRIGHT_UPDATE_GOLDEN=1</c>), in a commit of its own. A difference writes the new bytes to the temporary folder and names
+/// <c>tools/Pdfwright.GoldenDiff</c>, which prints what changed in the objects and in the decoded content streams. Goldens are written with
+/// <c>Compress = false</c>: the zlib behind Flate differs between runtimes, so a compressed file is the same bytes only on one of them.
+/// </summary>
+internal static class Golden
+{
+    internal static string Folder => Path.Combine(RepositoryRoot(), "tests", "Pdfwright.Tests", "Golden");
+
+    private static bool Updating =>
+        Environment.GetEnvironmentVariable("PDFWRIGHT_UPDATE_GOLDENS") == "1" || Environment.GetEnvironmentVariable("PDFWRIGHT_UPDATE_GOLDEN") == "1";
+
+    internal static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    internal static void Check(string name, byte[] actual)
+    {
+        string source = Path.Combine(Folder, name);
+        if (Updating)
+        {
+            _ = System.IO.Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+            File.WriteAllBytes(source, actual);
+            return;
+        }
+
+        Assert.True(File.Exists(source), $"{name} is not in Golden/; create it with PDFWRIGHT_UPDATE_GOLDENS=1");
+        byte[] expected = File.ReadAllBytes(source);
+        if (Hash(expected) == Hash(actual))
+        {
+            return;
+        }
+
+        string written = Path.Combine(Path.GetTempPath(), $"pdfwright-actual-{Path.GetFileName(name)}");
+        File.WriteAllBytes(written, actual);
+        Assert.Fail(
+            $"{name} differs from the golden file: SHA-256 {Hash(expected)} expected ({expected.Length} bytes), {Hash(actual)} written ({actual.Length} bytes).\n"
+            + $"What changed: dotnet run --project tools/Pdfwright.GoldenDiff -- \"{source}\" \"{written}\"\n"
+            + "If the change is intended, run the tests with PDFWRIGHT_UPDATE_GOLDENS=1 and commit the regenerated files by themselves.");
+    }
+
+    private static string RepositoryRoot()
+    {
+        string? directory = AppContext.BaseDirectory;
+        while (directory is not null && !File.Exists(Path.Combine(directory, "Pdfwright.slnx")))
+        {
+            directory = Path.GetDirectoryName(directory);
+        }
+
+        return directory ?? throw new InvalidOperationException("Pdfwright.slnx was not found above the test assembly");
+    }
+}

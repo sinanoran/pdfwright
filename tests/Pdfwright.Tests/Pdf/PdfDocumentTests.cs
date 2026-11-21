@@ -197,7 +197,7 @@ public class PdfDocumentTests
     public void The_uncompressed_file_is_the_golden_file()
     {
         // Uncompressed output depends on nothing but the input, on every runtime: its bytes are compared with the file
-        // in Golden/. To change it on purpose, run with PDFWRIGHT_UPDATE_GOLDENS=1 and commit the new file by itself.
+        // in Golden/. To change it on purpose, run with PDFWRIGHT_UPDATE_GOLDENS=1 and commit the new file by itself (see tests/Pdfwright.Tests/Golden/README.md).
         byte[] actual = PdfTestKit.ThreePages(PdfCompression.None);
 
         Golden.Check("three-pages.pdf", actual);
@@ -231,38 +231,5 @@ public class PdfDocumentTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
         public override void SetLength(long value) => throw new NotSupportedException();
-    }
-}
-
-/// <summary>Golden files: byte-for-byte comparison with a committed file, regenerated only on purpose.</summary>
-internal static class Golden
-{
-    internal static void Check(string name, byte[] actual)
-    {
-        string source = Path.Combine(RepositoryRoot(), "tests", "Pdfwright.Tests", "Golden", name);
-        if (Environment.GetEnvironmentVariable("PDFWRIGHT_UPDATE_GOLDENS") == "1")
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(source)!);
-            File.WriteAllBytes(source, actual);
-            return;
-        }
-
-        Assert.True(File.Exists(source), $"{name} is not in Golden/; create it with PDFWRIGHT_UPDATE_GOLDENS=1");
-        byte[] expected = File.ReadAllBytes(source);
-        Assert.True(
-            expected.AsSpan().SequenceEqual(actual),
-            $"{name} differs from the golden file ({expected.Length} bytes expected, {actual.Length} written). "
-            + "If the change is intended, run with PDFWRIGHT_UPDATE_GOLDENS=1 and commit the file by itself.");
-    }
-
-    private static string RepositoryRoot()
-    {
-        string? directory = AppContext.BaseDirectory;
-        while (directory is not null && !File.Exists(Path.Combine(directory, "Pdfwright.slnx")))
-        {
-            directory = Path.GetDirectoryName(directory);
-        }
-
-        return directory ?? throw new InvalidOperationException("Pdfwright.slnx was not found above the test assembly");
     }
 }

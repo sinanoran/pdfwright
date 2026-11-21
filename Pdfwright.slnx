@@ -6,6 +6,7 @@
     <Project Path="tests/Pdfwright.Tests/Pdfwright.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Pdfwright.GoldenDiff/Pdfwright.GoldenDiff.csproj" />
     <Project Path="tools/Pdfwright.UnicodeGen/Pdfwright.UnicodeGen.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
