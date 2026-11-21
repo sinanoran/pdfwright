@@ -46,4 +46,9 @@ All notable changes to this project are recorded here. The format follows
   header and zebra fills, header rows repeated on every page, rows that are never split unless taller than a page (then between the lines of the cells), right-to-left column order, automatic widths measured from the header and the first 100 rows.
   Rows are an `IEnumerable<TableRow>` enumerated once for each save and never held whole. `DocumentLimits.MaxTableRows` (`DocumentLimit.MaxTableRows`) stops a save; `Table.MaxRows` cuts a table and lists it in `DocumentDiagnostics.TruncatedTables`.
 
+- Slice S5c of the plan, the rest of the block flow: the blocks `Columns` (1 to 4 equal cells of blocks, kept together on a page, right-to-left order), `Callout` (fill, border, padding, corner radius; split between pages with a box on each, or `KeepTogether`),
+  `Drawing` (a box and a callback on the public `DrawingCanvas`: points as `double`, origin top left; paths, fills, strokes with dashes, clip, transforms, opacity, text through the document's fonts with missing glyphs reported, images) and `Image` (with the new `PdfImage.FromBytes` for JPEG and PNG),
+  `Paragraph.KeepTogether`, and `PdfDocumentOptions.Header` and `Footer` built per page from a `PageContext` (number, count, first and last page) and drawn inside the margins after the body, in one pass: the count is always known and a streamed table is still enumerated once.
+  The internal namespace `Pdfwright.Drawing` is now `Pdfwright.Graphics`. Links on text are not public yet (`docs/known-limitations.md`).
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

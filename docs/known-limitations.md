@@ -33,7 +33,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - **`Save` and `SaveAsync` hold the whole file in memory.** The file is made in a buffer (`SaveAsync` on a thread-pool thread) and then copied to the stream, with the token for `SaveAsync`, so that a failed save or a limit that is hit writes nothing; the memory is about the size of the file
   (plus a page's content while it is built).
-- **A paragraph is split between lines with no widow or orphan control**: one line of a paragraph can be left at the bottom of a page or carried to the top of the next. A heading is kept with the first line of the next block and the space before it, and only that; there is no keep-together block yet (S5b).
+- **A paragraph is split between lines with no widow or orphan control**: one line of a paragraph can be left at the bottom of a page or carried to the top of the next. A heading is kept with the first line of the next block and the space before it, and only that; `Paragraph.KeepTogether` and `Callout.KeepTogether` (S5c) keep a whole block on one page.
 - **There is no synthetic bold or italic.** A family without a bold font draws bold text in its nearest weight; a family without an italic font draws it upright. Supply the fonts of the styles you use.
 - **A font is chosen per grapheme cluster and not per word**: a cluster takes the first font of its style's order that covers all of it, and when none does, the first that covers its first character, drawing the rest as missing glyphs (reported in `DocumentDiagnostics`). The order is the family named by the style first,
   then every other font of the collection, so a Latin family with an Arabic font in the collection draws Arabic in that font in the style's weight when one exists, else the nearest.
@@ -59,6 +59,20 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A heading before a table is not kept with it**: the table can start on the next page and leave the heading at the bottom of the previous one.
 - **Each page's part of a table gets its own outer top and bottom line**, not an open edge; a row split between pages has them where it is cut.
 - **A cell's padding is physical** (`Margins`), unlike its alignment, which is logical.
+
+## Columns, callouts, drawings, images, headers and footers (S5c)
+
+- **There are no links yet.** The writer can write an external URI and an internal destination (S1), but no block exposes them: a link on a run needs the rectangle of its characters on each line it wraps to, with bidirectional runs and runs shaped in parts. Planned after 0.1's first slice of the document layer.
+- **A row of columns, a drawing and an image are never split.** One taller than a page (columns, drawing) fails the save with an `InvalidOperationException` and nothing is written; an image is scaled down to fit instead. A row that does not fit the rest of a page moves to the next, which can leave a gap.
+- **A drawing is never scaled**, and one wider than the space it is in (the content width, a cell, a callout's inside) fails the save. Give it the size of its place; the canvas's units are points.
+- **Columns are equal width and one level deep.** No unequal widths, no spans, no columns inside columns (also through a callout), no table in a cell or a callout. Cells are aligned at the top.
+- **A callout inside a column cell or another callout is not split between pages**; only a callout in the flow is. A split callout draws each page's part as a whole box, rounded corners included.
+- **`KeepTogether` exists on `Paragraph` and `Callout` only**, not on `Table` (its rows are streamed) or `Heading` (always kept with what follows). In a column cell it has no effect. A block taller than a page is split whatever it asks.
+- **`AltText` is not written anywhere.** `Drawing.AltText` and `Image.AltText` are kept for tagged output (plan section 6), which does not exist yet, so a screen reader does not see them today.
+- **The canvas text has no wrapping:** `DrawingCanvas.DrawText` breaks only at hard line breaks; use `TextMeasurer` to wrap or fit text.
+- **A header or footer is one block drawn inside the margin**, with no splitting and no table; one taller than what the margin leaves (the margin minus the offset) fails the save. Its callback runs once for each page after the whole body is laid out, so it should be a pure function of the `PageContext`.
+- **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
+- **The picture of a `PdfImage` is held decoded** (a PNG's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
 
 ## Images and the canvas
 
