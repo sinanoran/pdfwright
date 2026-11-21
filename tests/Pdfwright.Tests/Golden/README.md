@@ -51,7 +51,7 @@ So every page of every golden document is also drawn by PDFium (the `PDFtoImage`
 `Golden/Renders/<name>-p<page>.png` (`RenderGolden` in `tests/Pdfwright.Tests/Pdf`; grayscale, 8 bits, about 794 x 1123 pixels for A4). The tests are `*_looks_like_its_stored_render`, next to the byte tests: they build the document again, so a change of the library fails both.
 
 **The comparison is perceptual, not a hash.** A pixel differs when no pixel of the other image within one pixel of it has a luminance within 96 (of 255) of it: an edge that moved by one pixel and a different anti-aliasing are not differences,
-a glyph that moved by more, a mirrored glyph and a missing mark are. A page fails when more than **2 percent** of the pixels that carry ink in either page differ (the numbers, the measured platform differences and the sensitivity proof are in `docs/plan-0.1.md`, "S6b status").
+a glyph that moved by more, a mirrored glyph and a missing mark are. A page fails when more than **0.05 percent** of the pixels that carry ink in either page differ (the numbers, the measured platform differences and the sensitivity proof are in `docs/plan-0.1.md`, "S6b status").
 
 **When a render test fails** the page as drawn (`pdfwright-actual-<name>-p<n>.png`) and a diff image (`pdfwright-diff-<name>-p<n>.png`: the stored page faded, the pixels that differ in red) are written to `PDFWRIGHT_ACTUAL_DIR`
 (the temporary folder when it is not set), and the CI artifact `golden-actual-<os>` keeps them. Look at the diff image before deciding anything.

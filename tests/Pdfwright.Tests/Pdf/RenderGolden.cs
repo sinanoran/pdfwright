@@ -25,7 +25,7 @@ internal static class RenderGolden
     internal const int LuminanceThreshold = 96;
 
     /// <summary>The share of differing pixels, among the pixels that carry ink in either page, above which a page fails.</summary>
-    internal const double MaxDifferingShare = 0.02;
+    internal const double MaxDifferingShare = 0.0005;
 
     private static readonly object PdfiumLock = new();
 
