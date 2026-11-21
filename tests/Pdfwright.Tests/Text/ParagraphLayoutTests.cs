@@ -114,7 +114,7 @@ public class ParagraphLayoutTests
     public void Lines_of_a_latin_sentence_break_at_spaces_and_the_space_hangs()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
-        double two = TextMeasurer.Measure("aaa bbb", fonts, Size).Width;
+        double two = TextMeasurer.Measure("aaa bbb", fonts, new ParagraphOptions { Size = Size }).Width;
 
         // The room is exactly the width of "aaa bbb": the space after it does not count, so the first line still holds it
         // (counted, "aaa bbb " would not fit and the line would end after "aaa ").
@@ -134,7 +134,7 @@ public class ParagraphLayoutTests
         string[] words = LayoutTestKit.Case("arabic-hello").Text.Split(' ');
         string first = "abc " + words[0];
         string text = first + "  " + words[1];
-        double room = TextMeasurer.Measure(first, fonts, Size).Width + 0.01;
+        double room = TextMeasurer.Measure(first, fonts, new ParagraphOptions { Size = Size }).Width + 0.01;
 
         // In a left-to-right paragraph the two spaces between the Arabic words are right-to-left (between two letters of that direction),
         // until the line ends after them: rule L1 puts them back at level 0, after the Arabic word on the right.
