@@ -32,12 +32,25 @@ jobs:
             9.0.x
             10.0.x
 
+      # qpdf checks the structure of every generated file (tests/Pdfwright.Tests/Pdf). It is installed on every runner and
+      # PDFWRIGHT_REQUIRE_QPDF makes its absence a failure: a check that can be silently missing checks nothing.
+      - name: Install qpdf
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update && sudo apt-get install -y qpdf ;;
+            macOS) brew install qpdf ;;
+            Windows) choco install qpdf -y --no-progress ;;
+          esac
+
       - run: dotnet restore Pdfwright.slnx
 
       - run: dotnet build Pdfwright.slnx --no-restore --configuration Release
 
       # Runs the tests of every target framework (net8.0 to net11.0).
       - run: dotnet test Pdfwright.slnx --no-build --configuration Release
+        env:
+          PDFWRIGHT_REQUIRE_QPDF: "1"
 
       - name: Pack
         if: matrix.os == 'ubuntu-latest'

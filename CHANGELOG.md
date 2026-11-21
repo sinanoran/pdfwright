@@ -12,4 +12,10 @@ All notable changes to this project are recorded here. The format follows
   and release workflows, the test corpus in nine scripts and mixed-direction text with its fonts and their licences on record, and
   the benchmark and process harness with the recorded baselines. No writer and no public API yet.
 
+- Slice S1 of the plan, the PDF writer core (internal): PDF objects and their serializer, the file structure with a
+  cross-reference stream and a content-based document id, a content-stream builder, a document writer (page tree,
+  Info and XMP metadata, language, URI and page links, per-page fonts, opacities and XObjects), Flate compression or none,
+  output to a stream that need not be seekable. Tested by reading generated files back with PdfPig, checking them with qpdf,
+  and comparing the uncompressed bytes with a golden file.
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

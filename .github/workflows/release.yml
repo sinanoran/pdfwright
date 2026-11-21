@@ -39,11 +39,16 @@ jobs:
         id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Install qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf
+
       - run: dotnet restore Pdfwright.slnx
 
       - run: dotnet build Pdfwright.slnx --no-restore --configuration Release -p:Version=${{ steps.version.outputs.value }}
 
       - run: dotnet test Pdfwright.slnx --no-build --configuration Release
+        env:
+          PDFWRIGHT_REQUIRE_QPDF: "1"
 
       - run: dotnet pack src/Pdfwright/Pdfwright.csproj --no-build --configuration Release -p:Version=${{ steps.version.outputs.value }} --output artifacts
 

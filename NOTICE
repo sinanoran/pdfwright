@@ -24,6 +24,11 @@ PdfPig
 xunit.v3
   Licence: Apache-2.0
 
+qpdf (a command-line tool run by the tests and CI, never linked)
+  Licence: Apache-2.0
+  https://github.com/qpdf/qpdf
+  Checks the structure of every generated PDF.
+
 == Used only by the benchmarks ==
 
 BenchmarkDotNet
