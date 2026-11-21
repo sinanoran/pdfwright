@@ -1,3 +1,4 @@
+using Pdfwright.Fonts;
 using Pdfwright.Pdf;
 
 namespace Pdfwright.Text;
@@ -71,7 +72,7 @@ internal sealed class LaidOutLine
 /// <summary>The lines of one paragraph, and what it takes to draw them.</summary>
 internal sealed class ParagraphLayout
 {
-    private readonly int[] _unitsPerEm;
+    private readonly TrueTypeFont[] _fonts;
 
     internal ParagraphLayout(string text, double size, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts)
     {
@@ -79,7 +80,7 @@ internal sealed class ParagraphLayout
         Size = size;
         Lines = lines;
         Missing = missing;
-        _unitsPerEm = [.. fonts.Select(f => f.Font.UnitsPerEm)];
+        _fonts = [.. fonts.Select(f => f.Font)];
         Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
         Height = lines.Sum(l => l.Pitch);
     }
@@ -111,7 +112,7 @@ internal sealed class ParagraphLayout
     /// left corner of the paragraph is at (<paramref name="left"/>, <paramref name="top"/>) in PDF space (y up): the baseline of a line is its
     /// <see cref="LaidOutLine.Ascent"/> below the line's top, and the top of the next line is <see cref="LaidOutLine.Pitch"/> below that top.
     /// <paramref name="embedded"/> and <paramref name="fontResourceNames"/> hold one entry for each font that was given to
-    /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be a font of the same units per em.
+    /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be the very font (the same <see cref="TrueTypeFont"/> object) the paragraph was laid out with at that place.
     /// </summary>
     /// <exception cref="ArgumentException">The arrays do not match the fonts the paragraph was laid out with.</exception>
     internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont[] embedded, string[] fontResourceNames, double left, double top)
@@ -119,22 +120,22 @@ internal sealed class ParagraphLayout
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
         ArgumentNullException.ThrowIfNull(fontResourceNames);
-        if (embedded.Length != _unitsPerEm.Length || fontResourceNames.Length != _unitsPerEm.Length)
+        if (embedded.Length != _fonts.Length || fontResourceNames.Length != _fonts.Length)
         {
             throw new ArgumentException(
-                $"The paragraph was laid out with {_unitsPerEm.Length} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
+                $"The paragraph was laid out with {_fonts.Length} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
         }
 
-        for (int i = 0; i < _unitsPerEm.Length; i++)
+        for (int i = 0; i < _fonts.Length; i++)
         {
             if (embedded[i] is null || fontResourceNames[i] is null)
             {
                 throw new ArgumentException($"Font {i} has no embedded font or no resource name.");
             }
 
-            if (embedded[i].Font.UnitsPerEm != _unitsPerEm[i])
+            if (!ReferenceEquals(embedded[i].Font, _fonts[i]))
             {
-                throw new ArgumentException($"Embedded font {i} has {embedded[i].Font.UnitsPerEm} units per em, but the font the paragraph was laid out with at that place has {_unitsPerEm[i]}: they are not the same font.");
+                throw new ArgumentException($"Embedded font {i} is not the font the paragraph was laid out with at that place ({_fonts[i].PostScriptName}, found {embedded[i].Font.PostScriptName}): the glyph numbers and widths would be those of another font.");
             }
         }
 

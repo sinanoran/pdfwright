@@ -467,11 +467,6 @@ public class ParagraphLayoutTests
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Arabic);
         ParagraphLayout layout = LayoutTestKit.Layout("abc", fonts, null);
 
-        // A font of another size of em, if the fonts of the corpus have one: the glyph scale would be wrong.
-        ShapingFont? other = Directory.GetFiles(TestPaths.FontsDirectory, "*.ttf")
-            .Select(p => LayoutTestKit.Font(Path.GetFileName(p)))
-            .FirstOrDefault(f => f.Font.UnitsPerEm != fonts[0].Font.UnitsPerEm);
-
         using MemoryStream stream = new();
         using Pdfwright.Pdf.PdfDocumentWriter document = new(stream, new Pdfwright.Pdf.PdfDocumentOptions { Compression = Pdfwright.Pdf.PdfCompression.None });
         Pdfwright.Pdf.PdfEmbeddedFont[] embedded = [.. fonts.Select(f => new Pdfwright.Pdf.PdfEmbeddedFont(document, f.Font))];
@@ -480,12 +475,17 @@ public class ParagraphLayoutTests
 
         Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, embedded[..1], names, 0, 800));
         Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, embedded, names[..1], 0, 800));
-        if (other is not null)
-        {
-            Pdfwright.Pdf.PdfEmbeddedFont[] wrong = [new Pdfwright.Pdf.PdfEmbeddedFont(document, other.Font), embedded[1]];
-            ArgumentException error = Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, wrong, names, 0, 800));
-            Assert.Contains("units per em", error.Message, StringComparison.Ordinal);
-        }
+
+        // The fonts in the other order have the same units per em, which is all a size check can see: the identity of each font is what is compared.
+        Assert.Equal(fonts[0].Font.UnitsPerEm, fonts[1].Font.UnitsPerEm);
+        Pdfwright.Pdf.PdfEmbeddedFont[] swapped = [embedded[1], embedded[0]];
+        ArgumentException error = Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, swapped, names, 0, 800));
+        Assert.Contains("not the font the paragraph was laid out with", error.Message, StringComparison.Ordinal);
+
+        // A second copy of the same font file is another font object: refused too, and the right fonts are accepted.
+        Pdfwright.Pdf.PdfEmbeddedFont[] copy = [new Pdfwright.Pdf.PdfEmbeddedFont(document, Pdfwright.Fonts.TrueTypeFont.Parse(File.ReadAllBytes(TestPaths.Font(LayoutTestKit.Latin)))), embedded[1]];
+        Assert.Throws<ArgumentException>(() => layout.Draw(page.Content, copy, names, 0, 800));
+        layout.Draw(page.Content, embedded, names, 0, 800);
     }
 
     [Fact]
