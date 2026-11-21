@@ -9,6 +9,22 @@ internal static class TestPaths
 
     internal static string CorpusDirectory { get; } = Path.Combine(AppContext.BaseDirectory, "Corpus");
 
+    /// <summary>The repository root: the nearest folder above the test assembly that holds Pdfwright.slnx (the Unicode data lives there, not beside the assembly).</summary>
+    internal static string RepositoryRoot { get; } = FindRoot();
+
+    private static string FindRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Pdfwright.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException("Pdfwright.slnx was not found above " + AppContext.BaseDirectory);
+    }
+
     internal static string Font(string fileName) => Path.Combine(FontsDirectory, fileName);
 
     /// <summary>

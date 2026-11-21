@@ -49,7 +49,15 @@ Noto Sans Bengali, Noto Sans Tamil, Noto Sans Thai
   Licence texts: tests/Pdfwright.Tests/Fonts/OFL-*.txt
   The fonts are unmodified and not renamed.
 
+== Data compiled into the package ==
+
+The Unicode Character Database, version 18.0.0 (Unicode License v3, Copyright (c) 1991-2026 Unicode, Inc.)
+  Used: the bidirectional class of every code point, the paired brackets and the mirrored characters, turned
+  into tables by tools/Pdfwright.UnicodeGen and compiled into the library (src/Pdfwright/Unicode/BidiTables.g.cs).
+  The conformance files BidiTest.txt and BidiCharacterTest.txt are used by the tests only and are not in the package.
+  The files and the licence text: data/unicode (LICENSE-UNICODE.txt).
+
 == To be added with the code that needs it ==
 
-The Unicode Character Database (Unicode License v3): the tables that the text engine's generator will
-read (bidi class, script, line break class, mirroring, grapheme break), added when slice S3 lands.
+More of the Unicode Character Database (script, line break class, grapheme break), added with the slices that
+read them (S3b onwards).

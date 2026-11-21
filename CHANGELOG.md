@@ -23,4 +23,8 @@ All notable changes to this project are recorded here. The format follows
   that keeps glyph ids, and the embedded font object (Type 0 / CIDFontType2 with `Identity-H`, widths, `ToUnicode`, a
   deterministic subset tag). Tested against nine fonts in nine scripts, with HarfBuzz as a second reader, PdfPig and qpdf.
 
+- Slice S3a of the plan, the bidirectional algorithm (internal): the Unicode 18.0.0 data pinned in `data/unicode` with its hashes and licence,
+  a generator (`tools/Pdfwright.UnicodeGen`) that makes the class, bracket and mirroring tables, and UAX #9 (explicit levels, isolates, weak and
+  neutral types, paired brackets, implicit levels, L1 and L2). It passes every row of `BidiTest.txt` (770,241) and `BidiCharacterTest.txt` (91,707).
+
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
