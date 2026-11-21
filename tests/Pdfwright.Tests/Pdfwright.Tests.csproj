@@ -38,6 +38,7 @@
     <!-- Fonts and corpus are copied beside the test assembly, so a test finds them without a path from the repository root. -->
     <Content Include="Fonts\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Corpus\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Images\Files\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
