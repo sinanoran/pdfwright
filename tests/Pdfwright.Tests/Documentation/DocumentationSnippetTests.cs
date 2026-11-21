@@ -15,7 +15,7 @@ internal sealed record Invoice(string Name, decimal Amount, string Status);
 /// Runs every code snippet of README.md and docs/guide.md. The code between <c>// &lt;snippet name&gt;</c> and <c>// &lt;/snippet&gt;</c> is the code of the document
 /// that says <c>&lt;!-- snippet: name --&gt;</c> above its code block, character for character (see <see cref="DocumentationSyncTests"/>, which fails when the two differ,
 /// or when a code block has no snippet here), so what a reader copies is what was compiled and run. Where a snippet needs a value that only the test has (a folder, a stream), the line
-/// carries the text the document shows after a <c>// docs:</c> marker. Each test that saves a file checks it with qpdf last, so that a machine without qpdf skips the check after the assertions ran.
+/// is one of the pairs that <see cref="DocumentationSyncTests"/> lists with the line the document shows, and the <c>// using X;</c> lines at the top of a snippet are the using lines of the document. Each test that saves a file checks it with qpdf last, so that a machine without qpdf skips the check after the assertions ran.
 /// </summary>
 public class DocumentationSnippetTests
 {
@@ -59,8 +59,10 @@ public class DocumentationSnippetTests
         Invoice[] invoices = AllInvoices;
 
         // <snippet readme-quickstart>
-        string fontDirectory = FontDirectory; // docs: string fontDirectory = "fonts"; // the folder that holds the .ttf files
-        using Stream output = new MemoryStream(); // docs: using FileStream output = File.Create("report.pdf");
+        // using Pdfwright;
+        // using System.Globalization;
+        string fontDirectory = FontDirectory;
+        using Stream output = new MemoryStream();
 
         // Fonts are supplied by the caller, never looked up in the operating system. A collection is made once and shared.
         using FontCollection fonts = new FontCollection()
@@ -126,6 +128,7 @@ public class DocumentationSnippetTests
 
         string families = string.Join(", ", fonts.Families); // Noto Sans, Noto Sans Arabic
 
+        // fontBytes stands for the bytes of one more font file, here one that may be refused.
         try
         {
             fonts.Add(fontBytes);
@@ -232,6 +235,7 @@ public class DocumentationSnippetTests
         PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });
 
         // <snippet guide-table>
+        // using System.Globalization;
         TableColumn[] columns =
         [
             new(ColumnWidth.Fraction(2)),                                              // shares what the others leave, in proportion to its weight
@@ -280,6 +284,8 @@ public class DocumentationSnippetTests
         TableRow header = new("Customer", "Amount", "Status");
 
         // <snippet guide-table-streaming>
+        // using System.Diagnostics;
+        // using System.Globalization;
         PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });
 
         // A lazy sequence is the intended input: it is enumerated once for each save and never held whole, so a table of a hundred
@@ -346,6 +352,7 @@ public class DocumentationSnippetTests
         PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts, DefaultStyle = new TextStyle { Family = "Noto Sans" } });
 
         // <snippet guide-drawing>
+        // using System.Globalization;
         double[] values = [4, 7, 5, 9, 6];
         string[] labels = ["Q1", "Q2", "Q3", "Q4", "Q5"];
         TextStyle small = new() { Size = Length.Pt(8) };
@@ -479,10 +486,20 @@ public class DocumentationSnippetTests
     }
 
     [Fact]
-    public async Task A_page_number_in_a_right_to_left_footer_keeps_its_order_when_the_footer_says_so()
+    public async Task A_page_number_in_a_right_to_left_footer_is_shown_back_to_front_unless_the_footer_says_otherwise()
     {
         FontCollection fonts = DocumentTestKit.Fonts;
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+
+        // The footer a reader gets without doing anything: a right-to-left paragraph, so page 1 of 3 is shown as "3 / 1".
+        PdfDocument plain = new(new PdfDocumentOptions
+        {
+            Fonts = fonts,
+            DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+            Direction = TextDirection.RightToLeft,
+            Footer = page => new Paragraph($"{page.Number} / {page.Count}"),
+        });
+        Assert.Equal("31", await FooterDigitsOfFirstPageAsync(plain, cancellationToken));
 
         // <snippet guide-rtl-footer>
         PdfDocument document = new(new PdfDocumentOptions
@@ -491,17 +508,52 @@ public class DocumentationSnippetTests
             DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
             Direction = TextDirection.RightToLeft,
             // The footer is a right-to-left paragraph here, so "1 / 3" would be read in bidi order and shown as "3 / 1".
-            // Either make the whole footer left to right...
+            // Make the whole footer left to right:
             Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Direction = TextDirection.LeftToRight, Alignment = TextAlignment.Center },
-            // ...or keep the numbers as written inside a right-to-left line with a left-to-right isolate (U+2066 ... U+2069):
-            // Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
         });
         // </snippet>
 
+        Assert.Equal("13", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
+    }
+
+    [Fact]
+    public async Task A_left_to_right_isolate_keeps_the_page_numbers_in_order_inside_a_right_to_left_footer()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+
+        // <snippet guide-rtl-footer-isolate>
+        PdfDocument document = new(new PdfDocumentOptions
+        {
+            Fonts = fonts,
+            DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+            Direction = TextDirection.RightToLeft,
+            // The numbers sit inside a left-to-right isolate (U+2066 ... U+2069), and the footer stays a right-to-left line.
+            Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
+        });
+        // </snippet>
+
+        Assert.Equal("13", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
+    }
+
+    /// <summary>Saves the document with three pages, and returns the digits of the footer of page 1 in the order they stand from left to right.</summary>
+    private async Task<string> FooterDigitsOfFirstPageAsync(PdfDocument document, CancellationToken cancellationToken)
+    {
         document.Add(new Paragraph("مرحبا"));
-        string[] pages = await SaveAndReadAsync(document, cancellationToken);
-        Assert.Contains("1 / 1", pages[0]);
-        DocumentTestKit.AssertValid(_pdf!, "documentation");
+        document.Add(new PageBreak());
+        document.Add(new Paragraph("مرحبا"));
+        document.Add(new PageBreak());
+        document.Add(new Paragraph("مرحبا"));
+
+        using MemoryStream stream = new();
+        await document.SaveAsync(stream, cancellationToken);
+        _pdf = stream.ToArray();
+        DocumentTestKit.AssertValid(_pdf, "documentation");
+
+        using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(_pdf);
+        Assert.Equal(3, read.NumberOfPages);
+        Page first = read.GetPage(1);
+        return string.Concat(first.Letters.Where(l => l.Value.Length == 1 && char.IsAsciiDigit(l.Value[0])).OrderBy(l => l.BoundingBox.Left).Select(l => l.Value));
     }
 
     [Fact]
@@ -547,6 +599,7 @@ public class DocumentationSnippetTests
         using MemoryStream stream = new();
 
         // <snippet guide-diagnostics-limits>
+        // using System.Diagnostics;
         PdfDocument document = new(new PdfDocumentOptions
         {
             Fonts = fonts,
