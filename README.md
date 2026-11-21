@@ -6,7 +6,7 @@
 **Pdfwright writes PDF reports: headings, paragraphs, tables that paginate and vector charts, in every script, with text that reads back in logical order.**
 
 It is a layout engine and a PDF writer in managed C#, with one small native library for text shaping ([HarfBuzz](https://github.com/harfbuzz/harfbuzz), through
-[HarfBuzzSharp](https://github.com/mono/SkiaSharp)). Pdfwright is MIT-licensed, including for commercial use, with no second licence to buy when the project stops being a hobby.
+[HarfBuzzSharp](https://github.com/mono/SkiaSharp)). Pdfwright is under the MIT licence, which covers commercial use; there is no paid licence tier.
 
 <!-- snippet: none -->
 ```bash
@@ -133,8 +133,8 @@ back by independent readers and compared with the input string for string. The c
 | Thai | 310 of 310 | 310 of 310 |
 | **All** | **3120 of 3120** | **3120 of 3120** |
 
-A string passes when it is found whole, in logical order, with its spaces, after one normalisation (the invisible U+034F removed and runs of white space made one space). The 61 single-line cases of the mixed-direction corpus (English in
-Arabic, nested quotes, numbers, Bengali reph, four fonts in one line) read 61 of 61 through PdfPig (byte for byte, with the U+034F removed) and, in a measurement of 21 November 2026 made when those lines were fixed (the 3120 strings of the table were measured the same day, with Firefox 157.0's pdf.js), through pdf.js 6.3.335. The pdf.js comparison is looser than PdfPig's: both texts are put in canonical (NFD) form first, with white space, the U+034F and the bidirectional control characters removed. Every page of the golden documents is also drawn by PDFium and compared with a stored picture, so a mark
+A string passes when it is found whole, in logical order, with its spaces, after one normalisation (the invisible U+034F removed and runs of white space made one space). The mixed-direction corpus also has 61 single-line cases: English in
+Arabic, nested quotes, numbers, Bengali reph, and four fonts in one line. PdfPig reads all 61 byte for byte, with the U+034F removed. pdf.js 6.3.335 also read all 61, measured on 21 November 2026 when those lines were fixed. The 3120 strings of the table were measured the same day, with the pdf.js in Firefox 157.0. The pdf.js comparison is looser than PdfPig's. Both texts are first put in canonical (NFD) form, and white space, the U+034F and the bidirectional control characters are removed. Every page of the golden documents is also drawn by PDFium and compared with a stored picture, so a mark
 in the wrong place or a mirrored run is caught where text extraction would still pass.
 
 **One reader falls below that.** xpdf's `pdftotext` in its default position-ordered mode reads 45 of the 61 single lines exactly: it puts a space where a glyph is drawn to the left of
