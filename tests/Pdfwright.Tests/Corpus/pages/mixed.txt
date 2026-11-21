@@ -1,0 +1,43 @@
+# Page corpus: mixed direction. The document direction is Auto; a paragraph or a cell takes the direction of its first strong character
+# (a line that begins with U+200F is right-to-left whatever follows).
+@group mixed
+@family Noto Sans
+@direction auto
+@rows 100
+@language ar
+short|heading|اتجاه مختلط Mixed direction
+short|para|قال المدير: Hello World ثم ذهب إلى الاجتماع، وأرسل ملف report-2026.pdf إلى الفريق.
+@language en
+short|para|The word مرحبا means hello, and 2026 is the year; the Hebrew שלום עולם means hello world.
+@language ar
+short|para|سعر الكتاب 25.50 ريال، والخصم -15% حتى 2026-12-31، والرصيد -1,234.50 دولار أو +5 نقاط.
+short|para|قال لي: "ذهبت إلى 'Café Central' أمس" ثم أضاف (بعد ذلك) «شكرا جزيلا».
+short|para|رقم الطلب ٣٢١ ثم 456 ثم ٧٨٩، والطابق 3 والغرفة 12B.
+short|para|‏PDF هو تنسيق مستند شائع (2026) يعمل على كل الأجهزة.
+@language he
+short|para|טלפון: +972-3-1234567 ואימייל: a@b.example, ובשעה 09:30 ביום 2026-12-31.
+@language en
+short|para|He said "שלום עולם" twice, then (אחרי זה) left; the price was -15% or +3.5 points.
+@language ar
+short|para|English مرحبا שלום English، ثم عاد النص إلى العربية.
+@language ar
+long|heading|تقرير مختلط Mixed report
+long|para|أرسل الفريق ملف Quarterly Report إلى العميل في 2026-11-21، وكان الإجمالي 1,234.50 USD بزيادة +12% عن الربع السابق وبخصم -5% على الطلبات المتأخرة.
+@language en
+long|para|The Arabic team wrote تقرير المبيعات الشهري for the board, and the Hebrew team added דוח מכירות חודשי; both mention 3 offices, 45.50 EUR and a growth of +12.5% (up from -3% last year).
+@language he
+long|para|קראתי את Quarterly Report המלא היום, והוא אמר "תודה (רבה)" ויצא; הקובץ (Report [final]) נשמר בתיקייה, ומספר הטלפון הוא +972-3-1234567.
+@language en
+long|head|Client عميل|Note ملاحظة|Amount
+@language ar
+long|row|أحمد Ahmad|طلب Order 12 صندوقا|-15% و +5
+@language en
+long|row|Sarah שרה|Delivered אושר on 2026-11-21|1,234.50 USD
+@language he
+long|row|דוד David|החזרה Return 45.50|-3.5%
+@language ar
+long|row|Layla ليلى|"Café Central" (فرع جدة)|٣٢١ و 456
+@language en
+long|row|Chen Li|English only note, 12 pcs|+972-3-1234567
+@language ar
+long|row|‏PDF ملف|مستند (2026) جاهز|2026-12-31
