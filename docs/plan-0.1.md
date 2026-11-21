@@ -335,6 +335,24 @@ exists, with the shaper called directly. Against the criteria:
 shows misplaced marks, or if defect 1 has no fix that works in pdf.js, Acrobat, Preview and Chrome together, stop and choose the contingency
 of section 3.
 
+### Result of the mixed-direction extraction test (21 November 2026, after S3d)
+
+With the shaping layer in place (bidi levels, script runs, font fallback over the corpus's font lists, HarfBuzz with the text around each run as
+context), all 61 corpus lines (English in Arabic, Arabic in English, numbers, nested quotes, parentheses in Hebrew, Bengali reph and pre-base vowels,
+four fonts in one line) are drawn with their runs at the places the bidi order gives and their glyphs written in logical order. **Verdict: no stop
+condition is triggered; go to S4.** What each reader makes of the same 61 files:
+
+| Reader | Result |
+|---|---|
+| PdfPig (content order) | 61 of 61 byte-exact, in the test suite |
+| pdf.js (Firefox's viewer) | logical order and mixed direction correct; 27 of 61 clean, **every other line differs only by junk characters from codes whose `ToUnicode` entry is empty**; mapping those codes to U+034F removes the junk but leaves invisible characters in the text and pdf.js still adds spaces inside Indic clusters, so it is not the fix |
+| xpdf `pdftotext` default (position order) | 36 of 61 exact after removing the direction marks it adds itself, 40 of 61 ignoring the order of combining marks; the rest differ by spaces inside clusters (one `Tm` per glyph) and by spaces lost or moved where the direction changes |
+| xpdf `-raw` | spaces between letters (one `Tm` per glyph) |
+
+So the remaining work is exactly the two open defects, now with a measuring harness (`PDFWRIGHT_DUMP=<folder>` keeps the files, then read them with the readers above):
+S4 writes runs with `TJ` adjustments and one `Tm` per run (removes the spaces), and decides the `ActualText` question for the continuation glyphs of a cluster
+(measured on pdf.js, which respects an explicit mapping). The criterion for S4 is the table above with every row at 61 of 61, modulo characters the reader adds itself.
+
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream
