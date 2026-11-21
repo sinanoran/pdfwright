@@ -89,11 +89,11 @@ public class ParagraphWordBreakTests
     }
 
     [Fact]
-    public void A_single_cluster_wider_than_the_box_stays_whole_on_its_own_line()
+    public void A_single_glyph_cluster_wider_than_the_box_stays_whole_on_its_own_line()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
 
-        // e + combining acute is one cluster of two characters: never split, even by a box narrower than one letter.
+        // e + combining acute is one glyph cluster of two characters: never split, even by a box narrower than one letter.
         string text = "e" + (char)0x0301 + "e";
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, 1);
 

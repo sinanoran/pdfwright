@@ -29,7 +29,7 @@ internal static class ParagraphLayouter
     /// A tab (U+0009) is laid out as one space (tab stops are for the block layer); the character itself stays in the text the glyphs are cut from.
     /// A soft hyphen (U+00AD) is never a place to break: nothing would draw the hyphen, and there is no hyphenation in 0.1, so it stays invisible inside its word.
     /// A unit wider than the width (a long word, Thai text without spaces) is cut between grapheme clusters, as much as fits on each line and
-    /// never less than one cluster, with no hyphen (CSS <c>overflow-wrap: anywhere</c>); one cluster wider than the width stands alone and overflows.
+    /// never less than one glyph cluster, with no hyphen (CSS <c>overflow-wrap: anywhere</c>); one glyph cluster wider than the width stands alone and overflows.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The size, the width or the line spacing is not usable.</exception>
     internal static ParagraphLayout Layout(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
@@ -323,8 +323,8 @@ internal static class ParagraphLayouter
         /// <summary>
         /// Where a line ends when the unit [<paramref name="start"/>, <paramref name="unitEnd"/>) alone is wider than the width (a long word, a
         /// number, Thai text without spaces): as much of it as fits, cut between grapheme clusters that are also glyph clusters (the behaviour of
-        /// CSS <c>overflow-wrap: anywhere</c>; no hyphen is added), and at least one cluster so that the line always advances. A unit that is
-        /// one cluster wide stays whole, with the white space after it, and overflows.
+        /// CSS <c>overflow-wrap: anywhere</c>; no hyphen is added), and at least one glyph cluster so that the line always advances. A unit that is
+        /// one glyph cluster wide stays whole, with the white space after it, and overflows.
         /// </summary>
         private int BreakUnit(int start, int unitEnd)
         {

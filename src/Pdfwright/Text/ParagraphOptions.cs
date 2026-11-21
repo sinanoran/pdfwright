@@ -30,7 +30,7 @@ internal sealed class ParagraphOptions
 
     /// <summary>
     /// Where a line sits in <see cref="MaxWidth"/>, or, when there is none, in the width of the widest line. A line wider than that
-    /// (a single grapheme cluster) is aligned to <see cref="TextAlignment.Start"/> whatever this says, so that it overflows on the side
+    /// (a single glyph cluster, which may span several grapheme clusters) is aligned to <see cref="TextAlignment.Start"/> whatever this says, so that it overflows on the side
     /// where reading ends rather than on the side where it begins.
     /// </summary>
     internal TextAlignment Alignment { get; init; } = TextAlignment.Start;
