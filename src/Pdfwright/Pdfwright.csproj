@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
+    <RootNamespace>Pdfwright</RootNamespace>
+    <AssemblyName>Pdfwright</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>Pdfwright</PackageId>
+    <Description>A small, MIT-licensed PDF writer for reports: paragraphs and tables with pagination, vector drawing, embedded font subsets, right-to-left and mixed-direction text, and Arabic, Indic and Thai shaping through HarfBuzz. Fonts are supplied, never looked up in the operating system. Pre-release: nothing is published yet.</Description>
+    <PackageTags>pdf;report;pdf-writer;harfbuzz;rtl;arabic;complex-scripts</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Nothing public exists yet; the public surface is documented as it is added. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HarfBuzzSharp" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pdfwright.Tests" />
+    <InternalsVisibleTo Include="Pdfwright.Benchmarks" />
+  </ItemGroup>
+
+</Project>

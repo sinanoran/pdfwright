@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # The library writes a file format, so it is worth knowing it writes the same one everywhere.
+    # Windows, Linux and macOS differ in line endings, path separators, fonts on the machine (the library
+    # must not depend on them) and in the native HarfBuzz library that is loaded.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The SDK comes from global.json (11); the tests also run on the runtimes of net8.0, net9.0 and net10.0.
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - run: dotnet restore Pdfwright.slnx
+
+      - run: dotnet build Pdfwright.slnx --no-restore --configuration Release
+
+      # Runs the tests of every target framework (net8.0 to net11.0).
+      - run: dotnet test Pdfwright.slnx --no-build --configuration Release
+
+      - name: Pack
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet pack src/Pdfwright/Pdfwright.csproj --no-build --configuration Release --output artifacts
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: nupkg
+          path: artifacts/*

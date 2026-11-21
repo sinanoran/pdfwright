@@ -1,0 +1,50 @@
+Pdfwright
+Copyright (c) Pdfwright contributors, MIT licence (see LICENSE).
+
+This file lists what Pdfwright uses or carries that has a licence of its own.
+
+== Used by the package (a package reference) ==
+
+HarfBuzzSharp (the .NET binding) and the HarfBuzz text shaping engine it wraps
+  Licence: MIT (HarfBuzzSharp); "Old MIT" (HarfBuzz)
+  https://github.com/mono/SkiaSharp (HarfBuzzSharp) and https://github.com/harfbuzz/harfbuzz
+  The only native code Pdfwright depends on. Shaping only: Pdfwright does not use SkiaSharp or Skia.
+
+HarfBuzzSharp.NativeAssets.Linux (and, through HarfBuzzSharp, the Windows and macOS native assets)
+  Licence: MIT
+  The HarfBuzz native library for Linux, glibc and musl, every architecture.
+
+== Used only by the tests ==
+
+PdfPig
+  Licence: Apache-2.0
+  https://github.com/UglyToad/PdfPig
+  Reads a generated PDF back so that text order is tested. Not part of the package.
+
+xunit.v3
+  Licence: Apache-2.0
+
+== Used only by the benchmarks ==
+
+BenchmarkDotNet
+  Licence: MIT
+
+Playwright (the baseline script only: benchmarks/Pdfwright.Benchmarks/Baselines)
+  Licence: Apache-2.0
+  Measured for comparison, never a dependency.
+
+== Carried in the repository (the test corpus; the package ships none of it) ==
+
+Noto Sans (Regular, Bold, Italic), Noto Sans Arabic, Noto Sans Hebrew, Noto Sans Devanagari,
+Noto Sans Bengali, Noto Sans Tamil, Noto Sans Thai
+  Licence: SIL Open Font License, Version 1.1
+  Copyright: The Noto Project Authors (the repository of each script is named in the copyright line of the
+  font and of its licence text)
+  Source, hash and copyright line of every font: tests/Pdfwright.Tests/Fonts/manifest.json
+  Licence texts: tests/Pdfwright.Tests/Fonts/OFL-*.txt
+  The fonts are unmodified and not renamed.
+
+== To be added with the code that needs it ==
+
+The Unicode Character Database (Unicode License v3): the tables that the text engine's generator will
+read (bidi class, script, line break class, mirroring, grapheme break), added when slice S3 lands.

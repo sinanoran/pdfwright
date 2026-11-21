@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup Label="Library">
+    <!-- Shaping (Arabic, Indic scripts, Thai, Latin kerning). The only native code the package depends on. MIT. -->
+    <PackageVersion Include="HarfBuzzSharp" Version="14.4.0.200" />
+    <!-- HarfBuzzSharp depends on the native library for Windows and macOS only; Linux (glibc and musl, every architecture) is this package. -->
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="14.4.0.200" />
+  </ItemGroup>
+
+  <ItemGroup Label="Tests">
+    <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <!-- The extractor that reads a generated file back, so that text order is tested rather than assumed. Apache-2.0, test-only. -->
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+
+  <ItemGroup Label="Benchmarks">
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+</Project>

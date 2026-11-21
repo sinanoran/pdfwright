@@ -1,0 +1,43 @@
+## build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.nupkg
+*.snupkg
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+
+## test and benchmark output
+[Tt]est[Rr]esult*/
+BenchmarkDotNet.Artifacts/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.trx
+
+## generated PDFs of a local run (goldens live under tests/**/Golden and are kept)
+/out/
+*.local.pdf
+
+## secrets: nothing here, ever
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+
+## node (the Playwright baseline script)
+node_modules/
+
+## os
+.DS_Store
+Thumbs.db
+desktop.ini
