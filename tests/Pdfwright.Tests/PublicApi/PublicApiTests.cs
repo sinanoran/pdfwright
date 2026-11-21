@@ -53,7 +53,7 @@ public class PublicApiTests
                 bases.Add(Name(baseType));
             }
 
-            bases.AddRange(type.GetInterfaces().Select(Name).Order(StringComparer.Ordinal));
+            bases.AddRange(type.GetInterfaces().Select(i => Name(i)).Order(StringComparer.Ordinal));
             if (bases.Count > 0)
             {
                 text.Append(" : ").Append(string.Join(", ", bases));
@@ -79,6 +79,7 @@ public class PublicApiTests
 
     private static IEnumerable<string> Members(Type type)
     {
+        NullabilityInfoContext nullability = new();
         foreach (MemberInfo member in type.GetMembers(Declared))
         {
             if (member.Name.Contains('<', StringComparison.Ordinal))
@@ -89,10 +90,10 @@ public class PublicApiTests
             switch (member)
             {
                 case FieldInfo f when f.IsPublic || f.IsFamily || f.IsFamilyOrAssembly:
-                    yield return type.IsEnum && f.IsStatic ? $"{f.Name} = {Convert.ToInt64(f.GetRawConstantValue(), System.Globalization.CultureInfo.InvariantCulture)}" : $"field {Name(f.FieldType)} {f.Name}";
+                    yield return type.IsEnum && f.IsStatic ? $"{f.Name} = {Convert.ToInt64(f.GetRawConstantValue(), System.Globalization.CultureInfo.InvariantCulture)}" : $"field {Name(f.FieldType, nullability.Create(f))} {f.Name}";
                     break;
                 case ConstructorInfo c when c.IsPublic || c.IsFamily || c.IsFamilyOrAssembly:
-                    yield return $"ctor({Parameters(c)})";
+                    yield return $"ctor({Parameters(c, nullability)})";
                     break;
                 case PropertyInfo p:
                     MethodInfo? getter = p.GetMethod is { } g && Visible(g) ? g : null;
@@ -105,16 +106,16 @@ public class PublicApiTests
                     string accessors = (getter is not null ? "get;" : string.Empty)
                         + (setter is null ? string.Empty : IsInit(setter) ? " init;" : " set;");
                     string stat = (getter ?? setter)!.IsStatic ? "static " : string.Empty;
-                    yield return $"property {stat}{Name(p.PropertyType)} {p.Name} {{ {accessors.Trim()} }}";
+                    yield return $"property {stat}{Name(p.PropertyType, nullability.Create(p))} {p.Name} {{ {accessors.Trim()} }}";
                     break;
                 case MethodInfo m when Visible(m) && !m.IsSpecialName:
-                    yield return $"method {(m.IsStatic ? "static " : string.Empty)}{Name(m.ReturnType)} {m.Name}({Parameters(m)})";
+                    yield return $"method {(m.IsStatic ? "static " : string.Empty)}{Name(m.ReturnType, nullability.Create(m.ReturnParameter))} {m.Name}({Parameters(m, nullability)})";
                     break;
                 case MethodInfo m when Visible(m) && m.Name.StartsWith("op_", StringComparison.Ordinal):
-                    yield return $"operator {(m.IsStatic ? "static " : string.Empty)}{Name(m.ReturnType)} {m.Name}({Parameters(m)})";
+                    yield return $"operator {(m.IsStatic ? "static " : string.Empty)}{Name(m.ReturnType, nullability.Create(m.ReturnParameter))} {m.Name}({Parameters(m, nullability)})";
                     break;
                 case EventInfo e:
-                    yield return $"event {Name(e.EventHandlerType!)} {e.Name}";
+                    yield return $"event {Name(e.EventHandlerType!, nullability.Create(e))} {e.Name}";
                     break;
             }
         }
@@ -124,10 +125,32 @@ public class PublicApiTests
 
     private static bool IsInit(MethodInfo setter) => setter.ReturnParameter.GetRequiredCustomModifiers().Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit");
 
-    private static string Parameters(MethodBase method) =>
-        string.Join(", ", method.GetParameters().Select(p => $"{Name(p.ParameterType)} {p.Name}{(p.HasDefaultValue ? " = " + (p.DefaultValue ?? "null") : string.Empty)}"));
+    private static string Parameters(MethodBase method, NullabilityInfoContext nullability) =>
+        string.Join(", ", method.GetParameters().Select(p => $"{Name(p.ParameterType, nullability.Create(p))} {p.Name}{(p.HasDefaultValue ? " = " + DefaultValue(p) : string.Empty)}"));
 
-    private static string Name(Type type)
+    /// <summary>A default value as it is written in source: <c>default</c> for the default of a struct, <c>null</c> for a missing reference, quoted text, lower-case booleans, the name of an enumeration member.</summary>
+    private static string DefaultValue(ParameterInfo parameter)
+    {
+        object? value = parameter.DefaultValue;
+        if (value is not null and not DBNull and not Enum && (Nullable.GetUnderlyingType(parameter.ParameterType) ?? parameter.ParameterType) is { IsEnum: true } enumType)
+        {
+            value = Enum.ToObject(enumType, value);
+        }
+
+        Type type = Nullable.GetUnderlyingType(parameter.ParameterType) ?? parameter.ParameterType;
+        return value switch
+        {
+            null or DBNull => type.IsValueType && Nullable.GetUnderlyingType(parameter.ParameterType) is null ? "default" : "null",
+            string text => "\"" + text + "\"",
+            bool flag => flag ? "true" : "false",
+            Enum e => type.Name + "." + e,
+            IFormattable number => number.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? "default",
+        };
+    }
+
+    /// <summary>The name of a type as the snapshot writes it, with <c>?</c> after a reference type that may be <see langword="null"/> (read from the nullable annotations of the assembly).</summary>
+    private static string Name(Type type, NullabilityInfo? info = null)
     {
         if (type.IsGenericParameter)
         {
@@ -136,12 +159,12 @@ public class PublicApiTests
 
         if (type.IsByRef)
         {
-            return "ref " + Name(type.GetElementType()!);
+            return "ref " + Name(type.GetElementType()!, info?.ElementType);
         }
 
         if (type.IsArray)
         {
-            return Name(type.GetElementType()!) + "[]";
+            return Name(type.GetElementType()!, info?.ElementType) + "[]" + Mark(type, info);
         }
 
         if (Nullable.GetUnderlyingType(type) is { } inner)
@@ -152,9 +175,14 @@ public class PublicApiTests
         string name = type.Name;
         if (type.IsGenericType)
         {
-            name = name[..name.IndexOf('`', StringComparison.Ordinal)] + "<" + string.Join(", ", type.GetGenericArguments().Select(Name)) + ">";
+            Type[] arguments = type.GetGenericArguments();
+            name = name[..name.IndexOf('`', StringComparison.Ordinal)] + "<" + string.Join(", ", arguments.Select((a, i) => Name(a, info is { GenericTypeArguments.Length: > 0 } && i < info.GenericTypeArguments.Length ? info.GenericTypeArguments[i] : (NullabilityInfo?)null))) + ">";
         }
 
-        return type.Namespace is "System" or "System.Collections.Generic" or "System.Threading" or "System.Threading.Tasks" or "System.IO" or "Pdfwright" or null ? name : type.Namespace + "." + name;
+        name = type.Namespace is "System" or "System.Collections.Generic" or "System.Threading" or "System.Threading.Tasks" or "System.IO" or "Pdfwright" or null ? name : type.Namespace + "." + name;
+        return name + Mark(type, info);
     }
+
+    private static string Mark(Type type, NullabilityInfo? info) =>
+        !type.IsValueType && info is { ReadState: NullabilityState.Nullable } ? "?" : string.Empty;
 }

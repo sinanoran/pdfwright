@@ -118,7 +118,7 @@ internal static class ParagraphLayouter
             });
         }
 
-        return new ParagraphLayout(text, styles, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel);
+        return new ParagraphLayout(text, styles, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel, options.Spans);
     }
 
     /// <summary>The styles of the paragraph and what the shaper needs to set it in them: with no styles in the options, one style of the options' size and language over every font.</summary>
@@ -169,7 +169,27 @@ internal static class ParagraphLayouter
             throw new ArgumentException($"The spans cover {at} characters and the text has {text.Length}.", nameof(options));
         }
 
-        return (styles, new ShapeStyling { Spans = spans, FontOrders = [.. styles.Select(s => s.FontOrder)], Languages = [.. styles.Select(s => s.Language)] });
+        return (styles, new ShapeStyling { Spans = spans, FontOrders = [.. styles.Select(s => s.FontOrder)], Languages = [.. styles.Select(s => s.Language)], ShapeKeys = ShapeKeysOf(styles) });
+    }
+
+    /// <summary>The shaping group of each style: what shaping depends on is the font order, the size (the run's scale) and the language, and not the colour.</summary>
+    private static int[] ShapeKeysOf(IReadOnlyList<RunStyle> styles)
+    {
+        Dictionary<(string Fonts, double Size, string? Language), int> groups = [];
+        int[] keys = new int[styles.Count];
+        for (int i = 0; i < styles.Count; i++)
+        {
+            (string, double, string?) key = (string.Join(',', styles[i].FontOrder), styles[i].Size, styles[i].Language);
+            if (!groups.TryGetValue(key, out int group))
+            {
+                group = groups.Count;
+                groups.Add(key, group);
+            }
+
+            keys[i] = group;
+        }
+
+        return keys;
     }
 
     /// <summary>The closest line to <paramref name="index"/> that has content (the one before, else the one after), or the line itself when there is none: the line whose font a line with nothing visible takes.</summary>

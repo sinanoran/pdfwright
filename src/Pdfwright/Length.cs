@@ -10,6 +10,9 @@ public readonly struct Length : IEquatable<Length>, IComparable<Length>
 {
     private const double PointsPerInch = 72.0;
 
+    private static double Finite(double value) =>
+        double.IsFinite(value) ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "A length is a finite number.");
+
     private Length(double points)
     {
         Points = points;
@@ -30,28 +33,32 @@ public readonly struct Length : IEquatable<Length>, IComparable<Length>
     /// <summary>The length in inches.</summary>
     public double Inches => Points / PointsPerInch;
 
-    /// <summary>Whether the length is a finite number (not NaN and not infinity).</summary>
+    /// <summary>Whether the length is a finite number (not NaN and not infinity). A length made by <see cref="Pt"/>, <see cref="Mm"/>, <see cref="Cm"/> or <see cref="In"/> always is; arithmetic can overflow to infinity.</summary>
     public bool IsFinite => double.IsFinite(Points);
 
     /// <summary>A length in points.</summary>
-    /// <param name="value">The number of points.</param>
+    /// <param name="value">The number of points; finite.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The number is NaN or infinite.</exception>
     /// <returns>The length.</returns>
-    public static Length Pt(double value) => new(value);
+    public static Length Pt(double value) => new(Finite(value));
 
     /// <summary>A length in millimetres.</summary>
-    /// <param name="value">The number of millimetres.</param>
+    /// <param name="value">The number of millimetres; finite.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The number is NaN or infinite.</exception>
     /// <returns>The length.</returns>
-    public static Length Mm(double value) => new(value * PointsPerInch / 25.4);
+    public static Length Mm(double value) => new(Finite(value) * PointsPerInch / 25.4);
 
     /// <summary>A length in centimetres.</summary>
-    /// <param name="value">The number of centimetres.</param>
+    /// <param name="value">The number of centimetres; finite.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The number is NaN or infinite.</exception>
     /// <returns>The length.</returns>
-    public static Length Cm(double value) => new(value * PointsPerInch / 2.54);
+    public static Length Cm(double value) => new(Finite(value) * PointsPerInch / 2.54);
 
     /// <summary>A length in inches.</summary>
-    /// <param name="value">The number of inches.</param>
+    /// <param name="value">The number of inches; finite.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The number is NaN or infinite.</exception>
     /// <returns>The length.</returns>
-    public static Length In(double value) => new(value * PointsPerInch);
+    public static Length In(double value) => new(Finite(value) * PointsPerInch);
 
     /// <summary>The sum of two lengths.</summary>
     /// <param name="left">The first length.</param>
@@ -118,17 +125,17 @@ public readonly struct Length : IEquatable<Length>, IComparable<Length>
     /// <returns><see langword="true"/> when it is.</returns>
     public static bool operator >=(Length left, Length right) => left.Points >= right.Points;
 
-    /// <summary>Whether two lengths are the same number of points.</summary>
+    /// <summary>Whether two lengths are the same number of points. This is the same as <see cref="Equals(Length)"/>, so a length that came out of arithmetic as NaN equals another such length, as the hash code needs.</summary>
     /// <param name="left">The first length.</param>
     /// <param name="right">The second length.</param>
     /// <returns><see langword="true"/> when they are.</returns>
-    public static bool operator ==(Length left, Length right) => left.Points == right.Points;
+    public static bool operator ==(Length left, Length right) => left.Equals(right);
 
     /// <summary>Whether two lengths differ.</summary>
     /// <param name="left">The first length.</param>
     /// <param name="right">The second length.</param>
     /// <returns><see langword="true"/> when they do.</returns>
-    public static bool operator !=(Length left, Length right) => left.Points != right.Points;
+    public static bool operator !=(Length left, Length right) => !left.Equals(right);
 
     /// <inheritdoc />
     public bool Equals(Length other) => Points.Equals(other.Points);

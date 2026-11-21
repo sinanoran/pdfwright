@@ -7,19 +7,32 @@ namespace Pdfwright;
 /// </summary>
 public sealed record TextStyle
 {
-    /// <summary>The font family, such as <c>Noto Sans</c>, compared without regard to case with the families of the fonts in the collection. Characters the family does not cover fall back to the rest of the collection.</summary>
+    private Length? _size;
+    private int? _weight;
+
+    /// <summary>The font family, such as <c>Noto Sans</c>, compared without regard to case with the families of the fonts in the collection. Characters the family does not cover fall back to the rest of the collection. A family that is not in the collection is replaced by the first font and listed in <see cref="DocumentDiagnostics.MissingFamilies"/>.</summary>
     public string? Family { get; init; }
 
     /// <summary>The font size.</summary>
-    public Length? Size { get; init; }
+    /// <exception cref="ArgumentOutOfRangeException">The size is not a finite length greater than zero.</exception>
+    public Length? Size
+    {
+        get => _size;
+        init => _size = Check.Size(value, nameof(Size));
+    }
 
     /// <summary>The weight from 1 to 1000 (400 is regular, 700 bold); the font whose weight is nearest is used. There is no synthetic bold.</summary>
-    public int? Weight { get; init; }
+    /// <exception cref="ArgumentOutOfRangeException">The weight is not from 1 to 1000.</exception>
+    public int? Weight
+    {
+        get => _weight;
+        init => _weight = value is < 1 or > 1000 ? throw new ArgumentOutOfRangeException(nameof(Weight), value, "A font weight is from 1 to 1000.") : value;
+    }
 
     /// <summary>Whether the text is italic; a family without an italic font is drawn upright. There is no synthetic italic.</summary>
     public bool? Italic { get; init; }
 
-    /// <summary>The colour of the glyphs.</summary>
+    /// <summary>The colour of the glyphs. A colour does not change how text is shaped: a word of which one letter has another colour has the same shape and width.</summary>
     public Color? Color { get; init; }
 
     /// <summary>The language as a BCP 47 tag (<c>tr</c>, <c>ar</c>, <c>hi</c>): it selects language-specific forms in shaping.</summary>

@@ -29,6 +29,8 @@ internal sealed class DocumentRenderer
 
     private readonly List<MissingGlyph> _missing = [];
     private readonly HashSet<(int CodePoint, string? Language, int Page)> _missingSeen = [];
+    private readonly List<string> _missingFamilies = [];
+    private readonly HashSet<string> _families;
 
     private PdfPageWriter? _page;
     private double _y;
@@ -41,6 +43,7 @@ internal sealed class DocumentRenderer
         _fonts = fonts;
         _cancellation = cancellation;
         _output = new CountingStream(output);
+        _families = new HashSet<string>(fonts.Entries.Select(e => e.Family), StringComparer.OrdinalIgnoreCase);
 
         _pageWidth = options.PageSize.Width.Points;
         _pageHeight = options.PageSize.Height.Points;
@@ -74,30 +77,11 @@ internal sealed class DocumentRenderer
             throw new ArgumentException("The document needs a font collection with at least one font.", nameof(options));
         }
 
+        // A value that cannot be used is refused where it is set (see the options' init accessors); what is left is what only the values together decide.
         Margins m = options.Margins;
-        if (!m.Top.IsFinite || !m.Right.IsFinite || !m.Bottom.IsFinite || !m.Left.IsFinite || m.Top < Length.Zero || m.Right < Length.Zero || m.Bottom < Length.Zero || m.Left < Length.Zero)
-        {
-            throw new ArgumentException("Margins are finite and not negative.", nameof(options));
-        }
-
         if (options.PageSize.Width.Points - m.Left.Points - m.Right.Points < 1 || options.PageSize.Height.Points - m.Top.Points - m.Bottom.Points < 1)
         {
             throw new ArgumentException("The margins leave less than one point for content.", nameof(options));
-        }
-
-        if (options.HeadingStyles is { Count: not 6 })
-        {
-            throw new ArgumentException("HeadingStyles has exactly six styles, for levels 1 to 6.", nameof(options));
-        }
-
-        if (options.Limits is null)
-        {
-            throw new ArgumentException("Limits is not null.", nameof(options));
-        }
-
-        if (options.Limits.MaxPages is < 1 || options.Limits.MaxBytes is < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "A limit is 1 or more.");
         }
 
         FontCollection.Snapshot fonts = options.Fonts.Current;
@@ -157,6 +141,7 @@ internal sealed class DocumentRenderer
                     ClosePage();
                     break;
                 default:
+                    // C# cannot check a switch over a class hierarchy for completeness: a block added to the library and not handled above ends here.
                     throw new InvalidOperationException($"The block type {_blocks[i].GetType().Name} is not handled.");
             }
         }
@@ -169,8 +154,10 @@ internal sealed class DocumentRenderer
         ClosePage();
         _cancellation.ThrowIfCancellationRequested();
         _writer.Complete();
+
+        // The fonts are written by Complete, after the last page: this is the check that holds the limit. The caller's stream has not been touched, so nothing of an oversized file escapes.
         CheckBytes();
-        return new DocumentDiagnostics(_missing.AsReadOnly(), _writer.PageCount, _output.Count);
+        return new DocumentDiagnostics(_missing.AsReadOnly(), _missingFamilies.AsReadOnly(), _writer.PageCount, _output.Count);
     }
 
     /// <summary>A block ready to place: its lines and its spacing. Blocks that have no text have no layout.</summary>
@@ -195,7 +182,8 @@ internal sealed class DocumentRenderer
             case Paragraph paragraph:
             {
                 ResolvedStyle style = _base.Apply(paragraph.Style);
-                StyledLayout layout = BlockText.Layout(paragraph.Runs, style, _fonts, _contentWidth, paragraph.Alignment, paragraph.Direction ?? _options.Direction, ValidSpacing(paragraph.LineSpacing));
+                StyledLayout layout = BlockText.Layout(paragraph.Runs, style, _fonts, _contentWidth, paragraph.Alignment, paragraph.Direction ?? _options.Direction, paragraph.LineSpacing);
+                NoteFamilies(layout);
                 return new Prepared
                 {
                     Text = layout,
@@ -208,6 +196,7 @@ internal sealed class DocumentRenderer
             {
                 ResolvedStyle style = _headings[heading.Level - 1];
                 StyledLayout layout = BlockText.Layout(heading.Runs, style, _fonts, _contentWidth, heading.Alignment, heading.Direction ?? _options.Direction, 1.0);
+                NoteFamilies(layout);
                 return new Prepared
                 {
                     Text = layout,
@@ -222,27 +211,33 @@ internal sealed class DocumentRenderer
         }
     }
 
-    private static double ValidSpacing(double spacing) =>
-        spacing > 0 && double.IsFinite(spacing) ? spacing : throw new ArgumentOutOfRangeException(nameof(spacing), spacing, "The line spacing is a positive number.");
+    private static double Space(Length? length, double fallback) => length is { } value ? value.Points : fallback;
 
-    private static double Space(Length? length, double fallback)
+    /// <summary>Records the families that the styles of a laid out block name and the collection does not have (the block was set in other fonts), once each in order of first use.</summary>
+    private void NoteFamilies(StyledLayout layout)
     {
-        if (length is not { } value)
+        foreach (ResolvedStyle style in layout.Styles)
         {
-            return fallback;
+            if (!_families.Contains(style.Family) && !_missingFamilies.Contains(style.Family, StringComparer.OrdinalIgnoreCase))
+            {
+                _missingFamilies.Add(style.Family);
+            }
         }
-
-        return value.IsFinite && value >= Length.Zero ? value.Points : throw new ArgumentOutOfRangeException(nameof(length), value, "A space is zero or more and finite.");
     }
 
+    /// <summary>
+    /// A spacer is always honoured, at the top of a page as well (at the start of the document, after a page break): it is the author's intent, unlike the space before a paragraph, which is dropped there.
+    /// What does not fit at the bottom is cut. After it the page has content, so that the next block is set below it and not drawn over it, or on a new page when none of it fits.
+    /// </summary>
     private void PlaceSpacer(double height)
     {
-        if (!_hasContent || _page is null)
+        if (_page is null)
         {
-            return; // dropped at the top of a page
+            OpenPage();
         }
 
         _y = Math.Min(_y + height, _contentHeight);
+        _hasContent = true;
     }
 
     private void PlaceText(Prepared block, Prepared? next)
@@ -251,11 +246,12 @@ internal sealed class DocumentRenderer
         IReadOnlyList<LaidOutLine> lines = styled.Layout.Lines;
         int placed = 0;
 
-        // A heading needs room for itself and for the first line of what follows; when they do not fit, it goes to the next page (unless it is already at the top of one).
+        // A heading needs room for itself, the space after it, the space before what follows and the first line of what follows; when they do not fit, it goes to the next page
+        // (unless it is already at the top of one). The space before the next block counts because it is dropped only at the top of a page, and the next block is below the heading.
         if (block.KeepWithNext && _hasContent && _page is not null)
         {
-            double heading = block.Before + lines.Sum(l => l.Pitch) + block.After + (next?.Text is not null ? next.FirstLineHeight : 0);
-            if (heading <= _contentHeight && _y + heading > _contentHeight)
+            double rest = lines.Sum(l => l.Pitch) + block.After + (next?.Text is not null ? next.Before + next.FirstLineHeight : 0);
+            if (rest <= _contentHeight && _y + block.Before + rest > _contentHeight)
             {
                 ClosePage();
             }
@@ -364,7 +360,7 @@ internal sealed class DocumentRenderer
     {
         if (_options.Limits.MaxPages is { } max && _writer.PageCount + 1 > max)
         {
-            throw new PdfLimitExceededException("MaxPages", max);
+            throw new PdfLimitExceededException(DocumentLimit.MaxPages, max);
         }
 
         _page = _writer.BeginPage(_pageWidth, _pageHeight);
@@ -391,7 +387,7 @@ internal sealed class DocumentRenderer
     {
         if (_options.Limits.MaxBytes is { } max && _output.Count > max)
         {
-            throw new PdfLimitExceededException("MaxBytes", max);
+            throw new PdfLimitExceededException(DocumentLimit.MaxBytes, max);
         }
     }
 

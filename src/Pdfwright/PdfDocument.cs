@@ -6,7 +6,7 @@ namespace Pdfwright;
 /// A document: blocks that flow from the top of the first page down, breaking onto new pages as they fill. Add blocks, then save to a stream.
 /// A document is not thread-safe: do not use one instance from several threads at once (adding while a save runs, or two saves at once, throws
 /// <see cref="InvalidOperationException"/>). A document can be saved more than once, and a second save writes the same file as the first
-/// when <see cref="PdfDocumentOptions.Deterministic"/> is set. The <see cref="FontCollection"/> may be shared between documents.
+/// when <see cref="PdfDocumentOptions.Deterministic"/> is set. The <see cref="FontCollection"/> may be shared between documents; it must not be disposed while one is saving.
 /// </summary>
 public sealed class PdfDocument
 {
@@ -18,7 +18,7 @@ public sealed class PdfDocument
     /// <summary>Makes an empty document.</summary>
     /// <param name="options">What the document is made with. The options are read when the document is made and again at each save, so do not change the font collection's role in between.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException">The options are not usable: no font, margins that leave no room, or other than six heading styles.</exception>
+    /// <exception cref="ArgumentException">The options are not usable: no font in the collection, or margins that leave no room on the page.</exception>
     public PdfDocument(PdfDocumentOptions options)
     {
         DocumentRenderer.Validate(options);
@@ -48,12 +48,16 @@ public sealed class PdfDocument
         return this;
     }
 
-    /// <summary>Lays the document out and writes it to <paramref name="destination"/> as a PDF.</summary>
+    /// <summary>
+    /// Lays the document out and writes it to <paramref name="destination"/> as a PDF. The file is made in memory first (so the memory held is about the size of the file) and written to the
+    /// stream only when it is complete, so a document that fails, or hits one of its limits, writes nothing to the stream.
+    /// </summary>
     /// <param name="destination">A writable stream; it need not be seekable and is not closed.</param>
     /// <exception cref="ArgumentNullException"><paramref name="destination"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">The stream cannot be written to.</exception>
     /// <exception cref="InvalidOperationException">The document is already being saved.</exception>
-    /// <exception cref="PdfLimitExceededException">A limit of <see cref="PdfDocumentOptions.Limits"/> was hit; what was written is an incomplete file.</exception>
+    /// <exception cref="ObjectDisposedException">The font collection has been disposed.</exception>
+    /// <exception cref="PdfLimitExceededException">A limit of <see cref="PdfDocumentOptions.Limits"/> was hit; nothing is written to the stream.</exception>
     public void Save(Stream destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
@@ -65,7 +69,12 @@ public sealed class PdfDocument
         Block[] blocks = Begin();
         try
         {
-            _diagnostics = DocumentRenderer.Render(_options, blocks, destination, CancellationToken.None);
+            using MemoryStream buffer = new();
+            DocumentDiagnostics report = DocumentRenderer.Render(_options, blocks, buffer, CancellationToken.None);
+            buffer.Position = 0;
+            buffer.CopyTo(destination);
+            destination.Flush();
+            _diagnostics = report;
         }
         finally
         {
@@ -84,6 +93,7 @@ public sealed class PdfDocument
     /// <exception cref="ArgumentNullException"><paramref name="destination"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">The stream cannot be written to.</exception>
     /// <exception cref="InvalidOperationException">The document is already being saved.</exception>
+    /// <exception cref="ObjectDisposedException">The font collection has been disposed.</exception>
     /// <exception cref="PdfLimitExceededException">A limit of <see cref="PdfDocumentOptions.Limits"/> was hit; nothing is written to the stream.</exception>
     public async Task SaveAsync(Stream destination, CancellationToken cancellationToken = default)
     {

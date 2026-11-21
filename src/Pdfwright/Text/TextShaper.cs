@@ -42,7 +42,7 @@ internal sealed class ShapingFont : IDisposable
 internal readonly record struct ShapedGlyph(int Glyph, int Cluster, int XAdvance, int XOffset, int YOffset);
 
 /// <summary>
-/// A stretch of text that is shaped as one: one font, one script, one direction (one bidi level). <see cref="Glyphs"/> are in the order they
+/// A stretch of text that is shaped as one: one font, one script, one direction (one bidi level), one font order, size and language. <see cref="Glyphs"/> are in the order they
 /// are drawn, left to right, which for a right-to-left run is the reverse of the logical order; each glyph's <see cref="ShapedGlyph.Cluster"/>
 /// is the UTF-16 index in the paragraph of the characters it stands for.
 /// </summary>
@@ -58,7 +58,7 @@ internal sealed class ShapedRun
 
     internal required int FontIndex { get; init; }
 
-    /// <summary>The index of the style the run is set in (see <see cref="ShapeStyling"/>); 0 for a paragraph with one style.</summary>
+    /// <summary>The index of the style of the run's first character (see <see cref="ShapeStyling"/>); 0 for a paragraph with one style. Later characters may be in other styles of the same shaping group (they differ in colour only), which a drawing looks up by cluster.</summary>
     internal int Style { get; init; }
 
     internal required ShapedGlyph[] Glyphs { get; init; }
@@ -108,7 +108,7 @@ internal static class TextShaper
     /// <paramref name="language"/> is given (then it applies to every run); the beginning and end of text flags of HarfBuzz are not set, so
     /// the text is taken as it is written and a combining mark at its start gets no dotted circle. <paramref name="bidiText"/>, when given, is a text of the
     /// same code points in number that the bidi algorithm reads instead of <paramref name="text"/> (a tab shaped as a space still resolves as a tab: rule L1 needs the segment separator).
-    /// <paramref name="styling"/>, when given, sets stretches of the text in different styles: each has its own order of fonts and its own language, and a run never spans two styles.
+    /// <paramref name="styling"/>, when given, sets stretches of the text in different styles: each has its own order of fonts, size and language, and a run never spans two styles that are shaped differently (a change of colour alone does not end a run).
     /// </summary>
     internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null, ShapeStyling? styling = null)
     {
@@ -137,12 +137,12 @@ internal static class TextShaper
         int[] styleOf = StyleOfCodePoints(codePoints.Length, utf16Index, text.Length, styling);
         int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, styling, styleOf, missing);
 
-        // A run ends where the level, the script, the font or the style changes.
+        // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
         List<ShapedRun> runs = [];
         int runStart = 0;
         for (int i = 1; i <= codePoints.Length; i++)
         {
-            if (i < codePoints.Length && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart] && styleOf[i] == styleOf[runStart])
+            if (i < codePoints.Length && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart] && KeyOf(styling, styleOf[i]) == KeyOf(styling, styleOf[runStart]))
             {
                 continue;
             }
@@ -176,6 +176,9 @@ internal static class TextShaper
 
         return codePoints;
     }
+
+    /// <summary>The shaping group of a style: styles in one group are shaped alike, so a run may span them.</summary>
+    private static int KeyOf(ShapeStyling? styling, int style) => styling is null ? 0 : styling.ShapeKeys[style];
 
     /// <summary>The style of every code point: that of the span that holds it, or 0 with no styling.</summary>
     private static int[] StyleOfCodePoints(int count, int[] utf16Index, int textLength, ShapeStyling? styling)
@@ -229,7 +232,7 @@ internal static class TextShaper
 
             int style = styleOf[start];
             int[]? order = styling?.FontOrders[style];
-            int pick = PickFont(codePoints, start, end, style == previousStyle ? previous : -1, fonts, order, out bool anyMissing);
+            int pick = PickFont(codePoints, start, end, KeyOf(styling, style) == KeyOf(styling, previousStyle) ? previous : -1, fonts, order, out bool anyMissing);
             for (int i = start; i < end; i++)
             {
                 chosen[i] = pick;
@@ -355,6 +358,9 @@ internal sealed class ShapeStyling
 
     /// <summary>For each style, the fonts that may draw it, in order of preference; never empty.</summary>
     internal required IReadOnlyList<int[]> FontOrders { get; init; }
+
+    /// <summary>For each style, the shaping group it belongs to: styles with the same font order, size and language have the same number, and a run may span them.</summary>
+    internal required IReadOnlyList<int> ShapeKeys { get; init; }
 
     /// <summary>For each style, its BCP 47 language or <see langword="null"/>.</summary>
     internal required IReadOnlyList<string?> Languages { get; init; }

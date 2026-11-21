@@ -93,6 +93,7 @@ public class FontManifestTests
     [InlineData((ushort)0x0100, false)]
     [InlineData((ushort)0x0200, false)]
     [InlineData((ushort)0x0202, false)]
+    [InlineData((ushort)6, true)]
     public void The_embedding_permission_forbids_restricted_no_subsetting_and_bitmap_only_fonts(ushort fsType, bool allowed)
     {
         Assert.Equal(allowed, TrueTypeInfo.MayEmbed(fsType));

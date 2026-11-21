@@ -39,6 +39,7 @@ All notable changes to this project are recorded here. The format follows
   weight and style read from the font, fonts that forbid embedding refused with `FontNotEmbeddableException`), `TextStyle`, `TextDirection`, `TextAlignment`,
   the blocks `Heading`, `Paragraph` (with styled runs), `Spacer` and `PageBreak`, `PdfDocumentOptions`, `PdfDocument` (`Save`, `SaveAsync`),
   `TextMeasurer`, `DocumentDiagnostics` and the limits `MaxPages` and `MaxBytes` (`PdfLimitExceededException`). The paragraph layout now takes
-  runs of different size, font, language and colour in one line. The public surface is recorded in `tests/Pdfwright.Tests/PublicApi/`.
+  runs of different size, font, language and colour in one line (a colour does not split the shaping of a word). Values are checked where they are set, with the property as the parameter name; `MaxBytes` holds for the finished file and a limit that is hit
+  writes nothing to the stream (`PdfLimitExceededException.Limit` is a `DocumentLimit`); `FontCollection` is `IDisposable`; a family that is not in the collection is listed in `DocumentDiagnostics.MissingFamilies`. The public surface (with nullability) is recorded in `tests/Pdfwright.Tests/PublicApi/`.
 
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main

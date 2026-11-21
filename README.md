@@ -35,7 +35,7 @@ the test strategy are in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 ```csharp
 using Pdfwright;
 
-// Fonts are supplied, never discovered. A collection is parsed once and can be shared by every document.
+// Fonts are supplied, never discovered. A collection is parsed once, can be shared by every document, and is meant to live long (it is IDisposable: it holds native copies of the fonts).
 FontCollection fonts = new FontCollection()
     .Add(File.ReadAllBytes("NotoSans-Regular.ttf"))
     .Add(File.ReadAllBytes("NotoSans-Bold.ttf"))

@@ -73,8 +73,10 @@ internal sealed class LaidOutLine
 internal sealed class ParagraphLayout
 {
     private readonly TrueTypeFont[] _fonts;
+    private readonly IReadOnlyList<StyledSpan>? _spans;
+    private readonly bool _mixedColours;
 
-    internal ParagraphLayout(string text, IReadOnlyList<RunStyle> styles, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0)
+    internal ParagraphLayout(string text, IReadOnlyList<RunStyle> styles, IReadOnlyList<LaidOutLine> lines, IReadOnlyList<int> missing, IReadOnlyList<ShapingFont> fonts, byte paragraphLevel = 0, IReadOnlyList<StyledSpan>? spans = null)
     {
         ParagraphLevel = paragraphLevel;
         Text = text;
@@ -82,6 +84,8 @@ internal sealed class ParagraphLayout
         Lines = lines;
         Missing = missing;
         _fonts = [.. fonts.Select(f => f.Font)];
+        _spans = spans;
+        _mixedColours = spans is { Count: > 1 } && styles.Select(s => s.Color).Distinct().Skip(1).Any();
         Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
         Height = lines.Sum(l => l.Pitch);
     }
@@ -173,18 +177,106 @@ internal sealed class ParagraphLayout
             {
                 int font = placed.Run.FontIndex;
                 RunStyle style = Styles[placed.Run.Style];
-                if (style.Color is { } color && current != color)
+                if (!_mixedColours)
                 {
-                    _ = color.IsGray ? content.FillGray(color.R) : content.FillRgb(color.R, color.G, color.B);
-                    current = color;
+                    SetColour(content, style.Color, ref current);
+                    GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, style.Size);
+                    continue;
                 }
 
-                GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, style.Size);
+                // A run may hold characters of several colours (a colour does not change how a run is shaped): it is written in parts, one for each stretch of its glyphs of one colour.
+                double scale = style.Size / _fonts[font].UnitsPerEm;
+                foreach ((ShapedRun part, double offset, Color? colour) in ColourParts(placed.Run, scale))
+                {
+                    SetColour(content, colour, ref current);
+                    GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, part, Text, left + placed.X + offset, baseline, style.Size);
+                }
             }
 
             lineTop -= line.Pitch;
         }
 
         content.EndText();
+    }
+
+    private static void SetColour(ContentStreamBuilder content, Color? colour, ref Color? current)
+    {
+        if (colour is { } color && current != color)
+        {
+            _ = color.IsGray ? content.FillGray(color.R) : content.FillRgb(color.R, color.G, color.B);
+            current = color;
+        }
+    }
+
+    /// <summary>The colour of the glyph standing for the characters that start at a UTF-16 index: that of the style of the span that holds the index.</summary>
+    private Color? ColourAt(int index)
+    {
+        IReadOnlyList<StyledSpan> spans = _spans!;
+        int low = 0;
+        int high = spans.Count - 1;
+        while (low < high)
+        {
+            int middle = low + ((high - low + 1) / 2);
+            if (spans[middle].Start <= index)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return Styles[spans[low].Style].Color;
+    }
+
+    /// <summary>
+    /// A run cut into the stretches of its glyphs that are of one colour, each with its distance from the left edge of the run and its colour, in the order they are to be written:
+    /// logical order, which for a right-to-left run is the reverse of the order the glyphs are listed in. A run of one colour is returned whole.
+    /// </summary>
+    private List<(ShapedRun Part, double Offset, Color? Colour)> ColourParts(ShapedRun run, double scale)
+    {
+        ShapedGlyph[] glyphs = run.Glyphs;
+        List<(ShapedRun, double, Color?)> parts = [];
+        if (glyphs.Length == 0)
+        {
+            return parts;
+        }
+
+        int[] clusters = [.. glyphs.Select(g => g.Cluster).Distinct().Order()];
+        int runEnd = run.Utf16Start + run.Utf16Length;
+        double pen = 0;
+        int first = 0;
+        double firstPen = 0;
+        Color? colour = ColourAt(glyphs[0].Cluster);
+        for (int g = 1; g <= glyphs.Length; g++)
+        {
+            Color? next = g < glyphs.Length ? ColourAt(glyphs[g].Cluster) : colour;
+            pen += glyphs[g - 1].XAdvance * scale;
+            if (g < glyphs.Length && next == colour)
+            {
+                continue;
+            }
+
+            ShapedGlyph[] slice = g - first == glyphs.Length ? glyphs : glyphs[first..g];
+            int lowest = slice.Min(s => s.Cluster);
+            int highest = slice.Max(s => s.Cluster);
+            int after = Array.BinarySearch(clusters, highest) + 1;
+            int end = after < clusters.Length ? clusters[after] : runEnd;
+            ShapedRun part = slice == glyphs
+                ? run
+                : new ShapedRun { Utf16Start = lowest, Utf16Length = end - lowest, Level = run.Level, Script = run.Script, FontIndex = run.FontIndex, Style = run.Style, Glyphs = slice };
+            parts.Add((part, firstPen, colour));
+            first = g;
+            firstPen = pen;
+            colour = next;
+        }
+
+        if (run.IsRightToLeft)
+        {
+            parts.Reverse();
+        }
+
+        return parts;
     }
 }

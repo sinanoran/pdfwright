@@ -1,12 +1,12 @@
 abstract class Block : IEquatable<Block>
   ctor(Block original)
-  method Boolean Equals(Block other)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Object? obj)
   method Boolean PrintMembers(System.Text.StringBuilder builder)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(Block left, Block right)
-  operator static Boolean op_Inequality(Block left, Block right)
+  operator static Boolean op_Equality(Block? left, Block? right)
+  operator static Boolean op_Inequality(Block? left, Block? right)
   property Type EqualityContract { get; }
 struct Color : IEquatable<Color>
   method Boolean Equals(Color other)
@@ -30,36 +30,40 @@ struct Color : IEquatable<Color>
   property static Color Red { get; }
   property static Color White { get; }
 sealed class DocumentDiagnostics
-  ctor(IReadOnlyList<MissingGlyph> missingGlyphs, Int32 pageCount, Int64 byteCount)
   property IReadOnlyList<MissingGlyph> MissingGlyphs { get; }
+  property IReadOnlyList<String> MissingFamilies { get; }
   property Int32 PageCount { get; }
   property Int64 ByteCount { get; }
   property static DocumentDiagnostics Empty { get; }
+enum DocumentLimit : IComparable, IConvertible, IFormattable, ISpanFormattable
+  MaxBytes = 1
+  MaxPages = 0
+  field Int32 value__
 sealed class DocumentLimits
   ctor()
   property Int32? MaxPages { get; init; }
   property Int64? MaxBytes { get; init; }
-sealed class FontCollection
+sealed class FontCollection : IDisposable
   ctor()
   method FontCollection Add(Byte[] fontData)
   method FontCollection Add(ReadOnlyMemory<Byte> fontData)
+  method Void Dispose()
   property IReadOnlyList<String> Families { get; }
   property Int32 Count { get; }
 sealed class FontNotEmbeddableException : ArgumentException, System.Runtime.Serialization.ISerializable
-  ctor(String family, Int32 embeddingPermission)
   property Int32 EmbeddingPermission { get; }
   property String Family { get; }
 sealed class Heading : Block, IEquatable<Block>, IEquatable<Heading>
   ctor(Int32 level, IEnumerable<TextRun> runs)
   ctor(Int32 level, String text)
-  method Boolean Equals(Block other)
-  method Boolean Equals(Heading other)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Heading? other)
+  method Boolean Equals(Object? obj)
   method Boolean PrintMembers(System.Text.StringBuilder builder)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(Heading left, Heading right)
-  operator static Boolean op_Inequality(Heading left, Heading right)
+  operator static Boolean op_Equality(Heading? left, Heading? right)
+  operator static Boolean op_Inequality(Heading? left, Heading? right)
   property IReadOnlyList<TextRun> Runs { get; }
   property Int32 Level { get; }
   property Length? SpaceAfter { get; init; }
@@ -69,7 +73,7 @@ sealed class Heading : Block, IEquatable<Block>, IEquatable<Heading>
   property Type EqualityContract { get; }
 struct Length : IComparable<Length>, IEquatable<Length>
   method Boolean Equals(Length other)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(Object? obj)
   method Int32 CompareTo(Length other)
   method Int32 GetHashCode()
   method String ToString()
@@ -99,7 +103,7 @@ struct Length : IComparable<Length>, IEquatable<Length>
 struct Margins : IEquatable<Margins>
   ctor(Length top, Length right, Length bottom, Length left)
   method Boolean Equals(Margins other)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(Object? obj)
   method Int32 GetHashCode()
   method String ToString()
   method static Margins Mm(Double top, Double right, Double bottom, Double left)
@@ -112,31 +116,30 @@ struct Margins : IEquatable<Margins>
   property Length Right { get; }
   property Length Top { get; }
 sealed class MissingGlyph : IEquatable<MissingGlyph>
-  ctor(Int32 codePoint, String language, Int32 page)
-  method Boolean Equals(MissingGlyph other)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(MissingGlyph? other)
+  method Boolean Equals(Object? obj)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(MissingGlyph left, MissingGlyph right)
-  operator static Boolean op_Inequality(MissingGlyph left, MissingGlyph right)
+  operator static Boolean op_Equality(MissingGlyph? left, MissingGlyph? right)
+  operator static Boolean op_Inequality(MissingGlyph? left, MissingGlyph? right)
   property Int32 CodePoint { get; }
   property Int32 Page { get; }
   property String Character { get; }
-  property String Language { get; }
+  property String? Language { get; }
 sealed class PageBreak : Block, IEquatable<Block>, IEquatable<PageBreak>
   ctor()
-  method Boolean Equals(Block other)
-  method Boolean Equals(Object obj)
-  method Boolean Equals(PageBreak other)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Object? obj)
+  method Boolean Equals(PageBreak? other)
   method Boolean PrintMembers(System.Text.StringBuilder builder)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(PageBreak left, PageBreak right)
-  operator static Boolean op_Inequality(PageBreak left, PageBreak right)
+  operator static Boolean op_Equality(PageBreak? left, PageBreak? right)
+  operator static Boolean op_Inequality(PageBreak? left, PageBreak? right)
   property Type EqualityContract { get; }
 struct PageSize : IEquatable<PageSize>
   ctor(Length width, Length height)
-  method Boolean Equals(Object obj)
+  method Boolean Equals(Object? obj)
   method Boolean Equals(PageSize other)
   method Int32 GetHashCode()
   method PageSize Landscape()
@@ -152,26 +155,26 @@ struct PageSize : IEquatable<PageSize>
 sealed class Paragraph : Block, IEquatable<Block>, IEquatable<Paragraph>
   ctor(IEnumerable<TextRun> runs)
   ctor(String text)
-  method Boolean Equals(Block other)
-  method Boolean Equals(Object obj)
-  method Boolean Equals(Paragraph other)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Object? obj)
+  method Boolean Equals(Paragraph? other)
   method Boolean PrintMembers(System.Text.StringBuilder builder)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(Paragraph left, Paragraph right)
-  operator static Boolean op_Inequality(Paragraph left, Paragraph right)
+  operator static Boolean op_Equality(Paragraph? left, Paragraph? right)
+  operator static Boolean op_Inequality(Paragraph? left, Paragraph? right)
   property Double LineSpacing { get; init; }
   property IReadOnlyList<TextRun> Runs { get; }
   property Length? SpaceAfter { get; init; }
   property Length? SpaceBefore { get; init; }
   property TextAlignment Alignment { get; init; }
   property TextDirection? Direction { get; init; }
-  property TextStyle Style { get; init; }
+  property TextStyle? Style { get; init; }
   property Type EqualityContract { get; }
 sealed class PdfDocument
   ctor(PdfDocumentOptions options)
   method PdfDocument Add(Block block)
-  method Task SaveAsync(Stream destination, CancellationToken cancellationToken = null)
+  method Task SaveAsync(Stream destination, CancellationToken cancellationToken = default)
   method Void Save(Stream destination)
   property DocumentDiagnostics Diagnostics { get; }
   property Int32 BlockCount { get; }
@@ -182,30 +185,29 @@ sealed class PdfDocumentOptions
   property DateTimeOffset? Creation { get; init; }
   property DocumentLimits Limits { get; init; }
   property FontCollection Fonts { get; init; }
-  property IReadOnlyList<TextStyle> HeadingStyles { get; init; }
+  property IReadOnlyList<TextStyle>? HeadingStyles { get; init; }
   property Margins Margins { get; init; }
   property PageSize PageSize { get; init; }
-  property String Author { get; init; }
-  property String Creator { get; init; }
-  property String Language { get; init; }
-  property String Subject { get; init; }
-  property String Title { get; init; }
+  property String? Author { get; init; }
+  property String? Creator { get; init; }
+  property String? Language { get; init; }
+  property String? Subject { get; init; }
+  property String? Title { get; init; }
   property TextDirection Direction { get; init; }
-  property TextStyle DefaultStyle { get; init; }
+  property TextStyle? DefaultStyle { get; init; }
 sealed class PdfLimitExceededException : InvalidOperationException, System.Runtime.Serialization.ISerializable
-  ctor(String limit, Int64 maximum)
+  property DocumentLimit Limit { get; }
   property Int64 Maximum { get; }
-  property String Limit { get; }
 sealed class Spacer : Block, IEquatable<Block>, IEquatable<Spacer>
   ctor(Length height)
-  method Boolean Equals(Block other)
-  method Boolean Equals(Object obj)
-  method Boolean Equals(Spacer other)
+  method Boolean Equals(Block? other)
+  method Boolean Equals(Object? obj)
+  method Boolean Equals(Spacer? other)
   method Boolean PrintMembers(System.Text.StringBuilder builder)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(Spacer left, Spacer right)
-  operator static Boolean op_Inequality(Spacer left, Spacer right)
+  operator static Boolean op_Equality(Spacer? left, Spacer? right)
+  operator static Boolean op_Inequality(Spacer? left, Spacer? right)
   property Length Height { get; }
   property Type EqualityContract { get; }
 enum TextAlignment : IComparable, IConvertible, IFormattable, ISpanFormattable
@@ -219,7 +221,6 @@ enum TextDirection : IComparable, IConvertible, IFormattable, ISpanFormattable
   RightToLeft = 2
   field Int32 value__
 struct TextMeasurement : IEquatable<TextMeasurement>
-  ctor(Length width, Length height, Int32 lineCount)
   method Boolean Equals(Object obj)
   method Boolean Equals(TextMeasurement other)
   method Int32 GetHashCode()
@@ -230,30 +231,30 @@ struct TextMeasurement : IEquatable<TextMeasurement>
   property Length Height { get; }
   property Length Width { get; }
 sealed class TextMeasurer
-  ctor(FontCollection fonts, TextStyle defaultStyle = null)
-  method TextMeasurement Measure(String text, TextStyle style = null, Length? maxWidth = null, TextDirection direction = Auto)
+  ctor(FontCollection fonts, TextStyle? defaultStyle = null, String? language = null, Double lineSpacing = 1)
+  method TextMeasurement Measure(String text, TextStyle? style = null, Length? maxWidth = null, TextDirection direction = TextDirection.Auto)
 sealed class TextRun : IEquatable<TextRun>
   ctor(String text)
-  ctor(String text, TextStyle style)
-  method Boolean Equals(Object obj)
-  method Boolean Equals(TextRun other)
+  ctor(String text, TextStyle? style)
+  method Boolean Equals(Object? obj)
+  method Boolean Equals(TextRun? other)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(TextRun left, TextRun right)
-  operator static Boolean op_Inequality(TextRun left, TextRun right)
+  operator static Boolean op_Equality(TextRun? left, TextRun? right)
+  operator static Boolean op_Inequality(TextRun? left, TextRun? right)
   property String Text { get; }
-  property TextStyle Style { get; }
+  property TextStyle? Style { get; }
 sealed class TextStyle : IEquatable<TextStyle>
   ctor()
-  method Boolean Equals(Object obj)
-  method Boolean Equals(TextStyle other)
+  method Boolean Equals(Object? obj)
+  method Boolean Equals(TextStyle? other)
   method Int32 GetHashCode()
   method String ToString()
-  operator static Boolean op_Equality(TextStyle left, TextStyle right)
-  operator static Boolean op_Inequality(TextStyle left, TextStyle right)
+  operator static Boolean op_Equality(TextStyle? left, TextStyle? right)
+  operator static Boolean op_Inequality(TextStyle? left, TextStyle? right)
   property Boolean? Italic { get; init; }
   property Color? Color { get; init; }
   property Int32? Weight { get; init; }
   property Length? Size { get; init; }
-  property String Family { get; init; }
-  property String Language { get; init; }
+  property String? Family { get; init; }
+  property String? Language { get; init; }

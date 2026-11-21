@@ -14,14 +14,36 @@ namespace Pdfwright;
 /// (OS/2 <c>fsType</c> restricted, no subsetting, or bitmap only) are refused with <see cref="FontNotEmbeddableException"/>.
 /// A font is chosen for each run by family, then weight and style, then by coverage: when the first font cannot draw a character, the
 /// rest of the collection is tried (the fonts of the same family first), so a Latin family and an Arabic family can share a paragraph.
+/// A collection holds a native copy of every font for the shaping engine, which is released by <see cref="Dispose"/>: it is meant to live long (for the life of the application, or of
+/// a service), shared by every document, and not to be made for each document. After it is disposed, adding a font, measuring with it and saving a document made with it throw
+/// <see cref="ObjectDisposedException"/>; do not dispose it while a document is being saved with it.
 /// </remarks>
-public sealed class FontCollection
+public sealed class FontCollection : IDisposable
 {
     private readonly object _gate = new();
     private Snapshot _snapshot = new([]);
+    private bool _disposed;
 
     /// <summary>The number of fonts in the collection.</summary>
     public int Count => _snapshot.Entries.Length;
+
+    /// <summary>Releases the native copies of the fonts. The collection cannot be used afterwards; calling this again does nothing.</summary>
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            foreach (FontEntry entry in _snapshot.Entries)
+            {
+                entry.Shaping.Dispose();
+            }
+        }
+    }
 
     /// <summary>The distinct font families in the collection, in the order their first font was added.</summary>
     public IReadOnlyList<string> Families => [.. _snapshot.Entries.Select(e => e.Family).Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -57,11 +79,12 @@ public sealed class FontCollection
 
         if (!font.MayEmbedSubset)
         {
-            throw new FontNotEmbeddableException(font.FamilyName, font.EmbeddingPermission);
+            throw new FontNotEmbeddableException(font.FamilyName, font.EmbeddingPermission, nameof(fontData));
         }
 
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             foreach (FontEntry existing in _snapshot.Entries)
             {
                 if (existing.Font.Bytes.SequenceEqual(font.Bytes))
@@ -78,7 +101,14 @@ public sealed class FontCollection
     }
 
     /// <summary>The fonts as they are now: an immutable view that a document works from for the whole of a save.</summary>
-    internal Snapshot Current => _snapshot;
+    internal Snapshot Current
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _snapshot;
+        }
+    }
 
     /// <summary>A parsed font and what the collection knows about it.</summary>
     internal sealed record FontEntry(TrueTypeFont Font, ShapingFont Shaping, string Family, int Weight, bool Italic);
@@ -110,11 +140,8 @@ public sealed class FontCollection
 /// <summary>A font was refused because its licence does not allow embedding it in a document (the OS/2 <c>fsType</c> restricted-license, no-subsetting or bitmap-only bits).</summary>
 public sealed class FontNotEmbeddableException : ArgumentException
 {
-    /// <summary>Makes the exception for a font.</summary>
-    /// <param name="family">The family name of the font.</param>
-    /// <param name="embeddingPermission">The font's OS/2 <c>fsType</c>.</param>
-    public FontNotEmbeddableException(string family, int embeddingPermission)
-        : base($"The font '{family}' may not be embedded: its OS/2 fsType is 0x{embeddingPermission:X4}, which forbids it (restricted license, no subsetting, or bitmap only).")
+    internal FontNotEmbeddableException(string family, int embeddingPermission, string paramName)
+        : base($"The font '{family}' may not be embedded: its OS/2 fsType is 0x{embeddingPermission:X4}, which forbids it (restricted license, no subsetting, or bitmap only).", paramName)
     {
         Family = family;
         EmbeddingPermission = embeddingPermission;

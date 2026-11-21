@@ -257,7 +257,7 @@ public class DocumentSaveTests
 
         PdfLimitExceededException error = Assert.Throws<PdfLimitExceededException>(() => DocumentTestKit.Save(document));
 
-        Assert.Equal("MaxPages", error.Limit);
+        Assert.Equal(DocumentLimit.MaxPages, error.Limit);
         Assert.Equal(2, error.Maximum);
         Assert.IsAssignableFrom<InvalidOperationException>(error);
     }
@@ -278,7 +278,7 @@ public class DocumentSaveTests
 
         PdfLimitExceededException error = Assert.Throws<PdfLimitExceededException>(() => DocumentTestKit.Save(document));
 
-        Assert.Equal("MaxBytes", error.Limit);
+        Assert.Equal(DocumentLimit.MaxBytes, error.Limit);
         Assert.Equal(20_000, error.Maximum);
     }
 
@@ -290,7 +290,7 @@ public class DocumentSaveTests
 
         PdfLimitExceededException error = await Assert.ThrowsAsync<PdfLimitExceededException>(() => document.SaveAsync(destination, TestContext.Current.CancellationToken));
 
-        Assert.Equal("MaxPages", error.Limit);
+        Assert.Equal(DocumentLimit.MaxPages, error.Limit);
         Assert.Empty(destination.Bytes);
     }
 

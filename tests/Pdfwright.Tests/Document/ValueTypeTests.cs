@@ -54,8 +54,6 @@ public class ValueTypeTests
     public void Length_checks_for_a_finite_value()
     {
         Assert.True(Length.Pt(1e9).IsFinite);
-        Assert.False(Length.Pt(double.NaN).IsFinite);
-        Assert.False(Length.Pt(double.PositiveInfinity).IsFinite);
         Assert.False((Length.Pt(double.MaxValue) * 2).IsFinite);
     }
 
@@ -100,7 +98,7 @@ public class ValueTypeTests
         Assert.True(custom == new PageSize(Length.Mm(100), Length.Mm(50)));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PageSize(Length.Pt(2), Length.Pt(100)));
         Assert.Throws<ArgumentOutOfRangeException>(() => new PageSize(Length.Pt(100), Length.Pt(14401)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PageSize(Length.Pt(double.NaN), Length.Pt(100)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PageSize(Length.Pt(double.MaxValue) * 2, Length.Pt(100)));
     }
 
     [Fact]

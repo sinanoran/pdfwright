@@ -177,7 +177,7 @@ public class DocumentFlowTests
     }
 
     [Fact]
-    public void A_spacer_moves_what_follows_down_and_is_dropped_at_the_top_of_a_page()
+    public void A_spacer_moves_what_follows_down_and_is_kept_at_the_top_of_a_page()
     {
         PdfDocument plain = NewDocument();
         plain.Add(new Paragraph("One")).Add(new Paragraph("Two"));
@@ -195,8 +195,8 @@ public class DocumentFlowTests
         double plainOne = Y(plain, "One");
         double spacedOne = Y(spaced, "One");
 
-        Assert.Equal(plainOne, spacedOne, 3); // the spacer at the top of the page is dropped
-        Assert.Equal(30, plainTwo - spacedTwo, 3);
+        Assert.Equal(50, plainOne - spacedOne, 3); // the spacer at the start of the document is kept: it is the author's intent
+        Assert.Equal(80, plainTwo - spacedTwo, 3);
     }
 
     [Fact]
@@ -425,14 +425,13 @@ public class DocumentFlowTests
     }
 
     [Fact]
-    public void A_style_with_a_bad_size_or_weight_is_refused_when_the_document_is_made_or_saved()
+    public void A_style_with_a_bad_size_or_weight_is_refused_where_it_is_set()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => NewDocument(o => o.DefaultStyle = new TextStyle { Size = Length.Pt(0) }));
         Assert.Throws<ArgumentOutOfRangeException>(() => NewDocument(o => o.DefaultStyle = new TextStyle { Weight = 5000 }));
 
-        PdfDocument document = NewDocument();
-        document.Add(new Paragraph([new TextRun("x", new TextStyle { Size = Length.Pt(double.NaN) })]));
-        Assert.Throws<ArgumentOutOfRangeException>(() => DocumentTestKit.Save(document));
+        ArgumentOutOfRangeException error = Assert.Throws<ArgumentOutOfRangeException>(() => new TextStyle { Size = Length.Pt(-3) });
+        Assert.Equal("Size", error.ParamName);
     }
 
     [Fact]

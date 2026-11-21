@@ -93,7 +93,7 @@ public class TextMeasurerPublicTests
 
         Assert.Throws<ArgumentNullException>(() => measurer.Measure(null!));
         Assert.Throws<ArgumentOutOfRangeException>(() => measurer.Measure("x", null, Length.Pt(-1)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => measurer.Measure("x", null, Length.Pt(double.NaN)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => measurer.Measure("x", null, Length.Pt(double.MaxValue) * 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => measurer.Measure("x", new TextStyle { Size = Length.Pt(0) }));
         Assert.Throws<ArgumentException>(() => new TextMeasurer(new FontCollection()));
         Assert.Throws<ArgumentNullException>(() => new TextMeasurer(null!));

@@ -191,7 +191,9 @@ public class FontHardeningTests
     [InlineData(0x0100, false)]
     [InlineData(0x0200, false)]
     [InlineData(0x0104, false)]
-    [InlineData(0x0006, false)]
+    [InlineData(0x0006, true)]
+    [InlineData(0x000A, true)]
+    [InlineData(0x0106, false)]
     public void The_embedding_licence_allows_a_subset_exactly_where_the_bits_say(int fsType, bool allowed)
     {
         byte[] font = NotoSans();

@@ -185,12 +185,11 @@ internal sealed class TrueTypeFont
     internal byte[] RawBytes => _data;
 
     /// <summary>
-    /// Whether the licence allows embedding a <b>subset</b>, which is all Pdfwright does: fsType 0 (installable), 4 (preview and
-    /// print) and 8 (editable) allow it; restricted licence (bit 1), no subsetting (bit 8) and bitmap-only embedding (bit 9) do not.
-    /// A font of OS/2 version 0 to 2 that sets several of the usage bits (0x0006, say) is read as restricted, which is the safe
-    /// side of a rule that says the least restrictive bit applies.
+    /// Whether the licence allows embedding a <b>subset</b>, which is all Pdfwright does. OpenType says that when several usage bits are set the least restrictive
+    /// applies: fsType 0 (installable), 4 (preview and print) and 8 (editable) allow a subset, and so does a combination such as 0x0006 or 0x000A, in which the
+    /// restricted-license bit (bit 1) is outweighed by bit 2 or 3. The restricted licence (bit 1 alone), no subsetting (bit 8) and bitmap-only embedding (bit 9) do not.
     /// </summary>
-    internal bool MayEmbedSubset => (EmbeddingPermission & 0x0002) == 0 && (EmbeddingPermission & 0x0100) == 0 && (EmbeddingPermission & 0x0200) == 0;
+    internal bool MayEmbedSubset => (EmbeddingPermission & 0x0100) == 0 && (EmbeddingPermission & 0x0200) == 0 && ((EmbeddingPermission & 0x0002) == 0 || (EmbeddingPermission & 0x000C) != 0);
 
     internal static TrueTypeFont Parse(byte[] data)
     {

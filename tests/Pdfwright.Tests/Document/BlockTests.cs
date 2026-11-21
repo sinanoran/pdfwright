@@ -80,20 +80,15 @@ public class BlockTests
         Assert.Throws<ArgumentNullException>(() => new Paragraph((IEnumerable<TextRun>)null!));
         Assert.Throws<ArgumentException>(() => new Paragraph(new TextRun[] { null! }));
         Assert.Throws<ArgumentOutOfRangeException>(() => new Spacer(Length.Pt(-1)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Spacer(Length.Pt(double.PositiveInfinity)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Spacer(Length.Pt(double.MaxValue) * 2));
         Assert.Equal(Length.Zero, new Spacer(Length.Zero).Height);
     }
 
     [Fact]
-    public void A_bad_space_or_line_spacing_is_refused_when_the_document_is_saved()
+    public void A_bad_space_or_line_spacing_is_refused_where_it_is_set()
     {
-        PdfDocument document = new(DocumentTestKit.Options());
-        document.Add(new Paragraph("x") { SpaceAfter = Length.Pt(-2) });
-        Assert.Throws<ArgumentOutOfRangeException>(() => DocumentTestKit.Save(document));
-
-        PdfDocument second = new(DocumentTestKit.Options());
-        second.Add(new Paragraph("x") { LineSpacing = 0 });
-        Assert.Throws<ArgumentOutOfRangeException>(() => DocumentTestKit.Save(second));
+        Assert.Equal("SpaceAfter", Assert.Throws<ArgumentOutOfRangeException>(() => new Paragraph("x") { SpaceAfter = Length.Pt(-2) }).ParamName);
+        Assert.Equal("LineSpacing", Assert.Throws<ArgumentOutOfRangeException>(() => new Paragraph("x") { LineSpacing = 0 }).ParamName);
     }
 
     [Fact]
