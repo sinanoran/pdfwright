@@ -42,6 +42,27 @@ internal static class Check
         return value;
     }
 
+    /// <summary>Padding: every side finite and zero or more.</summary>
+    internal static Margins Padding(Margins value, string name) =>
+        value.Top.IsFinite && value.Right.IsFinite && value.Bottom.IsFinite && value.Left.IsFinite && value.Top >= Length.Zero && value.Right >= Length.Zero && value.Bottom >= Length.Zero && value.Left >= Length.Zero
+            ? value
+            : throw new ArgumentOutOfRangeException(name, value, "Padding is finite and not negative.");
+
+    /// <summary>Optional padding that, when there is some, is finite and not negative.</summary>
+    internal static Margins? Padding(Margins? value, string name)
+    {
+        if (value is { } some)
+        {
+            _ = Padding(some, name);
+        }
+
+        return value;
+    }
+
+    /// <summary>An optional border line; a default one (width zero) is refused, and one made with its constructor is always valid.</summary>
+    internal static BorderLine? Line(BorderLine? value, string name) =>
+        value is { } line && !(line.Width > Length.Zero) ? throw new ArgumentOutOfRangeException(name, line.Width, "A border line's width is finite and greater than zero.") : value;
+
     /// <summary>A line spacing: finite and more than zero.</summary>
     internal static double LineSpacing(double value, string name) =>
         value > 0 && double.IsFinite(value) ? value : throw new ArgumentOutOfRangeException(name, value, "The line spacing is a positive, finite number.");

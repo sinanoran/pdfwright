@@ -7,7 +7,7 @@ namespace Pdfwright.Document;
 /// Lays the blocks of a document out from top to bottom inside the margins and writes the pages. It is the flow: it decides where a block goes, where a
 /// paragraph is split between pages, and keeps a heading with the first line of what follows. One renderer is one save.
 /// </summary>
-internal sealed class DocumentRenderer
+internal sealed partial class DocumentRenderer
 {
     private const int MaxReportedGlyphs = 1000;
 
@@ -30,6 +30,7 @@ internal sealed class DocumentRenderer
     private readonly List<MissingGlyph> _missing = [];
     private readonly HashSet<(int CodePoint, string? Language, int Page)> _missingSeen = [];
     private readonly List<string> _missingFamilies = [];
+    private readonly List<TruncatedTable> _truncated = [];
     private readonly HashSet<string> _families;
 
     private PdfPageWriter? _page;
@@ -129,6 +130,9 @@ internal sealed class DocumentRenderer
                 case Paragraph or Heading:
                     PlaceText(current, ahead);
                     break;
+                case Table table:
+                    PlaceTable(table, i);
+                    break;
                 case Spacer spacer:
                     PlaceSpacer(spacer.Height.Points);
                     break;
@@ -157,7 +161,7 @@ internal sealed class DocumentRenderer
 
         // The fonts are written by Complete, after the last page: this is the check that holds the limit. The caller's stream has not been touched, so nothing of an oversized file escapes.
         CheckBytes();
-        return new DocumentDiagnostics(_missing.AsReadOnly(), _missingFamilies.AsReadOnly(), _writer.PageCount, _output.Count);
+        return new DocumentDiagnostics(_missing.AsReadOnly(), _missingFamilies.AsReadOnly(), _writer.PageCount, _output.Count, _truncated.AsReadOnly());
     }
 
     /// <summary>A block ready to place: its lines and its spacing. Blocks that have no text have no layout.</summary>
@@ -307,7 +311,10 @@ internal sealed class DocumentRenderer
         _y = Math.Min(_y + block.After, _contentHeight);
     }
 
-    private void Draw(StyledLayout styled, int firstLine, int count)
+    private void Draw(StyledLayout styled, int firstLine, int count) => Draw(styled, firstLine, count, _left, _y);
+
+    /// <summary>Draws lines of a laid out paragraph with the top left corner of the first at (<paramref name="x"/>, <paramref name="y"/>): x from the left edge of the page, y down from the top of the content area.</summary>
+    private void Draw(StyledLayout styled, int firstLine, int count, double x, double y)
     {
         ParagraphLayout layout = styled.Layout;
         PdfPageWriter page = _page!;
@@ -322,7 +329,7 @@ internal sealed class DocumentRenderer
             names[index] = page.UseFont(font.Reference);
         }
 
-        layout.Draw(page.Content, embedded, names, _left, _pageHeight - _top - _y, firstLine, count);
+        layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count);
         RecordMissing(styled, firstLine, count, page.Index + 1);
     }
 
