@@ -36,7 +36,7 @@ internal enum BracketType : byte
     Close = 2,
 }
 
-/// <summary>Lookups over the generated tables of <see cref="BidiTables"/>: class, paired bracket, canonical equivalent, mirror.</summary>
+/// <summary>Lookups over the generated tables of <see cref="BidiTables"/>: class, paired bracket, canonical equivalent. Mirroring is left to HarfBuzz, which mirrors a right-to-left run itself.</summary>
 internal static class BidiData
 {
     /// <summary>The bidirectional class of a code point; a value outside the code space (and a lone surrogate) is <see cref="BidiClass.L"/>.</summary>
@@ -74,12 +74,4 @@ internal static class BidiData
     {
         int at = Array.IndexOf(BidiTables.EquivalentFrom, codePoint);
         return at < 0 ? codePoint : BidiTables.EquivalentTo[at];
-    }
-
-    /// <summary>The mirror image of a character that has one (<c>(</c> and <c>)</c>), or the character itself.</summary>
-    internal static int Mirror(int codePoint)
-    {
-        int at = Array.BinarySearch(BidiTables.MirrorCodes, codePoint);
-        return at < 0 ? codePoint : BidiTables.MirrorImages[at];
-    }
-}
+    }}

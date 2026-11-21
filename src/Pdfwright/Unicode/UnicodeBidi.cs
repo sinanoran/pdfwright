@@ -11,6 +11,10 @@ internal sealed class BidiResult
     }
 
     /// <summary>The paragraph embedding level: 0 for left-to-right, 1 for right-to-left.</summary>
+    /// <remarks>
+    /// <see cref="Levels"/> is shared: <see cref="UnicodeBidi.ApplyL1"/> changes the array it is given in place, so a layout that
+    /// breaks the paragraph into lines takes each line's levels from <see cref="UnicodeBidi.LineLevels"/>, which copies.
+    /// </remarks>
     internal byte ParagraphLevel { get; }
 
     /// <summary>
@@ -44,16 +48,29 @@ internal static class UnicodeBidi
     }
 
     /// <summary>
-    /// The levels of one paragraph. <paramref name="paragraphLevel"/> is 0 (left to right), 1 (right to left) or <see cref="AutoLevel"/>.
-    /// The text is taken as one paragraph, whatever separators it holds: split paragraphs before calling.
+    /// The levels of one paragraph of <paramref name="text"/>, given as Unicode code points (not UTF-16 code units: a supplementary
+    /// character passed as two surrogates is two characters of class L). <paramref name="paragraphLevel"/> is 0 (left to right),
+    /// 1 (right to left) or <see cref="AutoLevel"/>. A paragraph separator (class B) may only be the last character: the standard
+    /// splits paragraphs first (P1), and rules P2, BD9, X5c and X10 would otherwise reach across the separator, so text that holds
+    /// one earlier is refused. Split it with <see cref="Paragraphs"/>.
     /// </summary>
+    /// <exception cref="ArgumentException">A paragraph separator is not the last character.</exception>
     internal static BidiResult Resolve(ReadOnlySpan<int> text, int paragraphLevel = AutoLevel)
     {
+        if (paragraphLevel is < AutoLevel or > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(paragraphLevel), paragraphLevel, "The paragraph level is 0, 1 or AutoLevel (-1).");
+        }
+
         int count = text.Length;
         BidiClass[] initial = new BidiClass[count];
         for (int i = 0; i < count; i++)
         {
             initial[i] = BidiData.ClassOf(text[i]);
+            if (initial[i] == BidiClass.B && i < count - 1)
+            {
+                throw new ArgumentException($"A paragraph separator (U+{text[i]:X4}) at index {i} is not the last character: split the text with UnicodeBidi.Paragraphs first.", nameof(text));
+            }
         }
 
         (int[] matchingPdi, int[] matchingInitiator) = MatchIsolates(initial);
@@ -150,8 +167,56 @@ internal static class UnicodeBidi
     }
 
     /// <summary>
-    /// Rule L1 for the line [<paramref name="start"/>, <paramref name="end"/>): segment and paragraph separators, and whitespace
-    /// before them or at the end of the line, return to the paragraph level.
+    /// Rule P1: where the paragraphs of <paramref name="text"/> are. Each paragraph keeps its separator as its last character, and a
+    /// carriage return followed by a line feed is one separator.
+    /// </summary>
+    internal static List<(int Start, int Length)> Paragraphs(ReadOnlySpan<int> text)
+    {
+        List<(int Start, int Length)> paragraphs = [];
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (BidiData.ClassOf(text[i]) != BidiClass.B)
+            {
+                continue;
+            }
+
+            if (text[i] == 0x0D && i + 1 < text.Length && text[i + 1] == 0x0A)
+            {
+                i++;
+            }
+
+            paragraphs.Add((start, i + 1 - start));
+            start = i + 1;
+        }
+
+        if (start < text.Length)
+        {
+            paragraphs.Add((start, text.Length - start));
+        }
+
+        return paragraphs;
+    }
+
+    /// <summary>
+    /// The levels of the line [<paramref name="start"/>, <paramref name="end"/>) of a resolved paragraph, as a new array indexed from 0:
+    /// rule L1 applied to that line. A line that is not the last of the paragraph ends in whitespace that the paragraph-wide L1 of
+    /// <see cref="Resolve"/> left at its inner level; call this, then <see cref="VisualOrder"/> on the result.
+    /// </summary>
+    internal static byte[] LineLevels(BidiResult paragraph, int start, int end)
+    {
+        ArgumentNullException.ThrowIfNull(paragraph);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)start, (uint)end, nameof(start));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, paragraph.Levels.Length, nameof(end));
+        byte[] levels = paragraph.Levels[start..end];
+        ApplyL1(levels, paragraph.Classes[start..end], 0, levels.Length, paragraph.ParagraphLevel);
+        return levels;
+    }
+
+    /// <summary>
+    /// Rule L1 for the line [<paramref name="start"/>, <paramref name="end"/>) of <paramref name="levels"/>, in place: segment and
+    /// paragraph separators, and whitespace before them or at the end of the line, return to the paragraph level. It only ever
+    /// sets a level to the paragraph level, so applying it again to a level array that already had it applied changes nothing.
     /// </summary>
     internal static void ApplyL1(byte[] levels, BidiClass[] classes, int start, int end, byte paragraphLevel)
     {
@@ -173,9 +238,15 @@ internal static class UnicodeBidi
         }
     }
 
-    /// <summary>Rule L2 for the line [<paramref name="start"/>, <paramref name="end"/>): the indices of its characters in visual order, left to right.</summary>
+    /// <summary>
+    /// Rule L2 for the line [<paramref name="start"/>, <paramref name="end"/>) of <paramref name="levels"/>: the indices of its
+    /// characters in visual order, left to right. The levels must already have L1 applied to this line (see <see cref="LineLevels"/>).
+    /// </summary>
     internal static int[] VisualOrder(ReadOnlySpan<byte> levels, int start, int end)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(start);
+        ArgumentOutOfRangeException.ThrowIfLessThan(end, start);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, levels.Length);
         int[] order = new int[end - start];
         for (int i = 0; i < order.Length; i++)
         {

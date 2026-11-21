@@ -13,7 +13,7 @@ public class BidiDataTests
     public void Every_data_file_has_the_hash_that_was_recorded_when_it_was_downloaded()
     {
         string[] lines = File.ReadAllLines(Path.Combine(DataDirectory, "SHA256SUMS"));
-        Assert.True(lines.Length >= 6);
+        Assert.True(lines.Length >= 5);
         foreach (string line in lines)
         {
             string[] parts = line.Split(" *");
@@ -72,8 +72,6 @@ public class BidiDataTests
         Assert.Equal(')', BidiData.PairedBracket('('));
         Assert.Equal(0x3008, BidiData.CanonicalBracket(0x2329));
         Assert.Equal(0x3009, BidiData.CanonicalBracket(0x232A));
-        Assert.Equal('(', BidiData.Mirror(')'));
-        Assert.Equal('a', BidiData.Mirror('a'));
     }
 
     [Fact]

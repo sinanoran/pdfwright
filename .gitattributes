@@ -33,4 +33,4 @@
 *.otf binary
 
 # Unicode data files are read as bytes by the generator and the tests, which check their hashes: no newline conversion.
-data/unicode/** -text
+data/unicode/** binary

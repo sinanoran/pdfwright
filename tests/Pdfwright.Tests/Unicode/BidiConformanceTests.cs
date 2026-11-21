@@ -99,7 +99,7 @@ public class BidiConformanceTests
             }
         }
 
-        Assert.True(rows > 700_000, $"only {rows} rows ran");
+        Assert.Equal(770_241, rows);
         Assert.True(failures.Count == 0, $"{failures.Count} of {rows} rows failed; the first: {string.Join(" | ", failures.Take(5))}");
     }
 
@@ -130,7 +130,7 @@ public class BidiConformanceTests
             }
         }
 
-        Assert.True(rows > 90_000, $"only {rows} rows ran");
+        Assert.Equal(91_707, rows);
         Assert.True(failures.Count == 0, $"{failures.Count} of {rows} rows failed; the first: {string.Join(" | ", failures.Take(5))}");
     }
 }
