@@ -55,7 +55,7 @@ and layout, not as any application's concepts. The page model it must be able to
 The package never learns the words "dashboard", "widget" or "organisation": the caller maps its own model onto the public API of section 5.
 That keeps the package usable for invoices, statements and other business documents.
 
- gathered for this plan (21 November 2026, this machine)
+## 2. Evidence gathered for this plan (21 November 2026, this machine)
 
 All numbers are one run each, on the maintainer's Windows machine, in `Release`, and are **baselines to beat, not benchmarks**. The scratch
 projects are in the session scratchpad, not in a repository.
@@ -77,6 +77,7 @@ The own package has to be Chromium-correct and Skia-light.
 
 ### Layers
 
+<!-- snippet: none -->
 ```
 public    Document layer      blocks, styles, tables, pagination, header/footer, Canvas, TextMeasurer, SaveAsync
 internal  Text engine         itemization (script, direction, font fallback), bidi (UAX #9), shaping (HarfBuzz), line breaking (UAX #14),
@@ -149,6 +150,7 @@ Names are placeholders under the package's root namespace `Pdf` (the real name i
 sizes are `Length` values (a `readonly struct` with `Length.Pt(12)`, `Length.Mm(20)`, no implicit conversions from numbers, so a unit is
 never guessed). The canvas origin is the **top left, y down** (what authors of charts expect; the writer flips once).
 
+<!-- snippet: none -->
 ```csharp
 // Fonts: supplied, never discovered. Thread-safe, shared, parsed once.
 FontCollection fonts = new FontCollection()
@@ -285,7 +287,7 @@ with a green CI and a reviewed pull request, as in Sheetwright.
 | **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Done: #17 (documentation, samples, comparison table, `RELEASING.md` and the CHANGELOG; Trusted Publishing and 0.1.0 are the maintainer's, see below) |
 | | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S7 done; only the maintainer's items and the release remain |
 
-**Where it stands (21 November 2026).** Slices S0 to S7 are done and merged: the writer, the font engine, the text engine, paragraph layout and the
+**Where it stands (21 November 2026).** Slices S0 to S7 are done (S7 is pull request #17, and this text is true once that is merged): the writer, the font engine, the text engine, paragraph layout and the
 canvas, the document layer (blocks, tables, columns, callouts, drawings, images, headers and footers), the script conformance corpus with its extraction and
 visual goldens, and the documentation (the README with its comparison table, the user guide, the sample report, `RELEASING.md` and the CHANGELOG). The day counts
 above were the estimate; they are kept as written. **Only the maintainer's items remain before 0.1.0:** the native-speaker review of the corpus text, opening the
@@ -632,8 +634,8 @@ The comparator also fails: a blank page, an all-black page, a shift of 2 pixels 
 public API), **`samples/Pdfwright.Samples.Report`** (a multi-page report: heading, KPI columns in a callout, a bar chart, a paginated table, header and footer "Page x of y", Arabic and Latin text; in `Pdfwright.slnx`, so CI builds it; the Noto fonts are linked from the test project, not copied, and their OFL licence texts are copied beside the program),
 `RELEASING.md` (the maintainer's checklist for 0.1.0 in Sheetwright's form) and the CHANGELOG (one coherent `[Unreleased]` section for the whole 0.1.0 surface, not one entry for each slice).
 
-**How the documentation code is tested.** Every `csharp` block of the README and of `docs/guide.md` has a line `<!-- snippet: name -->` above it, and `tests/Pdfwright.Tests/Documentation/DocumentationSnippetTests.cs` holds the code between `// <snippet name>` and `// </snippet>`, which the tests compile and run (the quick start saves a report and reads it back; the others
-build a document and save it, mostly through qpdf and PdfPig). `DocumentationSyncTests` fails when a block has no snippet, a snippet is in no document, or the two differ (compared line for line after the block's leading `using` lines and the snippet's indent are set aside; a snippet line may carry `// docs: text` to show a reader a path or a stream where the test has its own). So the code a reader copies is code that compiled and ran.
+**How the documentation code is tested.** Every code fence of the README and of every `docs/*.md` file (any indent, any info string) has a line `<!-- snippet: name -->` above it (`<!-- snippet: none -->` for a block that is not code that runs: a shell command, an output, a diagram, and in this plan a sketch), and `tests/Pdfwright.Tests/Documentation/DocumentationSnippetTests.cs` holds the code between `// <snippet name>` and `// </snippet>`, which the tests compile and run (the quick start saves a report and reads it back; the others
+build a document and save it, mostly through qpdf and PdfPig). `DocumentationSyncTests` fails when a fence has no marker, a snippet is in no document, or the two differ (compared line for line after the snippet's indent is set aside; the leading `using` lines of the block and the snippet, written `// using X;` at the top of the snippet, must be the same set; a line may differ only where the test lists that exact pair of lines with a reason, which is how a path or a stream of the test reads as the reader's own). So the code a reader copies is code that compiled and ran.
 `ReportSampleTests` compiles `ReportSample.cs` into the test project and builds, saves and reads back the sample report. Both run on all four target frameworks.
 
 **The comparison table** (README) states only what section 2 and `baselines.md` measured on 21 November 2026 (Skia's PDF backend, SkiaSharp 4.157.0 with PdfPig 0.1.16: Arabic as presentation forms in visual order, Hebrew reversed, no tagged-PDF surface, native sizes, 279 ms and 31 MB for the text-only spike; Playwright's Chromium headless shell: 2,048 ms, 495 MB, 288 MB on disk), what the Pdfwright tests

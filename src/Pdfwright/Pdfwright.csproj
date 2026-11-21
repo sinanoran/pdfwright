@@ -20,11 +20,27 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
-    <!-- The licence is the MIT expression of the package; the text and the notice of what Pdfwright uses travel beside the README. -->
+    <!-- The README that is packed is the repository's README with its relative links made absolute (see the target below). The licence is the MIT expression of the package; the text and the notice of what Pdfwright uses travel beside it. -->
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
   </ItemGroup>
+
+  <!-- nuget.org shows the packed README away from the repository, so a relative link such as docs/guide.md would not work there. One README stays the only source:
+       the packed copy is made from it at pack time, with each relative link made a link into the repository on GitHub (an image as its raw file). -->
+  <Target Name="WritePackageReadme" BeforeTargets="_GetPackageFiles;GenerateNuspec">
+    <PropertyGroup>
+      <ReadmeBlob>https://github.com/sinanoran/pdfwright/blob/main/</ReadmeBlob>
+      <ReadmeRaw>https://raw.githubusercontent.com/sinanoran/pdfwright/main/</ReadmeRaw>
+      <ReadmeText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\..\README.md'))</ReadmeText>
+      <ReadmeText>$([System.Text.RegularExpressions.Regex]::Replace('$(ReadmeText)', '(!\[[^\]]*\]\()(?!https?:|#|mailto:)([^)\s]+)\)', '$1$(ReadmeRaw)$2)'))</ReadmeText>
+      <ReadmeText>$([System.Text.RegularExpressions.Regex]::Replace('$(ReadmeText)', '\]\((?!https?:|#|mailto:)([^)\s]+)\)', ']($(ReadmeBlob)$1)'))</ReadmeText>
+      <PackageReadmePath>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)package-readme\README.md</PackageReadmePath>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(PackageReadmePath)" Lines="$([MSBuild]::Escape('$(ReadmeText)'))" Overwrite="true" Encoding="UTF-8" />
+    <ItemGroup>
+      <None Include="$(PackageReadmePath)" Pack="true" PackagePath="\" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pdfwright.Tests" />

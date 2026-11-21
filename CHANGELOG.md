@@ -23,14 +23,14 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
 - **Fonts supplied, never discovered**: `FontCollection` (thread-safe, `IDisposable`) takes TrueType bytes, reads family, weight and style from the font, refuses fonts that forbid embedding with `FontNotEmbeddableException`,
   and chooses a font for each grapheme cluster by family, weight, style and coverage. Only the glyphs used are embedded, as subsets.
 - **Right-to-left and mixed-direction text** by the Unicode bidirectional algorithm, with Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping through HarfBuzz and Latin, Greek and Cyrillic. Text is written to the file in logical
-  order, so it can be searched, copied and read by a screen reader. Measured by reading the files back: 3120 of 3120 strings of the page corpus through PdfPig and through Firefox's pdf.js, and 61 of 61 mixed-direction lines;
+  order, so it can be searched, copied and read by a screen reader. Measured by reading the files back: 3120 of 3120 strings of the page corpus through PdfPig and through Firefox 157.0's pdf.js (21 November 2026), and 61 of 61 mixed-direction lines through PdfPig and through pdf.js 6.3.335 (21 November 2026, compared in NFD with white space, U+034F and the bidirectional controls removed);
   xpdf's position-ordered `pdftotext` reads 45 of 61, a floor the tests hold (`docs/known-limitations.md`).
 - **Deterministic output** (`Deterministic`, `Creation`, `Compress`): the same document is the same bytes, and with compression off the same bytes on every .NET version. Metadata: title, subject, author, creator, language.
 - **Diagnostics and limits**: `PdfDocument.Diagnostics` lists the characters no font has (with language and page), the families that were not found, the tables that were cut, the page count and the byte count;
   `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
 - **Documentation and samples**: a user guide (`docs/guide.md`), the known limitations, the baselines of the alternatives that were measured, and a runnable sample report (`samples/Pdfwright.Samples.Report`). Every code block of the
   README and the guide is compiled and run by the tests, which fail when a block and its tested code differ.
-- **A package** for `net8.0`, `net9.0`, `net10.0` and `net11.0` that depends only on `HarfBuzzSharp` and its native assets, ships no font, and carries the README and the NOTICE.
+- **A package** for `net8.0`, `net9.0`, `net10.0` and `net11.0` that depends only on `HarfBuzzSharp` and its native assets, ships no font, and carries the README, the LICENSE and the NOTICE.
 
 ### Not in this version
 

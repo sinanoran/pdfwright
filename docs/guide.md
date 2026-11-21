@@ -41,6 +41,10 @@ Lengths are `Length` values (`Length.Pt`, `Mm`, `Cm`, `In`), and there is no imp
 (and `Landscape()` turns one on its side), margins are `Margins` (20 mm at the top and bottom and 15 mm at the sides by default), and colours are `Color` values (`Color.FromHex("#3366CC")`,
 `Color.Gray(0.9)`, `Color.FromRgb(...)`, and named ones such as `Color.Red`). The one place that uses plain `double`s is the drawing canvas, which is in points because chart code is arithmetic.
 
+The examples in this guide are fragments, and some names in them come from the code around them: `document` is a `PdfDocument` made as in the [quick start](../README.md#quick-start), `fonts` is the `FontCollection` of
+the [Fonts](#fonts) section, `fontDirectory` is the folder that holds your `.ttf` files, `cancellationToken` is the `CancellationToken` that your method received (`CancellationToken.None` in a console program),
+`stream` is the stream you save to, and `invoices` is a sequence of your own records, each with a name, an amount and a status.
+
 <!-- snippet: guide-save -->
 ```csharp
 // The whole file is made in memory and then copied, so a document that fails writes nothing. The stream is not closed.
@@ -68,6 +72,7 @@ fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSansArabic-Regular.
 
 string families = string.Join(", ", fonts.Families); // Noto Sans, Noto Sans Arabic
 
+// fontBytes stands for the bytes of one more font file, here one that may be refused.
 try
 {
     fonts.Add(fontBytes);
@@ -176,7 +181,7 @@ document.Add(new Heading(2, "Details"));
 
 - **Spacing.** A heading has the space above it (by default the heading's font size) and below it (0.4 of it); a paragraph has none above and 0.6 of its font size below. A space at the edge of a page is dropped,
   not carried over; a `Spacer` is always kept.
-- **Keeping things together.** A heading is kept with the first line of the next block, and with the whole of a `KeepTogether` block that follows it. `Paragraph.KeepTogether` and `Callout.KeepTogether` move
+- **Keeping things together.** A heading is kept with the first line of the next block (the whole of a drawing, an image or a row of columns), and with the whole of a `KeepTogether` paragraph or callout that follows it when that fits a page. It is not kept with a table: a heading directly above a table can be left at the bottom of a page, with the table starting on the next. `Paragraph.KeepTogether` and `Callout.KeepTogether` move
   a block that does not fit the rest of the page to the next one instead of splitting it. A block taller than a page is split whatever it asks. There is no widow or orphan control.
 - **Page breaks.** `PageBreak` ends the page; two in a row make a blank page.
 - **Line breaking** follows the Unicode rules (UAX #14). A word wider than its box is cut between characters, with no hyphen, and there is no hyphenation or dictionary breaking for Thai.
@@ -241,6 +246,8 @@ The rows of a `Table` are an `IEnumerable<TableRow>` that is **enumerated once f
 
 - a sequence that can be enumerated only once (a reader, a one-shot iterator) works for one save only, and `IAsyncEnumerable` is not accepted: read your rows into an enumerable first, or build it to be repeatable;
 - a table does not know its length. `Table.MaxRows` reads one row more than it draws to know that there are more.
+
+The example below uses the `columns` and `header` of the table example above, and your own `invoices`:
 
 <!-- snippet: guide-table-streaming -->
 ```csharp
@@ -447,7 +454,7 @@ for (int i = 0; i < 90; i++)
 ```
 
 **Page numbers in a right-to-left document.** In a right-to-left document a footer such as `$"{page.Number} / {page.Count}"` is a right-to-left paragraph, so the two numbers are ordered by the bidirectional
-algorithm: page 1 of 3 shows as "3 / 1". Say what you mean in one of two ways.
+algorithm: page 1 of 3 shows as "3 / 1". Say what you mean in one of two ways. Make the whole footer left to right:
 
 <!-- snippet: guide-rtl-footer -->
 ```csharp
@@ -457,10 +464,22 @@ PdfDocument document = new(new PdfDocumentOptions
     DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
     Direction = TextDirection.RightToLeft,
     // The footer is a right-to-left paragraph here, so "1 / 3" would be read in bidi order and shown as "3 / 1".
-    // Either make the whole footer left to right...
+    // Make the whole footer left to right:
     Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Direction = TextDirection.LeftToRight, Alignment = TextAlignment.Center },
-    // ...or keep the numbers as written inside a right-to-left line with a left-to-right isolate (U+2066 ... U+2069):
-    // Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
+});
+```
+
+Or keep the footer a right-to-left line and put the numbers inside a left-to-right isolate, written `⁦` and `⁩` in C# (U+2066 and U+2069):
+
+<!-- snippet: guide-rtl-footer-isolate -->
+```csharp
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+    Direction = TextDirection.RightToLeft,
+    // The numbers sit inside a left-to-right isolate (U+2066 ... U+2069), and the footer stays a right-to-left line.
+    Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
 });
 ```
 

@@ -66,7 +66,8 @@ These are the checks no test stands in for; the tests pass without them. Note wh
 1. **Native-speaker review of the corpus text.** `tests/Pdfwright.Tests/Corpus/pages/*.txt` and the single lines in `Corpus/*.txt` are original, ordinary phrases, but a test cannot tell whether a sentence is
    natural or a word is spelled the way a reader expects. The sample report and the user guide also carry a few Arabic sentences (`samples/Pdfwright.Samples.Report/ReportSample.cs`, `docs/guide.md`). Have a speaker of each
    language read its lines in a viewer, not in the source (a few minutes each): **Arabic, Hebrew, Hindi (Devanagari), Bengali, Tamil and Thai**, and for the pages in Latin and Cyrillic script
-   **Turkish, German, Polish, Vietnamese, Greek and Russian**.
+   **Turkish, German, Polish, Vietnamese, Greek and Russian**. Two items of the Arabic reviewer's list were flagged and left as written: `ReportSample.cs` calls Latin codes (Q3 and INV-2026-0042) "الأرقام الإنجليزية"
+   (the English numbers), which may not be the usual way to say it, and `docs/guide.md` shows the footer "⁦1 / 3⁩ صفحة" where the usual form may be "صفحة 1 من 3".
 2. **Open the sample files in the viewers people use:** Chrome, Edge, Adobe Acrobat Reader and macOS Preview. Make the files:
 
    ```bash
@@ -79,14 +80,18 @@ These are the checks no test stands in for; the tests pass without them. Note wh
    Look, in each viewer, for: Arabic letters joined and in the right order; Hebrew points and Arabic marks on their letters; Devanagari conjuncts and reordered vowel signs; Bengali and Tamil vowel signs; Thai stacked marks;
    mixed-direction lines in the order the Unicode algorithm gives; the table's header on every page; "Page x of y" right in every footer; nothing outside the margins; the bar chart. Then select a line, copy it and paste it:
    it gives the text (an invisible U+034F in Arabic, Indic and Thai text is expected, see `docs/known-limitations.md`). If one viewer shows something wrong, that is a defect to fix before 0.1.0, or a line in the known limitations.
-3. **Run the pdf.js check** on the corpus dump and record the pass count and the pdf.js version in `docs/plan-0.1.md` (it was 3120 of 3120 in Firefox 157.0's pdf.js on 21 November 2026):
+3. **Run the pdf.js check** on both sets, the corpus dump and the dump of the 61 mixed-direction lines, and record each pass count and the pdf.js version in `docs/plan-0.1.md` (the corpus was 3120 of 3120 in
+   Firefox 157.0's pdf.js on 21 November 2026, and the 61 lines were 61 of 61 in pdf.js 6.3.335 the same day; the script prints the version it measured, and compares in NFD with white space, U+034F and the
+   bidirectional controls removed):
 
    ```bash
    node tools/pdfjs-check/pdfjs-check.js /tmp/pdfwright-corpus tests/Pdfwright.Tests/Corpus
+   PDFWRIGHT_DUMP=/tmp/pdfwright-mixed tests/Pdfwright.Tests/bin/Debug/net10.0/Pdfwright.Tests -class "*MixedDirection*"
+   node tools/pdfjs-check/pdfjs-check.js /tmp/pdfwright-mixed tests/Pdfwright.Tests/Corpus
    ```
 4. **Read the documentation as a reader would.** Read the README and `docs/guide.md` once on GitHub (the code blocks are tested, the prose is not), and follow the links.
 5. **Check the package.** `dotnet pack src/Pdfwright/Pdfwright.csproj --configuration Release --output artifacts`, then open the `.nupkg` (it is a zip): it holds the library for `net8.0`, `net9.0`, `net10.0` and `net11.0`,
-   the XML documentation, `README.md` and `NOTICE`, and no font; its dependencies are `HarfBuzzSharp` and `HarfBuzzSharp.NativeAssets.Linux`.
+   the XML documentation, `README.md`, `LICENSE` and `NOTICE`, and no font; its dependencies are `HarfBuzzSharp` and `HarfBuzzSharp.NativeAssets.Linux`.
 6. **Decide that it is time.** Section 11 of the plan lists what was left open, and `docs/known-limitations.md` is what 0.1.0 will be judged by.
 
 ## The first release
@@ -98,7 +103,7 @@ These are the checks no test stands in for; the tests pass without them. Note wh
    (`https://img.shields.io/nuget/v/Pdfwright.svg`).
 4. Merge that, and check **CI is green on `main`** for the commit being tagged.
 5. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Watch the **Release** workflow.
-6. Check nuget.org (the package page and its README, the version, the dependencies; indexing takes a few minutes) and the GitHub release (the `.nupkg` and `.snupkg`). Install the package in a new console project and run the
+6. Check nuget.org (the package page and its README, **and that the links and images in the nuget.org README work**: the packed README has them made absolute at pack time, and only the published page proves it; the version, the dependencies; indexing takes a few minutes) and the GitHub release (the `.nupkg` and `.snupkg`). Install the package in a new console project and run the
    quick start of the README with your own fonts.
 
 ## Before tagging, every time

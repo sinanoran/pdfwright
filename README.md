@@ -8,6 +8,7 @@
 It is a layout engine and a PDF writer in managed C#, with one small native library for text shaping ([HarfBuzz](https://github.com/harfbuzz/harfbuzz), through
 [HarfBuzzSharp](https://github.com/mono/SkiaSharp)). Pdfwright is MIT-licensed, including for commercial use, with no second licence to buy when the project stops being a hobby.
 
+<!-- snippet: none -->
 ```bash
 dotnet add package Pdfwright
 ```
@@ -93,7 +94,7 @@ document.Add(new Table(
 await document.SaveAsync(output, cancellationToken);
 ```
 
-`invoices` stands for your own records. The code above is a test in this repository, `DocumentationSnippetTests`, which runs it and reads the file back; a second test fails when the README and the tested code differ, so the
+`invoices` stands for your own records (a sequence of anything with a name, an amount and a status), and `cancellationToken` is the `CancellationToken` that your method received (`CancellationToken.None` in a console program). The code above is a test in this repository, `DocumentationSnippetTests`, which runs it and reads the file back; a second test fails when the README and the tested code differ, so the
 README's code is always code that compiled and ran. The same holds for every block of the [user guide](docs/guide.md).
 
 There is also a runnable sample, a multi-page report with a heading, a row of KPIs in a callout, a paginated table, a bar chart, a header and footer, and Arabic and English text: see [samples](samples/README.md).
@@ -133,12 +134,12 @@ back by independent readers and compared with the input string for string. The c
 | **All** | **3120 of 3120** | **3120 of 3120** |
 
 A string passes when it is found whole, in logical order, with its spaces, after one normalisation (the invisible U+034F removed and runs of white space made one space). The 61 single-line cases of the mixed-direction corpus (English in
-Arabic, nested quotes, numbers, Bengali reph, four fonts in one line) read 61 of 61 through PdfPig and through pdf.js 6.3.335. Every page of the golden documents is also drawn by PDFium and compared with a stored picture, so a mark
+Arabic, nested quotes, numbers, Bengali reph, four fonts in one line) read 61 of 61 through PdfPig (byte for byte, with the U+034F removed) and, in a measurement of 21 November 2026 made when those lines were fixed (the 3120 strings of the table were measured the same day, with Firefox 157.0's pdf.js), through pdf.js 6.3.335. The pdf.js comparison is looser than PdfPig's: both texts are put in canonical (NFD) form first, with white space, the U+034F and the bidirectional control characters removed. Every page of the golden documents is also drawn by PDFium and compared with a stored picture, so a mark
 in the wrong place or a mirrored run is caught where text extraction would still pass.
 
-**One reader falls below that.** xpdf's `pdftotext` in its default position-ordered mode (which Evince and Okular also use for copying) reads 45 of the 61 single lines exactly: it puts a space where a glyph is drawn to the left of
+**One reader falls below that.** xpdf's `pdftotext` in its default position-ordered mode reads 45 of the 61 single lines exactly: it puts a space where a glyph is drawn to the left of
 the end of the glyph before it, which shaped Arabic, Indic and Thai text does by design. Three ways of writing the glyphs were tried and none removes it; 45 is the floor the tests hold. The file is correct, and readers that follow the content
-stream get the text exactly. Chrome, Edge, Acrobat Reader and macOS Preview are checked by the maintainer before a release, not by a test. Copying text can also carry an invisible U+034F after some letters. Both are in
+stream get the text exactly. Poppler's `pdftotext` (the library behind Evince and Okular) has a position-ordered mode of its own, which was not measured. Chrome, Edge, Acrobat Reader and macOS Preview are checked by the maintainer before a release, not by a test. Copying text can also carry an invisible U+034F after some letters. Both are in
 [known limitations](docs/known-limitations.md).
 
 ## Compared with the usual alternatives
@@ -148,9 +149,9 @@ pages with a repeated header. Where a cell says "not measured", nobody measured 
 
 | | Pdfwright 0.1 | Skia's PDF backend (SkiaSharp 4.157.0) | A headless browser (Playwright, Chromium headless shell) |
 |---|---|---|---|
-| Licence | MIT (HarfBuzz: "old MIT") | SkiaSharp: MIT (read from its package) | Playwright: Apache-2.0; Chromium not assessed here |
-| Dependency on disk | HarfBuzz: `libHarfBuzzSharp` 2.2 MB (win-x64) | `libSkiaSharp` 13.2 MB and `libHarfBuzzSharp` 2.2 MB (win-x64); the Linux Skia package is a 63 MB `.nupkg` for every architecture | the browser: 288 MB (headless shell) or 453 MB (full Chromium) |
-| Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here (the plan records that Chromium extracts text well) |
+| Licence | MIT (HarfBuzz: "old MIT") | SkiaSharp: MIT (read from its package); Skia itself: BSD-3-Clause, with FreeType and ICU parts, not audited here | Playwright: Apache-2.0; Chromium not assessed here |
+| Dependency on disk | HarfBuzz: `libHarfBuzzSharp` 2.2 MB (win-x64) and 16.8 MB (Linux, every architecture in one package) | `libSkiaSharp` 13.2 MB and `libHarfBuzzSharp` 2.2 MB (win-x64; 16.8 MB for Linux, every architecture in one package); the Linux Skia package is a 63 MB `.nupkg` for every architecture | the browser: 288 MB (headless shell) or 453 MB (full Chromium) |
+| Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here |
 | Mixed-direction paragraph (Latin in Arabic) | itemized and ordered by UAX #9 | the stock shaper does no bidirectional itemization: a mixed line was drawn with the Arabic in isolated forms | not measured here |
 | Tagged (accessible) PDF | **not in 0.1** (planned for 0.2) | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
 | 1,000-row table, cold process | not benchmarked yet (the plan's targets are in section 7) | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms, 495 MB peak over the process tree, 154 KB |
@@ -183,6 +184,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 
 ## Build and test
 
+<!-- snippet: none -->
 ```bash
 dotnet build Pdfwright.slnx
 dotnet test Pdfwright.slnx

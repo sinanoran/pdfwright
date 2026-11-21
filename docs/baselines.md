@@ -33,6 +33,7 @@ here; this paragraph and the table row are the record, and the Pdfwright corpus 
 
 The two tools measure different things, so use both:
 
+<!-- snippet: none -->
 ```bash
 cd benchmarks/Pdfwright.Benchmarks/Baselines
 npm install playwright-core

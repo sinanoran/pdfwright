@@ -4,11 +4,11 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 ## Text extraction and copying
 
-- **A reader that works from the position of glyphs (xpdf's `pdftotext` in its default mode, which Evince and Okular also use for copy) puts spaces inside words in some
+- **A reader that works from the position of glyphs (xpdf's `pdftotext` in its default mode) puts spaces inside words in some
   Arabic, Indic and Thai text.** Cause: it inserts a space where a glyph is drawn to the left of the end of the glyph before it, and shaped text does that by design
   (a vowel sign that is drawn before its consonant, a mark placed by an offset). Three ways of writing the glyphs were measured and none removes it (one `Tm` per glyph 36 of 61
   corpus lines read exactly, one `Tm` per run with `TJ` 29, marks first 25). The file is correct: readers that follow the content stream (PdfPig, pdf.js, Acrobat's
-  tagged reading) get the text exactly. The floor, 45 lines with the present writer (36 with the first one), is kept in `XpdfRegressionFloorTests`.
+  tagged reading) get the text exactly. The floor, 45 lines with the present writer (36 with the first one), is kept in `XpdfRegressionFloorTests`. Poppler's own position-ordered mode (the library behind Evince and Okular) was not measured.
 - **Copying text out of a PDF made by Pdfwright can carry an invisible character, U+034F COMBINING GRAPHEME JOINER, after some letters of Arabic, Indic and Thai text.** Cause: a letter
   that the font draws as several glyphs (an Arabic letter and its dots, a consonant and a vowel sign) has one glyph that carries the text and the others map to this
   character, because a reader that is given nothing for a code (pdf.js) shows the code itself as a junk character. The joiner is invisible and does not break the joining of Arabic letters;
@@ -29,11 +29,11 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - The writer writes to its stream synchronously and unbuffered, and holds one page's content stream in memory; the page tree is flat (see the plan). The document layer builds the whole file in memory before it writes it to the caller's stream.
 
-## The document layer (S5a)
+## The document layer
 
 - **`Save` and `SaveAsync` hold the whole file in memory.** The file is made in a buffer (`SaveAsync` on a thread-pool thread) and then copied to the stream, with the token for `SaveAsync`, so that a failed save or a limit that is hit writes nothing; the memory is about the size of the file
   (plus a page's content while it is built).
-- **A paragraph is split between lines with no widow or orphan control**: one line of a paragraph can be left at the bottom of a page or carried to the top of the next. A heading is kept with the first line of the next block and the space before it, and only that; `Paragraph.KeepTogether` and `Callout.KeepTogether` (S5c) keep a whole block on one page.
+- **A paragraph is split between lines with no widow or orphan control**: one line of a paragraph can be left at the bottom of a page or carried to the top of the next. A heading is kept with the first line of the next block (the whole of a drawing, an image or a row of columns), and with the whole of a `KeepTogether` paragraph or callout that follows it when that fits a page. It is not kept with a table: a heading directly above a table can be left at the bottom of a page with the table starting on the next. `Paragraph.KeepTogether` and `Callout.KeepTogether` keep a whole block on one page.
 - **There is no synthetic bold or italic.** A family without a bold font draws bold text in its nearest weight; a family without an italic font draws it upright. Supply the fonts of the styles you use.
 - **A font is chosen per grapheme cluster and not per word**: a cluster takes the first font of its style's order that covers all of it, and when none does, the first that covers its first character, drawing the rest as missing glyphs (reported in `DocumentDiagnostics`). The order is the family named by the style first,
   then every other font of the collection, so a Latin family with an Arabic font in the collection draws Arabic in that font in the style's weight when one exists, else the nearest.
@@ -47,7 +47,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A document's measurement by `TextMeasurer` matches only if made the same way**: the same fonts, default style, language, direction and line spacing as the document (the measurer takes `language` and `lineSpacing`).
 - **`Length` arithmetic can still overflow to infinity** (`Length.Pt(double.MaxValue) * 2`); the factories refuse a number that is not finite, and every place that takes a length refuses one that is not.
 
-## Tables (S5b)
+## Tables
 
 - **Automatic column widths come from a sample**: the header and the first 100 rows. A cell lower down that is wider than its column wraps (a word wider than the column is cut between characters); nothing is re-measured later, because the rows are streamed and a page already written cannot change. Give the column a fixed width or a fraction when the later rows differ from the first.
 - **When the minimums do not fit the page, the room is shared by water-filling**: a column whose minimum is within an equal share of what is left keeps it, and only the wider columns are cut down, to an equal share of what the others leave. Two columns that are both cut get the same width whatever they wanted. The minimum of a fraction column is the table's `CellPadding`; a cell with a bigger padding of its own falls back to an inner width of 1 point.
@@ -60,9 +60,9 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **Each page's part of a table gets its own outer top and bottom line**, not an open edge; a row split between pages has them where it is cut.
 - **A cell's padding is physical** (`Margins`), unlike its alignment, which is logical.
 
-## Columns, callouts, drawings, images, headers and footers (S5c)
+## Columns, callouts, drawings, images, headers and footers
 
-- **There are no links yet.** The writer can write an external URI and an internal destination (S1), but no block exposes them: a link on a run needs the rectangle of its characters on each line it wraps to, with bidirectional runs and runs shaped in parts. Planned after 0.1's first slice of the document layer.
+- **There are no links yet.** The writer can write an external URI and an internal destination, but no block exposes them: a link on a run needs the rectangle of its characters on each line it wraps to, with bidirectional runs and runs shaped in parts. Not in 0.1.
 - **A row of columns, a drawing and an image are never split.** One taller than a page (columns, drawing) fails the save with an `InvalidOperationException` and nothing is written; an image is scaled down to fit instead. A row that does not fit the rest of a page moves to the next, which can leave a gap.
 - **A drawing is never scaled**, and one wider than the space it is in (the content width, a cell, a callout's inside) fails the save. Give it the size of its place; the canvas's units are points.
 - **Columns are equal width and one level deep.** No unequal widths, no spans, no columns inside columns (also through a callout), no table in a cell or a callout. Cells are aligned at the top.
@@ -76,12 +76,12 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
 - **The picture of a `PdfImage` is held decoded** (a PNG's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
 
-## Fonts and scripts (S6a)
+## Fonts and scripts
 
 - **A mark that follows a character from another script is drawn as a missing glyph.** The font is chosen for a whole grapheme cluster, so a Hebrew point after a Latin digit (or an Arabic mark after a Hebrew letter) is shaped with the font of its base, which does not have it: it is drawn as that font's `.notdef` box and listed in `DocumentDiagnostics.MissingGlyphs`.
-  Since S6a the box sits on the baseline (HarfBuzz's fallback positioning used to put it below the line, off the page on the last line). Put such text in a font that has both.
+  The box sits on the baseline (HarfBuzz's fallback positioning used to put it below the line, off the page on the last line). Put such text in a font that has both.
 - **The six script fonts of the test project have the Regular weight only**, so a heading in Arabic, Hebrew, Devanagari, Bengali, Tamil or Thai is drawn in Regular (there is no synthetic bold); a real application supplies a bold font for each script it uses.
-- **Reader limits measured over the S6a corpus (3120 strings in ten script groups, 308 of them distinct, read by PdfPig and by Firefox 157.0's pdf.js):** PdfPig reads every string equal to its input after the documented normalisation (U+034F removed, runs of white space one space, each string whole and its spaces where the input has them); pdf.js reads every string, two of them (Hebrew points) only up to canonical equivalence (see the last section). No other reader limit was found.
+- **Reader limits measured over the script corpus of the test suite (3120 strings in ten script groups, 308 of them distinct, read by PdfPig and by Firefox 157.0's pdf.js):** PdfPig reads every string equal to its input after the documented normalisation (U+034F removed, runs of white space one space, each string whole and its spaces where the input has them); pdf.js reads every string, two of them (Hebrew points) only up to canonical equivalence (see the last section); its text and the input are compared in NFD with white space and U+034F removed. The 61 single lines of the mixed-direction corpus were read by pdf.js 6.3.335 on 21 November 2026 (the measurement of the mixed-direction work), 61 of 61 under that comparison with the bidirectional control characters also removed. No other reader limit was found.
 
 ## Images and the canvas
 
