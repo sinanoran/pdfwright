@@ -191,7 +191,7 @@ public class PdfFileTests
         using MemoryStream stream = new();
         using (PdfDocumentWriter document = new(
             stream,
-            new PdfDocumentOptions
+            new PdfWriterOptions
             {
                 Compression = PdfCompression.None,
                 Title = "A <title> & \"quotes\"",
@@ -227,7 +227,7 @@ public class PdfFileTests
         using MemoryStream stream = new();
         using (PdfDocumentWriter document = new(
             stream,
-            new PdfDocumentOptions { Compression = PdfCompression.None, Title = "a\u0001b\u0000c￾d\uD800e ok" }))
+            new PdfWriterOptions { Compression = PdfCompression.None, Title = "a\u0001b\u0000c￾d\uD800e ok" }))
         {
             document.BeginPage(100, 100).End();
             document.Complete();
@@ -245,7 +245,7 @@ public class PdfFileTests
     public void A_creator_is_left_out_unless_one_is_given_and_the_producer_is_always_there()
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             document.BeginPage(100, 100).End();
             document.Complete();
@@ -266,7 +266,7 @@ public class PdfFileTests
     public void A_page_size_outside_the_limits_of_the_format_is_refused_when_the_page_begins(double width, double height)
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
 
         Assert.Throws<ArgumentOutOfRangeException>(() => document.BeginPage(width, height));
         document.BeginPage(3, 14400).End();
@@ -276,7 +276,7 @@ public class PdfFileTests
     public void A_link_with_a_rectangle_or_a_target_that_is_not_finite_is_refused_where_it_is_added()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => page.AddUriLink(new PdfRectangle(0, 0, double.NaN, 1), "https://example.com/"));
@@ -287,7 +287,7 @@ public class PdfFileTests
     public void A_bad_link_leaves_the_file_unwritten_because_every_link_is_checked_first()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
         page.AddPageLink(new PdfRectangle(0, 0, 1, 1), 0, 0, 0);
         page.AddPageLink(new PdfRectangle(0, 0, 1, 1), 7, 0, 0);

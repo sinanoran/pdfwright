@@ -52,7 +52,7 @@ internal static class LayoutTestKit
         double pageWidth = Math.Max(595, layouts.Max(l => l.Width) + 40);
         double pageHeight = PageHeight(layouts);
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont[] embedded = [.. fonts.Select(f => new PdfEmbeddedFont(document, f.Font))];
             PdfPageWriter page = document.BeginPage(pageWidth, pageHeight);

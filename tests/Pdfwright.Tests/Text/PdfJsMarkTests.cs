@@ -165,7 +165,7 @@ public static partial class PdfJsMarkTests
         ShapedParagraph paragraph = TextShaper.Shape("ab", fonts);
 
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont embedded = new(document, fonts[0].Font);
             PdfPageWriter page = document.BeginPage(595, 842);

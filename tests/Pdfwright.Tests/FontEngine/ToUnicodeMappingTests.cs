@@ -13,7 +13,7 @@ public class ToUnicodeMappingTests
     private static string ToUnicodeOf(Action<PdfEmbeddedFont, PdfPageWriter> draw)
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(File.ReadAllBytes(TestPaths.Font("NotoSans-Regular.ttf"))));
             PdfPageWriter page = document.BeginPage(200, 200);
@@ -71,7 +71,7 @@ public class ToUnicodeMappingTests
         string map;
         using (MemoryStream stream = new())
         {
-            using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+            using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
             {
                 PdfEmbeddedFont font = new(document, arabic.Font);
                 PdfPageWriter page = document.BeginPage(300, 200);

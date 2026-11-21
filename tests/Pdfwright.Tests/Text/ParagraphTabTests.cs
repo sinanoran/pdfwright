@@ -27,7 +27,7 @@ public class ParagraphTabTests
         const string text = "a\tb";
 
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, null);
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
 
         Assert.Equal(text, document.GetPage(1).Text);
     }
@@ -36,8 +36,8 @@ public class ParagraphTabTests
     public void A_tab_is_a_place_where_a_line_may_break_like_the_space_it_stands_for()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
-        double aaa = TextMeasurer.Measure("aaa", fonts, new ParagraphOptions { Size = 14 }).Width;
-        double bbb = TextMeasurer.Measure("bbb", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double aaa = ParagraphMeasurer.Measure("aaa", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double bbb = ParagraphMeasurer.Measure("bbb", fonts, new ParagraphOptions { Size = 14 }).Width;
 
         ParagraphLayout layout = LayoutTestKit.Layout("aaa\tbbb", fonts, bbb + 1);
 

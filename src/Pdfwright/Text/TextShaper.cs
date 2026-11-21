@@ -42,7 +42,7 @@ internal sealed class ShapingFont : IDisposable
 internal readonly record struct ShapedGlyph(int Glyph, int Cluster, int XAdvance, int XOffset, int YOffset);
 
 /// <summary>
-/// A stretch of text that is shaped as one: one font, one script, one direction (one bidi level). <see cref="Glyphs"/> are in the order they
+/// A stretch of text that is shaped as one: one font, one script, one direction (one bidi level), one font order, size and language. <see cref="Glyphs"/> are in the order they
 /// are drawn, left to right, which for a right-to-left run is the reverse of the logical order; each glyph's <see cref="ShapedGlyph.Cluster"/>
 /// is the UTF-16 index in the paragraph of the characters it stands for.
 /// </summary>
@@ -57,6 +57,9 @@ internal sealed class ShapedRun
     internal required int Script { get; init; }
 
     internal required int FontIndex { get; init; }
+
+    /// <summary>The index of the style of the run's first character (see <see cref="ShapeStyling"/>); 0 for a paragraph with one style. Later characters may be in other styles of the same shaping group (they differ in colour only), which a drawing looks up by cluster.</summary>
+    internal int Style { get; init; }
 
     internal required ShapedGlyph[] Glyphs { get; init; }
 
@@ -105,8 +108,9 @@ internal static class TextShaper
     /// <paramref name="language"/> is given (then it applies to every run); the beginning and end of text flags of HarfBuzz are not set, so
     /// the text is taken as it is written and a combining mark at its start gets no dotted circle. <paramref name="bidiText"/>, when given, is a text of the
     /// same code points in number that the bidi algorithm reads instead of <paramref name="text"/> (a tab shaped as a space still resolves as a tab: rule L1 needs the segment separator).
+    /// <paramref name="styling"/>, when given, sets stretches of the text in different styles: each has its own order of fonts, size and language, and a run never spans two styles that are shaped differently (a change of colour alone does not end a run).
     /// </summary>
-    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null)
+    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null, ShapeStyling? styling = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(fonts);
@@ -130,19 +134,21 @@ internal static class TextShaper
         }
 
         List<int> missing = [];
-        int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, missing);
+        int[] styleOf = StyleOfCodePoints(codePoints.Length, utf16Index, text.Length, styling);
+        int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, styling, styleOf, missing);
 
-        // A run ends where the level, the script or the font changes.
+        // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
         List<ShapedRun> runs = [];
         int runStart = 0;
         for (int i = 1; i <= codePoints.Length; i++)
         {
-            if (i < codePoints.Length && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart])
+            if (i < codePoints.Length && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart] && KeyOf(styling, styleOf[i]) == KeyOf(styling, styleOf[runStart]))
             {
                 continue;
             }
 
-            runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], language));
+            string? runLanguage = styling is null ? language : styling.Languages[styleOf[runStart]];
+            runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], runLanguage, styleOf[runStart]));
             runStart = i;
         }
 
@@ -171,17 +177,51 @@ internal static class TextShaper
         return codePoints;
     }
 
+    /// <summary>The shaping group of a style: styles in one group are shaped alike, so a run may span them.</summary>
+    private static int KeyOf(ShapeStyling? styling, int style) => styling is null ? 0 : styling.ShapeKeys[style];
+
+    /// <summary>The style of every code point: that of the span that holds it, or 0 with no styling.</summary>
+    private static int[] StyleOfCodePoints(int count, int[] utf16Index, int textLength, ShapeStyling? styling)
+    {
+        int[] styleOf = new int[count];
+        if (styling is null)
+        {
+            return styleOf;
+        }
+
+        int span = 0;
+        for (int i = 0; i < count; i++)
+        {
+            while (span < styling.Spans.Count - 1 && utf16Index[i] >= styling.Spans[span].Start + styling.Spans[span].Length)
+            {
+                span++;
+            }
+
+            StyledSpan s = styling.Spans[span];
+            if (utf16Index[i] < s.Start || utf16Index[i] >= s.Start + s.Length)
+            {
+                throw new ArgumentException($"The spans do not tile the text of {textLength} characters: nothing covers index {utf16Index[i]}.", nameof(styling));
+            }
+
+            styleOf[i] = s.Style;
+        }
+
+        return styleOf;
+    }
+
     /// <summary>
-    /// A font for every character, chosen per grapheme cluster so that a base and its marks are never split between fonts. A cluster of a real
-    /// script takes the first font in the list that has a glyph for all of it (so the order of the list is the order of preference); spaces,
-    /// digits and punctuation, which belong to no script, stay in the font of the text before them when it covers them, so that a run is not
+    /// A font for every character, chosen per grapheme cluster so that a base and its marks are never split between fonts (nor between styles:
+    /// a cluster is set in the style of its first character, which <paramref name="styleOf"/> is changed to say). A cluster of a real
+    /// script takes the first font in its style's order that has a glyph for all of it (so the order is the order of preference); spaces,
+    /// digits and punctuation, which belong to no script, stay in the font of the text before them when it covers them and the style is the same, so that a run is not
     /// cut at every space. When no font covers a whole cluster, the first font that covers its first character is used.
     /// </summary>
-    private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, List<int> missing)
+    private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing)
     {
         bool[] boundaries = UnicodeGraphemeBreaker.Boundaries(codePoints);
         int[] chosen = new int[codePoints.Length];
-        int previous = 0;
+        int previous = styling is null ? 0 : styling.FontOrders[styleOf[0]][0];
+        int previousStyle = styleOf[0];
         for (int start = 0; start < codePoints.Length;)
         {
             int end = start + 1;
@@ -190,10 +230,13 @@ internal static class TextShaper
                 end++;
             }
 
-            int pick = PickFont(codePoints, start, end, previous, fonts, out bool anyMissing);
+            int style = styleOf[start];
+            int[]? order = styling?.FontOrders[style];
+            int pick = PickFont(codePoints, start, end, KeyOf(styling, style) == KeyOf(styling, previousStyle) ? previous : -1, fonts, order, out bool anyMissing);
             for (int i = start; i < end; i++)
             {
                 chosen[i] = pick;
+                styleOf[i] = style;
                 if (anyMissing && !NeedsNoGlyph(codePoints[i]) && fonts[pick].Font.GlyphForCodePoint(codePoints[i]) == 0)
                 {
                     missing.Add(utf16Index[i]);
@@ -201,15 +244,18 @@ internal static class TextShaper
             }
 
             previous = pick;
+            previousStyle = style;
             start = end;
         }
 
         return chosen;
     }
 
-    private static int PickFont(int[] codePoints, int start, int end, int previous, IReadOnlyList<ShapingFont> fonts, out bool anyMissing)
+    /// <summary>Picks the font for the cluster [start, end). <c>previous</c> is the font of the cluster before when it has the same style, and -1 when the style changed (a neutral character then takes the first font of the order that covers it).</summary>
+    private static int PickFont(int[] codePoints, int start, int end, int previous, IReadOnlyList<ShapingFont> fonts, int[]? order, out bool anyMissing)
     {
         anyMissing = false;
+        int fallback = previous >= 0 ? previous : (order is null ? 0 : order[0]);
         int first = -1;
         for (int i = start; i < end; i++)
         {
@@ -222,25 +268,28 @@ internal static class TextShaper
 
         if (first < 0)
         {
-            return previous; // only characters that need no glyph
+            return fallback; // only characters that need no glyph
         }
 
         bool neutral = ScriptData.ScriptOf(codePoints[first]) == ScriptData.Common;
-        if (neutral && Covers(fonts[previous], codePoints, start, end))
+        if (neutral && previous >= 0 && Covers(fonts[previous], codePoints, start, end))
         {
             return previous;
         }
 
-        for (int f = 0; f < fonts.Count; f++)
+        int count = order?.Length ?? fonts.Count;
+        for (int k = 0; k < count; k++)
         {
+            int f = order is null ? k : order[k];
             if (Covers(fonts[f], codePoints, start, end))
             {
                 return f;
             }
         }
 
-        for (int f = 0; f < fonts.Count; f++)
+        for (int k = 0; k < count; k++)
         {
+            int f = order is null ? k : order[k];
             if (fonts[f].Font.GlyphForCodePoint(codePoints[first]) != 0)
             {
                 anyMissing = true; // the marks after the base are drawn without their glyphs
@@ -249,7 +298,7 @@ internal static class TextShaper
         }
 
         anyMissing = true;
-        return previous;
+        return fallback;
     }
 
     private static bool Covers(ShapingFont font, int[] codePoints, int start, int end)
@@ -265,7 +314,7 @@ internal static class TextShaper
         return true;
     }
 
-    private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language)
+    private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style)
     {
         using HarfBuzzSharp.Buffer buffer = new();
 
@@ -294,6 +343,25 @@ internal static class TextShaper
             glyphs[i] = new ShapedGlyph((int)infos[i].Codepoint, (int)infos[i].Cluster, positions[i].XAdvance, positions[i].XOffset, positions[i].YOffset);
         }
 
-        return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Glyphs = glyphs };
+        return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Style = style, Glyphs = glyphs };
     }
+}
+
+/// <summary>
+/// How a paragraph that is set in more than one style is shaped: the stretches (they tile the text), and for each style the order of fonts
+/// that may draw it (indices into the font list) and the language that selects its shaping features.
+/// </summary>
+internal sealed class ShapeStyling
+{
+    /// <summary>The stretches of the text, in order, that tile it (UTF-16 indices).</summary>
+    internal required IReadOnlyList<StyledSpan> Spans { get; init; }
+
+    /// <summary>For each style, the fonts that may draw it, in order of preference; never empty.</summary>
+    internal required IReadOnlyList<int[]> FontOrders { get; init; }
+
+    /// <summary>For each style, the shaping group it belongs to: styles with the same font order, size and language have the same number, and a run may span them.</summary>
+    internal required IReadOnlyList<int> ShapeKeys { get; init; }
+
+    /// <summary>For each style, its BCP 47 language or <see langword="null"/>.</summary>
+    internal required IReadOnlyList<string?> Languages { get; init; }
 }

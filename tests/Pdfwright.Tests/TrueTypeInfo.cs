@@ -27,7 +27,7 @@ internal static class TrueTypeInfo
     /// and print) or 8 (editable). Bit 1 (restricted licence), bit 8 (no subsetting) and bit 9 (bitmap embedding only)
     /// forbid it.
     /// </summary>
-    internal static bool MayEmbed(ushort fsType) => (fsType & 0x0002) == 0 && (fsType & 0x0100) == 0 && (fsType & 0x0200) == 0;
+    internal static bool MayEmbed(ushort fsType) => (fsType & 0x0100) == 0 && (fsType & 0x0200) == 0 && ((fsType & 0x0002) == 0 || (fsType & 0x000C) != 0);
 
     internal static string? Copyright(byte[] font)
     {

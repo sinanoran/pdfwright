@@ -132,7 +132,7 @@ public class CanvasPropertyTests
         byte[] Make()
         {
             using MemoryStream stream = new();
-            using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Created = PdfTestKit.Created }))
+            using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Created = PdfTestKit.Created }))
             {
                 PdfPageWriter page = document.BeginPage(595, 842);
                 using (Canvas canvas = new(page, 20, 800, 500, 400))

@@ -40,7 +40,7 @@ public class ParagraphDrawGeometryTests
         Assert.True(layout.LineCount >= 3);
         Assert.True(layout.Lines.All(l => l.X > 0), "centred lines start away from the left edge");
 
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
         IReadOnlyList<Letter> letters = document.GetPage(1).Letters;
         Assert.Equal(GlyphCount(layout), letters.Count);
         List<Letter>[] byLine = LettersByLine(letters, layout, 0);
@@ -70,7 +70,7 @@ public class ParagraphDrawGeometryTests
         ParagraphLayout layout = LayoutTestKit.Layout(c.Text, fonts, 200);
         LaidOutLine line = Assert.Single(layout.Lines);
 
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
         IReadOnlyList<Letter> letters = document.GetPage(1).Letters;
 
         // Start in a right-to-left paragraph is the right edge: the last pixel of the content is at the box's right edge.
@@ -85,7 +85,7 @@ public class ParagraphDrawGeometryTests
         ParagraphLayout first = LayoutTestKit.Layout("First paragraph that wraps onto a second line", fonts, 130);
         ParagraphLayout second = LayoutTestKit.Layout("Second paragraph, also wrapping around", fonts, 130, size: 10);
 
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.DrawStack([first, second], fonts));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.DrawStack([first, second], fonts));
         IReadOnlyList<Letter> letters = document.GetPage(1).Letters;
 
         Assert.Equal(Strip("First paragraph that wraps onto a second line" + "Second paragraph, also wrapping around"), Strip(document.GetPage(1).Text));

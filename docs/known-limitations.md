@@ -27,7 +27,25 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 ## Writing
 
-- The writer writes to its stream synchronously and unbuffered, and holds one page's content stream in memory; the page tree is flat (see the plan).
+- The writer writes to its stream synchronously and unbuffered, and holds one page's content stream in memory; the page tree is flat (see the plan). The document layer builds the whole file in memory before it writes it to the caller's stream.
+
+## The document layer (S5a)
+
+- **`Save` and `SaveAsync` hold the whole file in memory.** The file is made in a buffer (`SaveAsync` on a thread-pool thread) and then copied to the stream, with the token for `SaveAsync`, so that a failed save or a limit that is hit writes nothing; the memory is about the size of the file
+  (plus a page's content while it is built).
+- **A paragraph is split between lines with no widow or orphan control**: one line of a paragraph can be left at the bottom of a page or carried to the top of the next. A heading is kept with the first line of the next block and the space before it, and only that; there is no keep-together block yet (S5b).
+- **There is no synthetic bold or italic.** A family without a bold font draws bold text in its nearest weight; a family without an italic font draws it upright. Supply the fonts of the styles you use.
+- **A font is chosen per grapheme cluster and not per word**: a cluster takes the first font of its style's order that covers all of it, and when none does, the first that covers its first character, drawing the rest as missing glyphs (reported in `DocumentDiagnostics`). The order is the family named by the style first,
+  then every other font of the collection, so a Latin family with an Arabic font in the collection draws Arabic in that font in the style's weight when one exists, else the nearest.
+- **A heading's space before and a paragraph's space after are dropped at the page edge**, not carried over; a spacer is always kept (at the top of a page too: at the start of the document and after a page break) and a spacer taller than the room left is cut to the page.
+- **A line break in a run (`\n`, `\r\n`, U+2029, U+0085) is a hard line break inside the paragraph**, not a new paragraph with its own spacing and direction; the bidirectional algorithm treats the paragraph as one. Split text into several `Paragraph`s to get paragraph spacing and a direction for each.
+- **A deterministic document with compression on is the same bytes only on the same .NET runtime**, because the zlib behind Flate differs between versions; set `Compress = false` for golden files that must match everywhere.
+- **The text measurer and the flow share one engine, but a paragraph in a document is measured at the content width**; `TextMeasurer.Measure` knows no page, so give it the width you mean.
+- **At most 1,000 missing glyphs are listed** in the diagnostics (each once per language and page).
+- **A `FontCollection` holds native copies of its fonts** for the shaping engine and is `IDisposable`: make one for the life of the application and share it. Disposing it while a document is being saved with it is not safe (the save is not stopped); after it, saving, measuring and adding throw `ObjectDisposedException`.
+- **A family that is not in the collection is replaced, not refused**: the text is set in the fonts of the collection in their order of preference, and the family is listed in `DocumentDiagnostics.MissingFamilies`.
+- **A document's measurement by `TextMeasurer` matches only if made the same way**: the same fonts, default style, language, direction and line spacing as the document (the measurer takes `language` and `lineSpacing`).
+- **`Length` arithmetic can still overflow to infinity** (`Length.Pt(double.MaxValue) * 2`); the factories refuse a number that is not finite, and every place that takes a length refuses one that is not.
 
 ## Images and the canvas
 

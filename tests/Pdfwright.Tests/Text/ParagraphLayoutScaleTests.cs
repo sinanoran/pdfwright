@@ -52,7 +52,7 @@ public class ParagraphLayoutScaleTests
             int wordStart = layout.Lines[i + 1].Start;
             int wordEnd = text.IndexOf(' ', wordStart);
             string tooWide = text.Substring(line.Start, line.Length).TrimEnd() + " " + text[wordStart..wordEnd];
-            Assert.True(TextMeasurer.Measure(tooWide, fonts, new ParagraphOptions { Size = 14 }).Width > Width, $"line {i} could have taken the next word");
+            Assert.True(ParagraphMeasurer.Measure(tooWide, fonts, new ParagraphOptions { Size = 14 }).Width > Width, $"line {i} could have taken the next word");
         }
 
         // The first lines of a short text that is a prefix of the long one are the first lines of the long one.

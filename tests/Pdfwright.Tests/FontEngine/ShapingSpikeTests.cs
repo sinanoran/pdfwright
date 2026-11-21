@@ -79,7 +79,7 @@ public class ShapingSpikeTests
 
         List<(int Code, int Glyph)> drawn = [];
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
         {
             PdfEmbeddedFont font = new(document, parsed);
             PdfPageWriter page = document.BeginPage(595, 842);
@@ -135,7 +135,7 @@ public class ShapingSpikeTests
 
         (byte[] pdf, List<(int Code, int Glyph)> drawn) = Draw(c);
 
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         string extracted = document.GetPage(1).Text;
         Assert.Equal(c.Text, extracted.Replace("͏", string.Empty, StringComparison.Ordinal)); // see PdfEmbeddedFont: continuation glyphs map to U+034F
         PdfTestKit.AssertQpdfAccepts(pdf, "shaping-" + id);

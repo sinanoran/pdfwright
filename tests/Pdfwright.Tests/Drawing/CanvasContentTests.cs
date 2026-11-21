@@ -142,7 +142,7 @@ public class CanvasContentTests
     public void The_same_opacity_pair_asked_for_again_is_the_same_resource()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
         Assert.Equal(page.UseOpacity(0.5, 0.25), page.UseOpacity(0.5, 0.25));
         Assert.NotEqual(page.UseOpacity(0.5, 0.25), page.UseOpacity(0.25, 0.5));
@@ -211,7 +211,7 @@ public class CanvasContentTests
     public void A_restore_with_no_save_and_drawing_after_the_end_are_errors()
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions());
         PdfPageWriter page = document.BeginPage(100, 100);
         Canvas canvas = new(page, 0, 100, 100, 100);
         Assert.Throws<InvalidOperationException>(canvas.Restore);

@@ -14,7 +14,7 @@ public class ParagraphWordBreakTests
 
     private static string ExtractedText(ParagraphLayout layout, string text, ShapingFont[] fonts)
     {
-        using PdfDocument document = PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
         return Strip(document.GetPage(1).Text);
     }
 
@@ -68,7 +68,7 @@ public class ParagraphWordBreakTests
         {
             // One letter more would not have fitted (no ligature in this word can make the line shorter than its letters).
             string withNext = word.Substring(layout.Lines[i].Start, layout.Lines[i].Length + 1);
-            Assert.True(TextMeasurer.Measure(withNext, fonts, new ParagraphOptions { Size = 14 }).Width > 60, $"line {i} could have taken one more letter");
+            Assert.True(ParagraphMeasurer.Measure(withNext, fonts, new ParagraphOptions { Size = 14 }).Width > 60, $"line {i} could have taken one more letter");
         }
 
         Assert.Equal(word, ExtractedText(layout, word, fonts));
@@ -106,7 +106,7 @@ public class ParagraphWordBreakTests
     public void A_word_that_fits_after_a_space_is_not_cut_and_only_the_word_that_does_not_fit_is()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
-        double bb = TextMeasurer.Measure("bb", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double bb = ParagraphMeasurer.Measure("bb", fonts, new ParagraphOptions { Size = 14 }).Width;
 
         ParagraphLayout layout = LayoutTestKit.Layout("aa bbbbbbbbbbbb aa", fonts, bb + 0.5);
 
@@ -126,14 +126,14 @@ public class ParagraphWordBreakTests
         string text = "aaaa" + shy + "bbbb cc";
 
         // Room for the first half only: with a break at the soft hyphen the first line would end there (and show no hyphen).
-        double half = TextMeasurer.Measure("aaaa", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double half = ParagraphMeasurer.Measure("aaaa", fonts, new ParagraphOptions { Size = 14 }).Width;
         ParagraphLayout narrow = LayoutTestKit.Layout(text, fonts, half + 1);
 
         AssertTiles(text, narrow);
         Assert.DoesNotContain(narrow.Lines, l => l.Start is 4 or 5);
 
         // Room for the whole word: it stays on one line, with the soft hyphen inside it.
-        double word = TextMeasurer.Measure("aaaabbbb", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double word = ParagraphMeasurer.Measure("aaaabbbb", fonts, new ParagraphOptions { Size = 14 }).Width;
         ParagraphLayout wide = LayoutTestKit.Layout(text, fonts, word + 0.5);
 
         Assert.Equal([0, 10], wide.Lines.Select(l => l.Start).ToArray());
@@ -152,7 +152,7 @@ public class ParagraphWordBreakTests
         int[] codePoints = UnicodeText.CodePoints(text, out _);
         Assert.NotEqual(LineBreakKind.None, UnicodeLineBreaker.Breaks(codePoints)[4]);
 
-        double aaa = TextMeasurer.Measure("aaa", fonts, new ParagraphOptions { Size = 14 }).Width;
+        double aaa = ParagraphMeasurer.Measure("aaa", fonts, new ParagraphOptions { Size = 14 }).Width;
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, aaa + 0.5);
 
         AssertTiles(text, layout);
@@ -174,7 +174,7 @@ public class ParagraphWordBreakTests
         int[] codePoints = UnicodeText.CodePoints(text, out _);
         Assert.NotEqual(LineBreakKind.None, UnicodeLineBreaker.Breaks(codePoints)[5]);
 
-        double width = TextMeasurer.Measure(word, fonts, new ParagraphOptions { Size = 14 }).Width;
+        double width = ParagraphMeasurer.Measure(word, fonts, new ParagraphOptions { Size = 14 }).Width;
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, width + 0.5);
 
         AssertTiles(text, layout);
@@ -213,7 +213,7 @@ public class ParagraphWordBreakTests
         ShapedParagraph shaped = TextShaper.Shape(text, fonts);
         Assert.Contains(shaped.Runs, r => r.Utf16Start % 2 == 1);
 
-        double unit = TextMeasurer.Measure("a" + mark, fonts, new ParagraphOptions { Size = 14 }).Width;
+        double unit = ParagraphMeasurer.Measure("a" + mark, fonts, new ParagraphOptions { Size = 14 }).Width;
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, unit * 2.5);
 
         Assert.True(layout.LineCount > 3);

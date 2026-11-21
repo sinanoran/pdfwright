@@ -25,7 +25,7 @@ internal static class CanvasTestKit
     internal static Drawn Run(Action<Canvas> draw, double left = 0, double top = PageHeight)
     {
         using MemoryStream stream = new();
-        using PdfDocumentWriter document = new(stream, new PdfDocumentOptions { Compression = PdfCompression.None });
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None });
         PdfPageWriter page = document.BeginPage(PageWidth, PageHeight);
         Canvas canvas = new(page, left, top, 400, 300);
         draw(canvas);

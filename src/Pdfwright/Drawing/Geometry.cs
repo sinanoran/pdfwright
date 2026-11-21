@@ -60,13 +60,3 @@ internal readonly record struct Matrix(double A, double B, double C, double D, d
     internal bool IsFinite => double.IsFinite(A) && double.IsFinite(B) && double.IsFinite(C) && double.IsFinite(D) && double.IsFinite(E) && double.IsFinite(F);
 }
 
-/// <summary>The direction text is laid out in, for a text drawn at a point.</summary>
-internal enum TextDirection
-{
-    /// <summary>Taken from the first strong character of the text.</summary>
-    Auto,
-
-    LeftToRight,
-
-    RightToLeft,
-}

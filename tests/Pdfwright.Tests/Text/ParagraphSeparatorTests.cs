@@ -25,7 +25,7 @@ public class ParagraphSeparatorTests
         Assert.All(line.Runs.SelectMany(r => r.Run.Glyphs), g => Assert.InRange(g.Cluster, 0, 2));
 
         byte[] pdf = LayoutTestKit.Draw(layout, fonts);
-        using PdfDocument document = PdfDocument.Open(pdf);
+        using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         Assert.Equal("one", document.GetPage(1).Text);
     }
 

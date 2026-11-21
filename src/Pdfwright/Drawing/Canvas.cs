@@ -185,7 +185,7 @@ internal sealed class Canvas : IDisposable
 
     /// <summary>
     /// Draws one paragraph of text with the start of its first baseline at a point. The text is laid out without a maximum width (it breaks only at hard line breaks), by
-    /// the same <see cref="ParagraphLayouter"/> that <see cref="TextMeasurer"/> asks, and written by <see cref="ParagraphLayout.Draw"/>, so what is measured is what is drawn.
+    /// the same <see cref="ParagraphLayouter"/> that <see cref="ParagraphMeasurer"/> asks, and written by <see cref="ParagraphLayout.Draw"/>, so what is measured is what is drawn.
     /// Later lines go down the canvas. <paramref name="alignment"/> places the text's block against the point: <see cref="TextAlignment.Start"/> puts the point at the edge where the text begins
     /// (the left edge of a left-to-right paragraph, the right edge of a right-to-left one), <see cref="TextAlignment.End"/> at the edge where it ends, and
     /// <see cref="TextAlignment.Center"/> in the middle; the lines of a text of several lines are aligned to one another in the same way.
