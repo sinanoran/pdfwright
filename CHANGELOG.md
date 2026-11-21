@@ -60,7 +60,7 @@ All notable changes to this project are recorded here. The format follows
   Fixed: a glyph drawn as `.notdef` (a mark with no glyph in the font of its base, such as a Hebrew point after a Latin digit) is kept on the baseline; HarfBuzz's fallback mark positioning had put it below the line.
 
 - Slice S6b of the plan, visual golden files (tests only): every page of every golden document is drawn by PDFium (the test-only package `PDFtoImage`, MIT, with `bblanchon.PDFium.*` Apache-2.0 and SkiaSharp MIT) at 96 dpi and compared with a stored PNG
-  under a perceptual tolerance, so a mark drawn in the wrong place or a mirrored glyph is caught where text extraction would still pass; a failure writes the page and an image of the differences for the CI artifact, `PDFWRIGHT_UPDATE_GOLDENS=1` regenerates the PNGs,
+  under a tight tolerance (more than one differing pixel fails), so a mark drawn in the wrong place or a mirrored glyph is caught where text extraction would still pass; a failure writes the page and an image of the differences for the CI artifact, `PDFWRIGHT_UPDATE_GOLDENS=1` regenerates the PNGs,
   `PDFWRIGHT_REQUIRE_RENDER=1` (set on CI) makes a renderer that cannot load a failure. The library gains no dependency.
 
 [Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
