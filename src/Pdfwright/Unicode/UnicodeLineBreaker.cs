@@ -21,7 +21,7 @@ internal static class UnicodeLineBreaker
 {
     /// <summary>
     /// The break opportunity before each character of <paramref name="text"/> (given as code points) and after the last: an array of
-    /// <c>text.Length + 1</c>. Index 0 is never a break (LB2) and the last index always is, mandatory (LB3).
+    /// <c>text.Length + 1</c>. Index 0 is never a break (LB2) and the last index always is, mandatory (LB3), for text that is not empty.
     /// </summary>
     internal static LineBreakKind[] Breaks(ReadOnlySpan<int> text)
     {
@@ -38,6 +38,7 @@ internal static class UnicodeLineBreaker
         CharacterInfo[] info = new CharacterInfo[count];
         bool[] endsInJoiner = new bool[count];
         bool[] dottedCircle = new bool[count];
+        int[] runOfRegionalIndicators = new int[count];
         LineBreakClass[] baseClass = new LineBreakClass[count];
         int units = 0;
         for (int i = 0; i < count; i++)
@@ -47,26 +48,29 @@ internal static class UnicodeLineBreaker
             bool attaches = resolved is LineBreakClass.CM or LineBreakClass.ZWJ
                 && units > 0
                 && baseClass[units - 1] is not (LineBreakClass.BK or LineBreakClass.CR or LineBreakClass.LF or LineBreakClass.NL
-                    or LineBreakClass.SP or LineBreakClass.ZW or LineBreakClass.CM or LineBreakClass.ZWJ);
+                    or LineBreakClass.SP or LineBreakClass.ZW);
             if (attaches)
             {
                 endsInJoiner[units - 1] = resolved == LineBreakClass.ZWJ;
                 continue;
             }
 
+            // LB10: a combining mark or joiner that attached to nothing is an ordinary letter, with the properties of U+0041.
+            bool leftover = resolved is LineBreakClass.CM or LineBreakClass.ZWJ;
             unitStart[units] = i;
-            baseClass[units] = resolved;
-            cls[units] = resolved is LineBreakClass.CM or LineBreakClass.ZWJ ? LineBreakClass.AL : resolved; // LB10
-            info[units] = character;
+            cls[units] = leftover ? LineBreakClass.AL : resolved;
+            baseClass[units] = cls[units];
+            info[units] = leftover ? CharacterProperties.Of(0x41) : character;
             endsInJoiner[units] = resolved == LineBreakClass.ZWJ;
             dottedCircle[units] = text[i] == 0x25CC;
+            runOfRegionalIndicators[units] = cls[units] == LineBreakClass.RI && units > 0 ? runOfRegionalIndicators[units - 1] + 1 : cls[units] == LineBreakClass.RI ? 1 : 0;
             units++;
         }
 
         // Between two units there is a break opportunity, or not; inside a unit there is never one (LB9).
         for (int k = 1; k < units; k++)
         {
-            breaks[unitStart[k]] = Decide(cls, info, endsInJoiner, dottedCircle, units, k);
+            breaks[unitStart[k]] = Decide(cls, info, endsInJoiner, dottedCircle, runOfRegionalIndicators, units, k);
         }
 
         breaks[count] = LineBreakKind.Mandatory;
@@ -102,7 +106,7 @@ internal static class UnicodeLineBreaker
         return unit;
     }
 
-    private static LineBreakKind Decide(LineBreakClass[] cls, CharacterInfo[] info, bool[] endsInJoiner, bool[] dottedCircle, int units, int k)
+    private static LineBreakKind Decide(LineBreakClass[] cls, CharacterInfo[] info, bool[] endsInJoiner, bool[] dottedCircle, int[] runOfRegionalIndicators, int units, int k)
     {
         LineBreakClass l = cls[k - 1];
         LineBreakClass r = cls[k];
@@ -372,13 +376,7 @@ internal static class UnicodeLineBreaker
         // LB30a: regional indicators pair up
         if (l == LineBreakClass.RI && r == LineBreakClass.RI)
         {
-            int run = 0;
-            for (int j = k - 1; j >= 0 && cls[j] == LineBreakClass.RI; j--)
-            {
-                run++;
-            }
-
-            if (run % 2 == 1)
+            if (runOfRegionalIndicators[k - 1] % 2 == 1)
             {
                 return LineBreakKind.None;
             }

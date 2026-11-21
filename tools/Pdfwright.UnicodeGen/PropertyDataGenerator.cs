@@ -11,7 +11,7 @@ namespace Pdfwright.UnicodeGen;
 public static class PropertyDataGenerator
 {
     /// <summary>The order is the order of <c>LineBreakClass</c> in the library: a test pins it.</summary>
-    private static readonly string[] LineBreakNames =
+    internal static readonly string[] LineBreakNames =
     [
         "BK", "CR", "LF", "NL", "CM", "SG", "WJ", "ZW", "GL", "SP", "ZWJ", "B2", "BA", "BB", "HY", "HH", "CB", "CL", "CP", "EX",
         "IN", "NS", "OP", "QU", "IS", "NU", "PO", "PR", "SY", "AI", "AK", "AL", "AP", "AS", "CJ", "EB", "EM", "H2", "H3", "HL",
@@ -19,7 +19,7 @@ public static class PropertyDataGenerator
     ];
 
     /// <summary>The order is the order of <c>GraphemeBreakClass</c> in the library: a test pins it.</summary>
-    private static readonly string[] GraphemeNames =
+    internal static readonly string[] GraphemeNames =
         ["Other", "CR", "LF", "Control", "Extend", "ZWJ", "Regional_Indicator", "Prepend", "SpacingMark", "L", "V", "T", "LV", "LVT"];
 
     // Bit layout of a value: bits 0-5 line break class, 6-9 grapheme class, then the flags below.
@@ -119,6 +119,15 @@ public static class PropertyDataGenerator
                     "Extend" => 3u,
                     _ => throw new InvalidDataException($"Unknown Indic_Conjunct_Break value '{fields[2]}'."),
                 };
+                (int first, int last) = Range(fields[0]);
+                for (int cp = first; cp <= last; cp++)
+                {
+                    if ((values[cp] >> ConjunctShift & 3) != 0)
+                    {
+                        throw new InvalidDataException($"U+{cp:X4} has two Indic_Conjunct_Break values.");
+                    }
+                }
+
                 SetFlag(values, fields[0], kind << ConjunctShift);
             }
         }
