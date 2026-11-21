@@ -176,4 +176,27 @@ public class ParagraphWordBreakTests
         AssertTiles(withShy, shy);
         Assert.All(shy.Lines, l => Assert.True(l.Width <= 60 + Tolerance));
     }
+
+    [Fact]
+    public void A_cut_never_falls_between_a_base_and_a_mark_that_shape_in_different_runs()
+    {
+        // The Latin font covers the base but not the Hebrew point, which only the second font has, and the point is a Hebrew character: the run starts again at it, a glyph cluster boundary
+        // between base and mark that is no grapheme boundary, so only the grapheme cluster rule keeps the cut from falling there.
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Hebrew);
+        char mark = (char)0x05B0;
+        Assert.Equal(0, fonts[0].Font.GlyphForCodePoint(mark));
+        Assert.NotEqual(0, fonts[1].Font.GlyphForCodePoint(mark));
+        Assert.NotEqual(0, fonts[0].Font.GlyphForCodePoint('a'));
+
+        string text = string.Concat(Enumerable.Repeat("a" + mark, 12));
+        ShapedParagraph shaped = TextShaper.Shape(text, fonts);
+        Assert.Contains(shaped.Runs, r => r.Utf16Start % 2 == 1);
+
+        double unit = TextMeasurer.Measure("a" + mark, fonts, new ParagraphOptions { Size = 14 }).Width;
+        ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, unit * 2.5);
+
+        Assert.True(layout.LineCount > 3);
+        AssertTiles(text, layout);
+        Assert.All(layout.Lines, l => Assert.NotEqual(mark, text[l.Start]));
+    }
 }
