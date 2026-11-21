@@ -52,12 +52,12 @@ Noto Sans Bengali, Noto Sans Tamil, Noto Sans Thai
 == Data compiled into the package ==
 
 The Unicode Character Database, version 18.0.0 (Unicode License v3, Copyright (c) 1991-2026 Unicode, Inc.)
-  Used: the bidirectional class of every code point, the paired brackets and the mirrored characters, turned
-  into tables by tools/Pdfwright.UnicodeGen and compiled into the library (src/Pdfwright/Unicode/BidiTables.g.cs).
-  The conformance files BidiTest.txt and BidiCharacterTest.txt are used by the tests only and are not in the package.
+  Used: the bidirectional class, paired brackets, line break class, grapheme cluster break class, East Asian Width,
+  Extended_Pictographic, Indic_Conjunct_Break and a few General_Category facts, turned into tables by
+  tools/Pdfwright.UnicodeGen and compiled into the library (src/Pdfwright/Unicode/*.g.cs).
+  The conformance files (BidiTest, BidiCharacterTest, LineBreakTest, GraphemeBreakTest) are used by the tests only and are not in the package.
   The files and the licence text: data/unicode (LICENSE-UNICODE.txt).
 
 == To be added with the code that needs it ==
 
-More of the Unicode Character Database (script, line break class, grapheme break), added with the slices that
-read them (S3b onwards).
+More of the Unicode Character Database (scripts), added with the slice that reads them.

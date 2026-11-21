@@ -1,13 +1,22 @@
+using System.Text;
 using Pdfwright.UnicodeGen;
 
-// usage: Pdfwright.UnicodeGen <data directory> <output file>
+// usage: Pdfwright.UnicodeGen <data directory> <output directory>
 if (args.Length != 2)
 {
-    Console.Error.WriteLine("usage: Pdfwright.UnicodeGen <data directory> <output file>");
+    Console.Error.WriteLine("usage: Pdfwright.UnicodeGen <data directory> <output directory>");
     return 2;
 }
 
-string generated = BidiDataGenerator.Generate(args[0]);
-File.WriteAllText(args[1], generated.Replace("\n", "\r\n", StringComparison.Ordinal), new System.Text.UTF8Encoding(false));
-Console.WriteLine($"Wrote {args[1]} ({generated.Length} characters).");
+foreach ((string file, string text) in new[]
+{
+    ("BidiTables.g.cs", BidiDataGenerator.Generate(args[0])),
+    ("CharacterTables.g.cs", PropertyDataGenerator.Generate(args[0])),
+})
+{
+    string path = Path.Combine(args[1], file);
+    File.WriteAllText(path, text.Replace("\n", "\r\n", StringComparison.Ordinal), new UTF8Encoding(false));
+    Console.WriteLine($"Wrote {path} ({text.Length} characters).");
+}
+
 return 0;

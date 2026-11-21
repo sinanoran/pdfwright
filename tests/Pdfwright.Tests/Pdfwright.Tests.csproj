@@ -43,6 +43,7 @@
   <ItemGroup>
     <!-- The generator is shared source: a test regenerates the committed tables with it and compares. -->
     <Compile Include="..\..\tools\Pdfwright.UnicodeGen\BidiDataGenerator.cs" Link="Unicode\BidiDataGenerator.cs" />
+    <Compile Include="..\..\tools\Pdfwright.UnicodeGen\PropertyDataGenerator.cs" Link="Unicode\PropertyDataGenerator.cs" />
   </ItemGroup>
 
 </Project>
