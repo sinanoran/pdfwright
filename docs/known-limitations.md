@@ -76,6 +76,13 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
 - **The picture of a `PdfImage` is held decoded** (a PNG's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
 
+## Fonts and scripts (S6a)
+
+- **A mark that follows a character from another script is drawn as a missing glyph.** The font is chosen for a whole grapheme cluster, so a Hebrew point after a Latin digit (or an Arabic mark after a Hebrew letter) is shaped with the font of its base, which does not have it: it is drawn as that font's `.notdef` box and listed in `DocumentDiagnostics.MissingGlyphs`.
+  Since S6a the box sits on the baseline (HarfBuzz's fallback positioning used to put it below the line, off the page on the last line). Put such text in a font that has both.
+- **The six script fonts of the test project have the Regular weight only**, so a heading in Arabic, Hebrew, Devanagari, Bengali, Tamil or Thai is drawn in Regular (there is no synthetic bold); a real application supplies a bold font for each script it uses.
+- **Reader limits measured over the S6a corpus (3120 strings in ten script groups, read by PdfPig and by Firefox 157.0's pdf.js):** PdfPig reads every string equal to its input after the documented normalisation (white space and U+034F removed); pdf.js reads every string, two of them (Hebrew points) only up to canonical equivalence (see the last section). No other reader limit was found.
+
 ## Images and the canvas
 
 - **The colour management of a PNG is ignored.** The `gAMA`, `iCCP`, `sRGB` and `cHRM` chunks are skipped, and the samples are written as device RGB, device gray or an indexed device RGB palette, so a PNG that

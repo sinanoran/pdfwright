@@ -539,6 +539,51 @@ All four new blocks are sealed members of the closed `Block` set; the flow's `sw
 - A `Drawing` draws text in the direction of the `Columns` or `Callout` it is in (their `Direction`, else the document's). The public canvas and path builder check their arguments and report the public parameter names (`x`, `sx`, `width`, ...).
 - `DrawingCanvas.DrawImage` stretches the picture to the rectangle it is given; the `Image` block keeps the proportions unless both `Width` and `Height` are set. `Image` and `Drawing` are also names in `System.Drawing`: alias one (`using Image = Pdfwright.Image;`) when both namespaces are imported.
 
+### S6a status: script conformance by extraction, golden files, failure cases and property tests (21 November 2026)
+
+Points 1, 2, 3 and 7 of section 8 are done. Point 5 (PDFium visual goldens) is **S6b**, the next slice; the native-speaker review and the viewer checks are release-checklist items for the maintainer (`RELEASING.md`), not tests.
+
+**The page corpus** (`tests/Pdfwright.Tests/Corpus/pages/*.txt`, format in `Corpus/README.md`; the 61 single-line cases and their tests are untouched). Ten groups: Latin Extended (Turkish with dotless ı and the İ/i pairs and `Language = "tr"`, German, Polish, Vietnamese), Greek,
+Cyrillic (Russian, Ukrainian, Bulgarian), Arabic (joining, lam-alef, diacritics, tatweel, Arabic-Indic and Western digits, numbers inside Arabic text), Hebrew (points, final forms, maqaf, gershayim), mixed direction (English in Arabic, Arabic in English, nested quotes, numbers with signs, a phone
+number, three scripts in a line, a paragraph that begins with U+200F), Devanagari (conjuncts, reordering matras, nukta, reph), Bengali, Tamil and Thai (stacked marks). For each, a short page (a heading and four to six paragraphs) and a long page (a heading, paragraphs and a table of 100 rows in three
+columns, which runs over three to five pages and repeats its header), all through the public API with the nine Noto fonts in one `FontCollection`. **Every script of the plan has a font in the test project; nothing is listed as not covered for lack of a font.** The six script fonts have the Regular weight only.
+
+**Extraction acceptance** (`ScriptConformanceTests`). PdfPig reads each document back; each heading, paragraph and table cell must be equal to its input in logical order. The normalisation is exactly: remove every character with `char.IsWhiteSpace`, and U+034F; nothing else (U+200F, U+200C and the order of marks are
+compared as they are). A string passes when the text read starts with it where the previous string ended, so a swapped pair, a changed letter or extra text fails; the table's header repeated on a later page is counted apart and must occur once for each page after the first.
+
+| Group | PdfPig (short + long) | pdf.js (Firefox 157.0) |
+|---|---|---|
+| latin-extended | 313 of 313 | 313 of 313 |
+| greek | 310 of 310 | 310 of 310 |
+| cyrillic | 311 of 311 | 311 of 311 |
+| arabic | 313 of 313 | 313 of 313 |
+| hebrew | 312 of 312 | 312 of 312 (2 only up to canonical equivalence) |
+| mixed | 317 of 317 | 317 of 317 |
+| devanagari | 312 of 312 | 312 of 312 |
+| bengali | 311 of 311 | 311 of 311 |
+| tamil | 311 of 311 | 311 of 311 |
+| thai | 310 of 310 | 310 of 310 |
+| **all** | **3120 of 3120** | **3120 of 3120** |
+
+The pdf.js column was measured by hand on 21 November 2026 (not a CI test): `PDFWRIGHT_DUMP=<dir>` keeps the twenty documents and their expected strings, and `node tools/pdfjs-check/pdfjs-check.js <dir> tests/Pdfwright.Tests/Corpus` reads them with Firefox 157.0's built-in pdf.js
+through Playwright (the harness scrolls each page into view and joins the text layers in page order; it compares like the PdfPig test, and in NFD when a document is not byte-equal). The two strings that are only canonically equal are the case the known limitations already name (Hebrew points, here U+05B8 U+05C1 and U+05B5 U+05BC, whose
+order pdf.js reverses). qpdf is not installed on the machine this was written on; the tests run `qpdf --check` on every corpus document (and on the failure cases and two paginated tables), and CI does.
+
+**Failure cases** (`FailureCaseTests`, for each script): text with a glyph that no font has gives `MissingGlyphs` with the character, the language and the page (the text is on page 2, the language is the paragraph's), and the document still saves and passes qpdf; a font whose `fsType` forbids embedding (0x0002 and 0x0200),
+for each of the nine fonts, is refused with a `FontNotEmbeddableException` that names the family and the permission, and adds nothing to the collection; a family that is not in the collection is listed in `MissingFamilies`, and the text is drawn by the other fonts and reads back.
+
+**Golden files.** One for each script group (its short page) and the README's report, in `tests/Pdfwright.Tests/Golden`, `Deterministic = true`, **`Compress = false`** (the bytes of Flate depend on the runtime's zlib; without it they depend only on the library and the fonts), compared by SHA-256 (`Golden.Check`). They pass on all four runtimes on Windows;
+the other two systems are proved by CI. A failure prints both hashes, saves the new bytes and names `tools/Pdfwright.GoldenDiff`, a console program in the solution that prints which objects differ and, for a changed object, the lines of its dictionary and of its decoded content stream (one operator a line), or the first differing offset of a binary stream. Goldens are regenerated on purpose with
+`PDFWRIGHT_UPDATE_GOLDENS=1` (or `PDFWRIGHT_UPDATE_GOLDEN=1`) and committed **in a commit of their own** (`Golden/README.md`). Two runs of any corpus document, compressed or not, are the same bytes (tested).
+
+**Property and fuzz tests** (`PropertyTests`; fixed seeds, a few seconds): 60 random documents of mixed-script paragraphs from the corpus alphabets (random sizes, weights, directions, alignments, page sizes down to 200 points wide, a table in half of them) never throw and every glyph that PdfPig finds has its bounding box inside the media box; 12 random
+tables of 30 to 90 rows (with a few rows taller than a page) on a 300-point page keep every row exactly once, every row that fits a page on one page, the rows in order, and the header exactly once on every page from the first to the last page that has rows, and at least three tall rows really were split between pages. `PDFWRIGHT_FUZZ_SEEDS=N` raises the number of seeds for a longer run by hand (6000 seeds of the first, 400 of the others, were run once without a failure).
+
+**Library bug found and fixed.** The fuzz test, on seed 2517 of a longer run, found a glyph 1.3 points below the page: a Hebrew point that follows a Latin digit has no glyph in the digit's font, so it is drawn as `.notdef`, and HarfBuzz's fallback positioning of marks put that box below its base by its own height (0.8 to 1.6 em). A `.notdef` glyph now keeps the baseline
+(`TextShaper`; the missing glyph is still reported in the diagnostics, and the known limitations say what it looks like).
+
+**What is not covered.** Visual correctness (S6b); whether the words are right for a native reader and how Chrome, Edge, Acrobat Reader and macOS Preview show the files (the release checklist); Thai word breaking (a long run of Thai breaks between grapheme clusters, as documented); bold and italic of the six script fonts (not in the test project); a CJK, emoji or colour font; the golden bytes on Linux and macOS until CI has run.
+
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream
