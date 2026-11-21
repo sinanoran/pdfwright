@@ -41,7 +41,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 ## Making pdf.js read the logical order
 
-- **Glyphs with a combining mark, after a format character, or that only continue a cluster are shown under a font size of 1 or 2 with a scaled text matrix.** The drawing is the same
+- **Glyphs with a combining mark, a text that ends with a format character, or that only continue a cluster are shown under a font size of 1 or 2 with a scaled text matrix.** The drawing is the same
   (the real size is the font size times the matrix), but the content stream has more `Tf` operators, and a tool that reads the font size from `Tf` alone (a text-style inspector, some
   accessibility checkers) sees 1 or 2 for those glyphs. Cause: pdf.js merges a glyph with a mark into the open text item and then reverses right-to-left items, and starts a new item
   only when the size changes.

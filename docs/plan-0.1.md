@@ -362,7 +362,7 @@ Three ways of writing a shaped run were measured on the same 61 files, and one c
 | One `Tm` per glyph, logical order (kept) | 61 | 27 | 36 |
 | One `Tm` per run, `TJ` adjustments | 61 | 27 | 29 |
 | Glyphs without advance written first in a cluster | 61 | | 25 |
-| HarfBuzz cluster level 1 (monotone characters) | 61 | 56 | 44 (joiner removed) |
+| HarfBuzz cluster level 1 (monotone characters; measured with the earlier writer: no U+034F mapping, no size switch) | 61 | 56 | 44 (joiner removed) |
 | `ActualText` around multi-glyph clusters, continuation codes empty | not applicable (PdfPig ignores it) | 27, junk doubled | 35 |
 | **Continuation codes mapped to U+034F instead of empty (kept)** | 61 (U+034F removed) | **56** | **44** with the joiner removed, 23 without |
 
@@ -370,7 +370,7 @@ Three ways of writing a shaped run were measured on the same 61 files, and one c
   continues a cluster, 56 of 61 lines come out right (ignoring the spaces its text layer does not mark, and the joiner). The lines still wrong then (all five fixed in the next subsection) were lines with stacked marks
   (`arabic-diacritics`, `arabic-kashida`, `arabic-shadda-dagger-alef`, `hebrew-points`), which pdf.js orders by position, and `arabic-persian`, where pdf.js drops
   the zero width non-joiner of "می‌خواهم" although the file maps its code to U+200C. `ActualText` was tried: pdf.js ignores it (and then shows the junk twice), and xpdf
-  does not improve (35), so it is not preferred over the joiner. Cluster level 1 changes little (31 files need the joiner instead of 34).
+  does not improve (35), so it is not preferred over the joiner. Cluster level 1 seemed to change little (31 files need the joiner instead of 34), but that was measured with the earlier writer, before the U+034F mapping and the size switch of the next subsection. With the final writer, level 1 on all runs costs five Indic lines (xpdf 40 against 45), which is why it applies only to right-to-left runs.
 - **The price of the joiner:** every reader now sees U+034F in copied text (34 of the 61 lines carry it). It is invisible and does not break Arabic joining, but it breaks plain
   string matching (`Contains`, grep, tokenizers that keep it inside the word), and because its combining class is 0 it blocks canonical reordering when a position-ordered reader
   puts it between a letter and its own marks (normalised text then differs from the source). This is written into `docs/known-limitations.md`. Fewer continuation glyphs
