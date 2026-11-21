@@ -272,7 +272,7 @@ internal static class ParagraphLayouter
             LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(paragraph.CodePoints);
             for (int i = 1; i < breaks.Length; i++)
             {
-                if (breaks[i] != LineBreakKind.None && _boundary[utf16[i]] && paragraph.CodePoints[i - 1] != SoftHyphen)
+                if (breaks[i] != LineBreakKind.None && _boundary[utf16[i]] && (i == paragraph.CodePoints.Length || paragraph.CodePoints[i - 1] != SoftHyphen))
                 {
                     CandidateIndex.Add(utf16[i]);
                     _mandatory.Add(breaks[i] == LineBreakKind.Mandatory);
@@ -310,7 +310,14 @@ internal static class ParagraphLayouter
                 }
             }
 
-            return Count;
+            // No candidate is left: measure the rest like any other unit, so that a missing candidate never switches breaking off.
+            bool restFits = _options.MaxWidth is not { } restLimit || _prefix[ContentEnd(start, Count)] - _prefix[start] <= restLimit + Tolerance;
+            if (restFits)
+            {
+                return Count;
+            }
+
+            return lastFit >= 0 ? lastFit : BreakUnit(start, Count);
         }
 
         /// <summary>

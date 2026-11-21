@@ -159,4 +159,21 @@ public class ParagraphWordBreakTests
         Assert.DoesNotContain(layout.Lines, l => l.Start == 4);
         Assert.True(layout.LineCount > 1);
     }
+
+    [Fact]
+    public void A_text_that_ends_in_a_soft_hyphen_is_still_cut_to_the_width()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        string text = "xx abcdefghijklmnopqrstuvwxyz";
+        string withShy = text + (char)0x00AD;
+
+        ParagraphLayout plain = LayoutTestKit.Layout(text, fonts, 60);
+        ParagraphLayout shy = LayoutTestKit.Layout(withShy, fonts, 60);
+
+        // The soft hyphen is a character with no width of its own and no place to break: it must not switch the cutting of the long word off.
+        Assert.True(plain.LineCount > 2);
+        Assert.Equal(plain.LineCount, shy.LineCount);
+        AssertTiles(withShy, shy);
+        Assert.All(shy.Lines, l => Assert.True(l.Width <= 60 + Tolerance));
+    }
 }
