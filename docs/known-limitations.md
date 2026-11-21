@@ -1,6 +1,6 @@
 # Known limitations
 
-What Pdfwright does not do, or does in a way that a reader of the output can notice. Each entry says why. (Pre-release: nothing is published yet.)
+What Pdfwright does not do, or does in a way that a reader of the output can notice. Each entry says why. (Version 0.1 is complete and not yet published.)
 
 ## Text extraction and copying
 

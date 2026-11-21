@@ -282,15 +282,16 @@ with a green CI and a reviewed pull request, as in Sheetwright.
 | **S4** | **Paragraph layout and the drawing canvas**: lines, alignment (logical), runs, the public `TextMeasurer`, paths, clip, transforms, opacity, JPEG and PNG | 8 | Done: #7 (S4a), #8 (S4b), #9 (S4c, the pdf.js reading check), #10 (S4d) |
 | **S5** | **Document layer:** the block set, flow and page breaks, keep-together, columns, **tables with pagination, repeated header, streamed rows, auto widths**, header and footer with page count (two passes only when the footer asks for it) | 10 | Done: #11 (S5a), #12 (S5b), #13 (S5c) |
 | **S6** | **Script conformance:** the corpora for Arabic, Hebrew, Devanagari, Bengali, Tamil, Thai, mixed direction; extraction and visual goldens; fixes in S2 to S4; native-speaker review | 8 | Done: #14 (S6a), #15 (S6b); the native-speaker review is the maintainer's (release checklist) |
-| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Not started |
-| | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S6 done; S7 and the release remain |
+| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Done: #PRNUMBER (documentation, samples, comparison table, `RELEASING.md` and the CHANGELOG; Trusted Publishing and 0.1.0 are the maintainer's, see below) |
+| | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S7 done; only the maintainer's items and the release remain |
 
-**Where it stands (21 November 2026).** Slices S0 to S6 are done and merged: the writer, the font engine, the text engine, paragraph layout and the
-canvas, the document layer (blocks, tables, columns, callouts, drawings, images, headers and footers) and the script conformance corpus with its
-extraction and visual goldens. The day counts above were the estimate; they are kept as written. What remains before 0.1.0 is slice S7
-(documentation, samples, the README comparison table, `RELEASING.md`, the CHANGELOG) and the maintainer's own items: the native-speaker review of
-the corpus text, opening the sample files in Chrome, Edge, Acrobat Reader and macOS Preview, the Trusted Publishing policy on nuget.org with the
-publishing secret, and the decision to release. Tagging 0.1.0 and publishing are the maintainer's, and have not been done.
+**Where it stands (21 November 2026).** Slices S0 to S7 are done and merged: the writer, the font engine, the text engine, paragraph layout and the
+canvas, the document layer (blocks, tables, columns, callouts, drawings, images, headers and footers), the script conformance corpus with its extraction and
+visual goldens, and the documentation (the README with its comparison table, the user guide, the sample report, `RELEASING.md` and the CHANGELOG). The day counts
+above were the estimate; they are kept as written. **Only the maintainer's items remain before 0.1.0:** the native-speaker review of the corpus text, opening the
+sample files in Chrome, Edge, Acrobat Reader and macOS Preview, the Trusted Publishing policy on nuget.org with the `NUGET_USER` secret, and the decision to release
+(the checklist is `RELEASING.md`). Tagging 0.1.0 and publishing are the maintainer's, and have not been done: no tag, no release, no version bump to a published state,
+nothing on nuget.org.
 
 **Order and parallel work:** S0 first; then **S1 and S2 can run beside S3** (the text engine has no dependency on the writer until S4);
 S4 needs S2 and S3; S5 needs S4; S6 runs from S3 on as the corpus grows and finishes last. With three parallel sessions the calendar is
@@ -625,6 +626,23 @@ The comparator also fails: a blank page, an all-black page, a shift of 2 pixels 
 
 **Not covered.** A PNG is the picture of one PDFium version at one resolution (PDFium 152 here; an update of the package may move glyph edges and is a reason to look at the diff images, not a reason to widen the tolerance); a colour or light-grey text page beyond the rectangles and rules of the comparator tests (the comparison is per channel, so it would be seen, but no golden page has colour); `three-pages.pdf` is not drawn: it names Helvetica without embedding it, so PDFium draws the substituted font of each system, and the first CI run of the final rule measured it differing by 48 to 1,126 pixels per page on Linux and 54 to 1,126 on macOS (Windows 0, where the PNGs were made), while the 13 pages with embedded fonts measured 0 on all three; the earlier luminance rule (threshold 96) had hidden this; only the short pages of the scripts are drawn, not the long ones.
 
+### S7 status: documentation, samples and the release checklist (21 November 2026)
+
+**README** (what it is and is not, install with the note that nothing is published, the quick start, the key concepts, the scripts with the measured read-back results, the comparison table, the limitations summary, links), **`docs/guide.md`** (the user guide, one section for each area of the
+public API), **`samples/Pdfwright.Samples.Report`** (a multi-page report: heading, KPI columns in a callout, a bar chart, a paginated table, header and footer "Page x of y", Arabic and Latin text; in `Pdfwright.slnx`, so CI builds it; the Noto fonts are linked from the test project, not copied, and their OFL licence texts are copied beside the program),
+`RELEASING.md` (the maintainer's checklist for 0.1.0 in Sheetwright's form) and the CHANGELOG (one coherent `[Unreleased]` section for the whole 0.1.0 surface, not one entry for each slice).
+
+**How the documentation code is tested.** Every `csharp` block of the README and of `docs/guide.md` has a line `<!-- snippet: name -->` above it, and `tests/Pdfwright.Tests/Documentation/DocumentationSnippetTests.cs` holds the code between `// <snippet name>` and `// </snippet>`, which the tests compile and run (the quick start saves a report and reads it back; the others
+build a document and save it, mostly through qpdf and PdfPig). `DocumentationSyncTests` fails when a block has no snippet, a snippet is in no document, or the two differ (compared line for line after the block's leading `using` lines and the snippet's indent are set aside; a snippet line may carry `// docs: text` to show a reader a path or a stream where the test has its own). So the code a reader copies is code that compiled and ran.
+`ReportSampleTests` compiles `ReportSample.cs` into the test project and builds, saves and reads back the sample report. Both run on all four target frameworks.
+
+**The comparison table** (README) states only what section 2 and `baselines.md` measured on 21 November 2026 (Skia's PDF backend, SkiaSharp 4.157.0 with PdfPig 0.1.16: Arabic as presentation forms in visual order, Hebrew reversed, no tagged-PDF surface, native sizes, 279 ms and 31 MB for the text-only spike; Playwright's Chromium headless shell: 2,048 ms, 495 MB, 288 MB on disk), what the Pdfwright tests
+measure (PdfPig 3120 of 3120 and Firefox's pdf.js 3120 of 3120, 61 of 61 lines, xpdf at its floor of 45 of 61) and what Playwright documents (the `tagged` option of `page.pdf`, marked as not tested here). What nobody measured is written as "not measured here", including Chromium's Arabic extraction and Pdfwright's own timings (there is no benchmark scenario yet), and the closing paragraph says
+that the two competitors' rows are spikes made for this plan and when to choose them instead.
+
+**Package.** `Pdfwright.csproj` carries the description, the tags, the README (`PackageReadmeFile`), the MIT expression, the repository URL (from `Directory.Build.props`), and now `LICENSE` and `NOTICE` at the root of the package; there is no icon (Sheetwright has none). `dotnet pack` was run with `-nodeReuse:false -m:1`; its result is in the pull request. The public XML documentation was scanned for names of slices and internal types, and the one stale comment (`LibraryInfo`, internal) was reworded.
+
+**Not done, by design (the maintainer's):** the Trusted Publishing policy and the `NUGET_USER` secret, the native-speaker review, the viewer checks, the pdf.js re-check on the release candidate, the tag, the release and nuget.org. The version stays `0.0.1` in `Directory.Build.props`; the tag gives the release its version.
 ## 10. Repository, release and name
 
 **Repository shape (as Sheetwright):** `src/<Name>`, `tests/<Name>.Tests`, `benchmarks/`, `tools/` (the Unicode table generator, the content-stream
