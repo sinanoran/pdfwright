@@ -5,8 +5,8 @@ namespace Pdfwright.Images;
 
 /// <summary>
 /// Reads a PNG (ISO/IEC 15948) into the form a PDF image wants: 8-bit samples in a device colour space, a palette, and the transparency as a
-/// separate mask. Every chunk's CRC is checked; only IHDR, PLTE, tRNS, IDAT and IEND are read, and the other chunks (gAMA, iCCP, sRGB, cHRM and the rest) are
-/// skipped, so the colours are those of the raw samples (see the known limitations). Nothing is allocated for a size above the limits, and
+/// separate mask. Every chunk's CRC is checked; only IHDR, PLTE, tRNS, IDAT and IEND are read, and the other ancillary chunks (gAMA, iCCP, sRGB, cHRM and the rest) are
+/// skipped, while an unknown chunk whose type begins with a capital letter (a critical one, which a decoder may not skip) is refused, so the colours are those of the raw samples (see the known limitations). Nothing is allocated for a size above the limits, and
 /// data that is damaged or too short for its header is an <see cref="ImageFormatException"/>, never an exception of the runtime.
 /// </summary>
 internal static class PngDecoder
@@ -35,7 +35,8 @@ internal static class PngDecoder
         Header? header = null;
         byte[]? palette = null;
         byte[]? transparency = null;
-        using MemoryStream compressed = new();
+        List<(int Start, int Length)> slices = [];
+        long total = 0;
         bool end = false;
         int position = Signature.Length;
         while (!end)
@@ -93,22 +94,42 @@ internal static class PngDecoder
             }
             else if (type.SequenceEqual("IDAT"u8))
             {
-                compressed.Write(data);
+                slices.Add((position + 8, (int)length));
+                total += length;
             }
             else if (type.SequenceEqual("IEND"u8))
             {
                 end = true;
             }
+            else if ((type[0] & 0x20) == 0)
+            {
+                // The first letter's case says whether a decoder may skip a chunk: an unknown critical one means the file needs more than this reader knows.
+                throw new ImageFormatException($"The PNG has a critical chunk ({Name(type)}) that this reader does not know, so it cannot show the image right.");
+            }
 
             position += 12 + (int)length;
         }
 
-        if (compressed.Length == 0)
+        if (total == 0)
         {
             throw new ImageFormatException("The PNG has no image data.");
         }
 
-        return Build(header!, palette, transparency, compressed.GetBuffer().AsSpan(0, (int)compressed.Length));
+        // One buffer of exactly the compressed size (the input is a span, which a stream cannot keep), inflated from as it is.
+        if (total > int.MaxValue)
+        {
+            throw new ImageFormatException("The PNG's image data is too large.");
+        }
+
+        byte[] compressed = new byte[total];
+        int filled = 0;
+        foreach ((int start, int length) in slices)
+        {
+            file.Slice(start, length).CopyTo(compressed.AsSpan(filled));
+            filled += length;
+        }
+
+        return Build(header!, palette, transparency, compressed);
     }
 
     private static Header ReadHeader(ReadOnlySpan<byte> data)
@@ -162,7 +183,7 @@ internal static class PngDecoder
         return new Header((int)width, (int)height, depth, colorType, data[12] == 1);
     }
 
-    private static ImageSource Build(Header header, byte[]? palette, byte[]? transparency, ReadOnlySpan<byte> compressed)
+    private static ImageSource Build(Header header, byte[]? palette, byte[]? transparency, byte[] compressed)
     {
         int width = header.Width;
         int height = header.Height;
@@ -246,7 +267,7 @@ internal static class PngDecoder
 
         try
         {
-            using MemoryStream source = new(compressed.ToArray());
+            using MemoryStream source = new(compressed, writable: false);
             using ZLibStream inflater = new(source, CompressionMode.Decompress);
             foreach ((int x0, int y0, int dx, int dy) in passes)
             {

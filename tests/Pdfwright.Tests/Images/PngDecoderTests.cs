@@ -221,7 +221,7 @@ public class PngDecoderTests
     }
 
     [Fact]
-    public void Chunks_other_than_the_ones_that_are_read_are_skipped_whatever_they_say()
+    public void Ancillary_chunks_other_than_the_ones_that_are_read_are_skipped_whatever_they_say()
     {
         byte[] png = ImageTestKit.Png(
             9,
@@ -236,6 +236,16 @@ public class PngDecoderTests
                 chunks.Insert(chunks.Count - 1, ("tIME", [0, 0, 0, 0, 0, 0, 0]));
             });
         AssertDecodes(png, 9, 9, 8, 2, null, null);
+    }
+
+    [Theory]
+    [InlineData("ZZzz")]
+    [InlineData("Abcd")]
+    public void An_unknown_critical_chunk_is_refused(string type)
+    {
+        byte[] png = ImageTestKit.Png(9, 9, 8, 2, changeChunks: chunks => chunks.Insert(1, (type, [9, 9])));
+        ImageFormatException error = Assert.Throws<ImageFormatException>(() => ImageSource.FromBytes(png));
+        Assert.Contains(type, error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
