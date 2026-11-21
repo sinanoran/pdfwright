@@ -105,6 +105,14 @@ internal static class ParagraphLayouter
         };
     }
 
+    /// <summary>The order the clusters of a run's glyphs are listed in, which decides how the glyphs of a stretch of text are found.</summary>
+    private enum GlyphOrder
+    {
+        Ascending,
+        Descending,
+        Unordered,
+    }
+
     /// <summary>A line before alignment: its runs are at x positions measured from the left edge of the line's own sequence of runs.</summary>
     private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, List<PlacedRun> Runs);
 
@@ -119,6 +127,7 @@ internal static class ParagraphLayouter
         private readonly bool[] _boundary;
         private readonly int[] _codePointOf;
         private readonly List<bool> _mandatory = [];
+        private readonly GlyphOrder[] _glyphOrder;
 
         internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
         {
@@ -140,15 +149,27 @@ internal static class ParagraphLayouter
             _boundary = new bool[Count + 1];
             _boundary[0] = true;
             _boundary[Count] = true;
-            foreach (ShapedRun run in paragraph.Runs)
+            _glyphOrder = new GlyphOrder[paragraph.Runs.Count];
+            for (int r = 0; r < paragraph.Runs.Count; r++)
             {
+                ShapedRun run = paragraph.Runs[r];
                 _boundary[run.Utf16Start] = true;
                 double scale = _scale[run.FontIndex];
-                foreach (ShapedGlyph glyph in run.Glyphs)
+                bool ascending = true;
+                bool descending = true;
+                for (int g = 0; g < run.Glyphs.Length; g++)
                 {
+                    ShapedGlyph glyph = run.Glyphs[g];
                     advanceAt[glyph.Cluster] += glyph.XAdvance * scale;
                     _boundary[glyph.Cluster] = true;
+                    if (g > 0)
+                    {
+                        ascending &= run.Glyphs[g - 1].Cluster <= glyph.Cluster;
+                        descending &= run.Glyphs[g - 1].Cluster >= glyph.Cluster;
+                    }
                 }
+
+                _glyphOrder[r] = ascending ? GlyphOrder.Ascending : descending ? GlyphOrder.Descending : GlyphOrder.Unordered;
             }
 
             _prefix = new double[Count + 1];
@@ -259,8 +280,14 @@ internal static class ParagraphLayouter
             byte[] levels = UnicodeBidi.LineLevels(_paragraph.Bidi, firstCp, endCp);
 
             List<PlacedRun> pieces = [];
-            foreach (ShapedRun run in _paragraph.Runs)
+            for (int runIndex = FirstRunEndingAfter(start); runIndex < _paragraph.Runs.Count; runIndex++)
             {
+                ShapedRun run = _paragraph.Runs[runIndex];
+                if (run.Utf16Start >= drawEnd)
+                {
+                    break;
+                }
+
                 int runEnd = run.Utf16Start + run.Utf16Length;
                 int from = Math.Max(run.Utf16Start, start);
                 int to = Math.Min(runEnd, drawEnd);
@@ -283,7 +310,7 @@ internal static class ParagraphLayouter
                         cp++;
                     }
 
-                    PlacedRun? piece = Piece(run, runEnd, utf16[groupStart], utf16[cp], level, trailing);
+                    PlacedRun? piece = Piece(runIndex, run, runEnd, utf16[groupStart], utf16[cp], level, trailing);
                     if (piece is not null)
                     {
                         pieces.Add(piece);
@@ -330,7 +357,7 @@ internal static class ParagraphLayouter
         }
 
         /// <summary>One stretch of <paramref name="run"/> on a line: the glyphs whose clusters lie in [from, to), in the order of the level they now have.</summary>
-        private PlacedRun? Piece(ShapedRun run, int runEnd, int from, int to, byte level, bool trailing)
+        private PlacedRun? Piece(int runIndex, ShapedRun run, int runEnd, int from, int to, byte level, bool trailing)
         {
             ShapedGlyph[] glyphs;
             if (from == run.Utf16Start && to == runEnd && level == run.Level)
@@ -339,7 +366,7 @@ internal static class ParagraphLayouter
             }
             else
             {
-                glyphs = [.. run.Glyphs.Where(g => g.Cluster >= from && g.Cluster < to)];
+                glyphs = GlyphsOfClusters(runIndex, run, from, to);
 
                 // The glyphs are listed in the order of the run's direction; a piece of the other direction (white space that went back to the paragraph level) is listed in its own.
                 if (((level ^ run.Level) & 1) == 1)
@@ -364,6 +391,67 @@ internal static class ParagraphLayouter
                 ? run
                 : new ShapedRun { Utf16Start = from, Utf16Length = to - from, Level = level, Script = run.Script, FontIndex = run.FontIndex, Glyphs = glyphs };
             return new PlacedRun(piece, 0, advance, trailing);
+        }
+
+        /// <summary>The index of the first run that ends after <paramref name="position"/> (runs are in logical order and tile the text): where a line that starts there begins to look.</summary>
+        private int FirstRunEndingAfter(int position)
+        {
+            List<ShapedRun> runs = _paragraph.Runs;
+            int low = 0;
+            int high = runs.Count;
+            while (low < high)
+            {
+                int middle = low + ((high - low) / 2);
+                if (runs[middle].Utf16Start + runs[middle].Utf16Length > position)
+                {
+                    high = middle;
+                }
+                else
+                {
+                    low = middle + 1;
+                }
+            }
+
+            return low;
+        }
+
+        /// <summary>
+        /// The glyphs of <paramref name="run"/> whose cluster lies in [from, to), in the run's order. HarfBuzz lists clusters in one direction
+        /// (up in a left-to-right run, down in a right-to-left one), so they are found by binary search, not by scanning the run for every line.
+        /// </summary>
+        private ShapedGlyph[] GlyphsOfClusters(int runIndex, ShapedRun run, int from, int to)
+        {
+            ShapedGlyph[] glyphs = run.Glyphs;
+            switch (_glyphOrder[runIndex])
+            {
+                case GlyphOrder.Ascending:
+                    return glyphs[FirstIndex(glyphs, g => g.Cluster >= from)..FirstIndex(glyphs, g => g.Cluster >= to)];
+                case GlyphOrder.Descending:
+                    return glyphs[FirstIndex(glyphs, g => g.Cluster < to)..FirstIndex(glyphs, g => g.Cluster < from)];
+                default:
+                    return [.. glyphs.Where(g => g.Cluster >= from && g.Cluster < to)];
+            }
+        }
+
+        /// <summary>The first index of <paramref name="glyphs"/> where <paramref name="test"/> holds, given that it is false up to there and true after (or <c>glyphs.Length</c>).</summary>
+        private static int FirstIndex(ShapedGlyph[] glyphs, Func<ShapedGlyph, bool> test)
+        {
+            int low = 0;
+            int high = glyphs.Length;
+            while (low < high)
+            {
+                int middle = low + ((high - low) / 2);
+                if (test(glyphs[middle]))
+                {
+                    high = middle;
+                }
+                else
+                {
+                    low = middle + 1;
+                }
+            }
+
+            return low;
         }
 
         private void AddMetrics(int fontIndex, ref double ascent, ref double descent)
