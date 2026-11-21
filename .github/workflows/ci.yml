@@ -65,6 +65,16 @@ jobs:
       - run: dotnet test Pdfwright.slnx --no-build --configuration Release
         env:
           PDFWRIGHT_REQUIRE_QPDF: "1"
+          # A golden test that fails writes the bytes it made here (pdfwright-actual-*.pdf), and the next step keeps them.
+          PDFWRIGHT_ACTUAL_DIR: ${{ runner.temp }}/pdfwright-actual
+
+      - name: Keep the files a failing golden test wrote
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: golden-actual-${{ matrix.os }}
+          path: ${{ runner.temp }}/pdfwright-actual/pdfwright-actual-*.pdf
+          if-no-files-found: ignore
 
       - name: Pack
         if: matrix.os == 'ubuntu-latest'

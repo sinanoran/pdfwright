@@ -64,9 +64,9 @@ A text may not contain `|`; every file is strict UTF-8, in Unicode normalization
 **What the tests do with them.**
 
 - `ScriptConformanceTests`: PdfPig reads each document back and every heading, paragraph and table cell must be equal to its input, in logical order. The normalisation is exactly this: every
-  character for which `char.IsWhiteSpace` is true is removed from both sides, and so is U+034F COMBINING GRAPHEME JOINER (which Pdfwright writes after some Arabic, Indic and Thai letters, see
+  run of characters for which `char.IsWhiteSpace` is true becomes one space on both sides, and U+034F COMBINING GRAPHEME JOINER is removed (which Pdfwright writes after some Arabic, Indic and Thai letters, see
   `docs/known-limitations.md`). Nothing else is touched: the right-to-left mark, the zero-width non-joiner and the order of combining marks are compared as they are. A string passes when
-  the text read starts with it where the previous string ended; the header of a table, drawn again at the top of each later page, may stand between two strings and is counted separately
+  the text read has it whole where the previous string ended (a space is a space or a line break, a line break falls inside a string only between grapheme clusters, a character that moved into the next string or cell fails); `Directions` also checks that right-to-left letters fall and left-to-right letters rise in the order of the stream; the header of a table, drawn again at the top of each later page, may stand between two strings and is counted separately
   (a long page with *n* pages must repeat it *n* − 1 times).
 - `FailureCaseTests`: a character no font has (the diagnostics name it, the language and the page), a font that may not be embedded (`FontNotEmbeddableException`), a family that is not in the collection
   (`MissingFamilies`), for every script.

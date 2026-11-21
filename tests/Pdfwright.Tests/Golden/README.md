@@ -33,9 +33,13 @@ If the change is intended, regenerate on purpose, look at the diff of the files,
 so that a reviewer sees the change of the code and the change of the output apart:
 
 ```
-PDFWRIGHT_UPDATE_GOLDENS=1 tests/Pdfwright.Tests/bin/Debug/net10.0/Pdfwright.Tests -class "*Golden*"
+PDFWRIGHT_UPDATE_GOLDENS=1 tests/Pdfwright.Tests/bin/Debug/net10.0/Pdfwright.Tests -method "*golden_file*"
 ```
 
-(`PDFWRIGHT_UPDATE_GOLDEN=1` works too; the golden tests are `GoldenDocumentTests` and `The_uncompressed_file_is_the_golden_file`, so `-class "*Golden*"` and `-method "*golden_file*"` find them.)
+`-method "*golden_file*"` finds all twelve golden tests: the ten short pages and the README report in `GoldenDocumentTests`, and `The_uncompressed_file_is_the_golden_file`
+in `PdfDocumentTests`, which writes `three-pages.pdf`. `-class "*Golden*"` would miss that one (and would also run a test that regenerates nothing).
+`PDFWRIGHT_UPDATE_GOLDEN=1` works too. **The update is refused when the `CI` environment variable is set** (every CI system sets it): a CI run that regenerated the goldens would turn each difference into a pass,
+so the test fails with a message instead. On CI a failing golden test writes the new bytes to `PDFWRIGHT_ACTUAL_DIR` (the temporary folder when it is not set) as `pdfwright-actual-<name>.pdf`,
+and the workflow keeps them as the artifact `golden-actual-<os>` when the test step fails, so the diff tool can be run on a failure that happened on another machine.
 Run the golden tests once more without the variable, and on another runtime, before committing.
 Never regenerate to make a red CI green without reading the diff.
