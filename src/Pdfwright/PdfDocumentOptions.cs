@@ -134,6 +134,7 @@ public sealed class DocumentLimits
 {
     private readonly int? _maxPages;
     private readonly long? _maxBytes;
+    private readonly int? _maxTableRows;
 
     /// <summary>The most pages a document may have, or <see langword="null"/> for no limit. Exceeding it throws <see cref="PdfLimitExceededException"/> before the extra page is started.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is less than 1.</exception>
@@ -154,6 +155,18 @@ public sealed class DocumentLimits
         get => _maxBytes;
         init => _maxBytes = value is < 1 ? throw new ArgumentOutOfRangeException(nameof(MaxBytes), value, "A limit is 1 or more.") : value;
     }
+
+    /// <summary>
+    /// The most body rows any one table may have, or <see langword="null"/> for no limit. A table whose rows go on past it stops the save with <see cref="PdfLimitExceededException"/>
+    /// (<see cref="PdfLimitExceededException.Limit"/> is <see cref="DocumentLimit.MaxTableRows"/>). To draw the rows up to a limit and report the rest instead, use <see cref="Table.MaxRows"/>, which is listed in
+    /// <see cref="DocumentDiagnostics.TruncatedTables"/>; when both are set, the smaller of the two that a table reaches first applies (<see cref="Table.MaxRows"/> when it is not larger).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is less than 1.</exception>
+    public int? MaxTableRows
+    {
+        get => _maxTableRows;
+        init => _maxTableRows = value is < 1 ? throw new ArgumentOutOfRangeException(nameof(MaxTableRows), value, "A limit is 1 or more.") : value;
+    }
 }
 
 /// <summary>The limit of a <see cref="DocumentLimits"/> that a document hit.</summary>
@@ -164,6 +177,9 @@ public enum DocumentLimit
 
     /// <summary>The most bytes (<see cref="DocumentLimits.MaxBytes"/>).</summary>
     MaxBytes,
+
+    /// <summary>The most body rows of a table (<see cref="DocumentLimits.MaxTableRows"/>).</summary>
+    MaxTableRows,
 }
 
 /// <summary>
@@ -212,10 +228,29 @@ public sealed record MissingGlyph
     public override string ToString() => $"U+{CodePoint:X4} (language {Language ?? "none"}, page {Page})";
 }
 
+/// <summary>A table that had more rows than its <see cref="Table.MaxRows"/>: the first rows were drawn and the rest were left out.</summary>
+public sealed record TruncatedTable
+{
+    internal TruncatedTable(int blockIndex, int maxRows)
+    {
+        BlockIndex = blockIndex;
+        MaxRows = maxRows;
+    }
+
+    /// <summary>The position of the table among the blocks added to the document, from 0.</summary>
+    public int BlockIndex { get; }
+
+    /// <summary>The limit that was reached: the number of body rows that were drawn.</summary>
+    public int MaxRows { get; }
+
+    /// <inheritdoc />
+    public override string ToString() => $"table at block {BlockIndex} cut after {MaxRows} rows";
+}
+
 /// <summary>What the last save of a document found: data to inspect, not exceptions. A report is made by a save; it is read, never made.</summary>
 public sealed class DocumentDiagnostics
 {
-    internal DocumentDiagnostics(IReadOnlyList<MissingGlyph> missingGlyphs, IReadOnlyList<string> missingFamilies, int pageCount, long byteCount)
+    internal DocumentDiagnostics(IReadOnlyList<MissingGlyph> missingGlyphs, IReadOnlyList<string> missingFamilies, int pageCount, long byteCount, IReadOnlyList<TruncatedTable>? truncatedTables = null)
     {
         ArgumentNullException.ThrowIfNull(missingGlyphs);
         ArgumentNullException.ThrowIfNull(missingFamilies);
@@ -223,6 +258,7 @@ public sealed class DocumentDiagnostics
         MissingFamilies = missingFamilies;
         PageCount = pageCount;
         ByteCount = byteCount;
+        TruncatedTables = truncatedTables ?? [];
     }
 
     /// <summary>An empty report: nothing has been saved.</summary>
@@ -238,6 +274,9 @@ public sealed class DocumentDiagnostics
     /// the fonts of the collection in their order of preference (the first font when nothing else fits), which is rarely what was meant.
     /// </summary>
     public IReadOnlyList<string> MissingFamilies { get; }
+
+    /// <summary>The tables whose rows went on past their <see cref="Table.MaxRows"/>: the rows after the limit were not drawn. One entry for each such table, in the order of the document.</summary>
+    public IReadOnlyList<TruncatedTable> TruncatedTables { get; }
 
     /// <summary>The number of pages of the document.</summary>
     public int PageCount { get; }
