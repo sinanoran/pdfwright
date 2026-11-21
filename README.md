@@ -5,10 +5,10 @@
 
 **Pdfwright writes PDF reports: paragraphs, tables that paginate, vector charts, in every script.**
 
-> **Status: pre-release, nothing is published.** The writer, the text engine, the drawing canvas and (since slice S5a)
-> the first public API are in the repository: lengths, page sizes, fonts, text styles, headings, paragraphs with styled runs, spacers
-> and page breaks, tables (since S5b), `PdfDocument`, the text measurer and the diagnostics. Columns, callouts, drawings, keep-together and
-> headers and footers are the next slices (see [`docs/plan-0.1.md`](docs/plan-0.1.md)); the package id `Pdfwright` is not on nuget.org.
+> **Status: pre-release, nothing is published.** Slices S0 to S6 of [`docs/plan-0.1.md`](docs/plan-0.1.md) are done: the writer, the font and
+> text engines, the drawing canvas and the public document layer (headings, paragraphs with styled runs, tables that paginate, columns, callouts,
+> drawings, images, headers and footers, the text measurer and the diagnostics), with the script corpus and its golden files. Slice S7 (documentation,
+> samples, this comparison table, the changelog) and the release checks in `RELEASING.md` remain before 0.1.0; the package id `Pdfwright` is not on nuget.org.
 
 ## Why it will exist
 
