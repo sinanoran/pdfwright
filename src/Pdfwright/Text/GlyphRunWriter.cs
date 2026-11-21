@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Pdfwright.Pdf;
 
 namespace Pdfwright.Text;
@@ -9,11 +11,23 @@ namespace Pdfwright.Text;
 /// works from positions sees the glyphs where they are drawn).
 /// </summary>
 /// <remarks>
+/// <para>
 /// Measured on the 61 corpus lines (see the plan's section on the mixed-direction test): a <c>Tm</c> per glyph reads better in xpdf's
 /// position-ordered mode than one <c>Tm</c> per run with <c>TJ</c> adjustments (36 of 61 against 29) and the same in pdf.js and PdfPig, and
 /// writing the glyphs of a cluster with those that have no advance first (to put the glyph that carries the advance last) made xpdf
 /// worse (25 of 61). The file is larger by about twenty bytes a glyph (not measured after compression). Measured before the continuation codes were
 /// mapped to U+034F (see <see cref="PdfEmbeddedFont.ContinuationText"/>); under that mapping xpdf reads 44 of 61 once the joiner is removed.
+/// </para>
+/// <para>
+/// Firefox's pdf.js needs three more things of the file, measured on the same lines (61 of 61 with them, 56 without) and read in its source (6.3.335): it treats a glyph whose
+/// text holds a non-spacing mark anywhere as a zero-width diacritic, which skips its position check and adds it to the open text item; it then reverses a right-to-left item
+/// character by character, expecting visual order; and it drops a glyph whose text ends with a format character. So (1) a right-to-left run is shaped at HarfBuzz cluster level 1
+/// (<c>MonotoneCharacters</c>), which gives each mark a cluster and a text of its own (left-to-right runs stay at the default level, where level 1 cost xpdf five Indic lines);
+/// (2) a glyph whose text holds a mark, ends with a format character, or is a continuation glyph (<see cref="PdfEmbeddedFont.ContinuationText"/>) is shown with <c>Tf</c> at size 1 and a
+/// text matrix scaled by the real size (the same drawing), two in a row alternating between sizes 1 and 2, so that each starts an item of its own, and the next ordinary glyph restores
+/// the real size (<c>Tf</c> is written only when the size changes); (3) a cluster text that ends with a format character (a zero width non-joiner) gets <see cref="PdfEmbeddedFont.ContinuationText"/>
+/// appended so that pdf.js keeps the glyph. Measured with all three: PdfPig 61 of 61 (byte-exact, joiner removed), pdf.js 61 of 61 (canonical equality; see the known limitations), xpdf 45 of 61.
+/// </para>
 /// </remarks>
 internal static class GlyphRunWriter
 {
@@ -61,7 +75,6 @@ internal static class GlyphRunWriter
         }
 
         int runEnd = run.Utf16Start + run.Utf16Length;
-        content.Font(fontName, size);
         int previousCluster = -1;
         foreach (int g in order)
         {
@@ -71,11 +84,64 @@ internal static class GlyphRunWriter
             {
                 int next = indexOfValue[cluster] + 1;
                 clusterText = text[cluster..(next < values.Length ? values[next] : runEnd)];
+                if (EndsWithFormat(clusterText))
+                {
+                    // pdf.js drops a glyph whose text ends with a format character (a zero width non-joiner): end the text with the joiner too.
+                    clusterText += PdfEmbeddedFont.ContinuationText;
+                }
+
                 previousCluster = cluster;
             }
 
             int code = font.UseGlyph(glyphs[g].Glyph, clusterText);
-            content.TextMatrix(1, 0, 0, 1, x[g], baselineY + (glyphs[g].YOffset * scale)).ShowHex(PdfEmbeddedFont.Code(code));
+            double y = baselineY + (glyphs[g].YOffset * scale);
+            if (NeedsItemOfItsOwn(clusterText ?? PdfEmbeddedFont.ContinuationText))
+            {
+                // Size 1 and a scaled matrix draw the same as the real size; a second such glyph in a row alternates with size 2 so that it differs from the one before.
+                double unit = content.CurrentFont is { } current && current.Name == fontName && current.Size == 1 ? 2 : 1;
+                SetFont(content, fontName, unit);
+                content.TextMatrix(size / unit, 0, 0, size / unit, x[g], y).ShowHex(PdfEmbeddedFont.Code(code));
+                continue;
+            }
+
+            SetFont(content, fontName, size);
+            content.TextMatrix(1, 0, 0, 1, x[g], y).ShowHex(PdfEmbeddedFont.Code(code));
         }
+    }
+
+    private static void SetFont(ContentStreamBuilder content, string fontName, double size)
+    {
+        if (content.CurrentFont is not { } current || current.Name != fontName || current.Size != size)
+        {
+            content.Font(fontName, size);
+        }
+    }
+
+    private static bool EndsWithFormat(string text)
+    {
+        Rune last = default;
+        foreach (Rune rune in text.EnumerateRunes())
+        {
+            last = rune;
+        }
+
+        return Rune.GetUnicodeCategory(last) == UnicodeCategory.Format;
+    }
+
+    /// <summary>
+    /// Whether pdf.js would merge the glyph into the item before it or drop it: a text with a non-spacing mark anywhere counts for it as a zero-width diacritic
+    /// (no position check, and the item it joins is reversed as a whole when it is right to left), and a text that ends with a format character is dropped.
+    /// </summary>
+    private static bool NeedsItemOfItsOwn(string text)
+    {
+        foreach (Rune rune in text.EnumerateRunes())
+        {
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.NonSpacingMark)
+            {
+                return true;
+            }
+        }
+
+        return EndsWithFormat(text);
     }
 }

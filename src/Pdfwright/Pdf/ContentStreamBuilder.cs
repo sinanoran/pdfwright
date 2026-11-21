@@ -13,6 +13,9 @@ internal sealed class ContentStreamBuilder
 {
     private readonly ArrayBufferWriter<byte> _bytes = new();
 
+    /// <summary>The font resource name and size the last <c>Tf</c> set, or <see langword="null"/> when none was written or a <c>Q</c> may have changed it.</summary>
+    internal (string Name, double Size)? CurrentFont { get; private set; }
+
     internal int Length => _bytes.WrittenCount;
 
     internal ReadOnlyMemory<byte> ToMemory() => _bytes.WrittenMemory;
@@ -21,7 +24,11 @@ internal sealed class ContentStreamBuilder
 
     internal ContentStreamBuilder SaveState() => Op("q");
 
-    internal ContentStreamBuilder RestoreState() => Op("Q");
+    internal ContentStreamBuilder RestoreState()
+    {
+        CurrentFont = null; // the restored state holds a font this builder has not tracked
+        return Op("Q");
+    }
 
     /// <summary>Concatenates a matrix to the current transformation: <c>a b c d e f cm</c>.</summary>
     internal ContentStreamBuilder Transform(double a, double b, double c, double d, double e, double f) =>
@@ -95,6 +102,7 @@ internal sealed class ContentStreamBuilder
     internal ContentStreamBuilder Font(string name, double size)
     {
         Raw("/" + Regular(name) + " " + PdfReal.Format(size) + " Tf\n");
+        CurrentFont = (name, size);
         return this;
     }
 
