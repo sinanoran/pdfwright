@@ -25,6 +25,9 @@ namespace Pdfwright.Pdf;
 /// </remarks>
 internal sealed class PdfEmbeddedFont
 {
+    /// <summary>U+034F COMBINING GRAPHEME JOINER: the text of a code that only continues a cluster (see the class remarks).</summary>
+    internal const string ContinuationText = "\u034F";
+
     private readonly TrueTypeFont _font;
     private readonly Dictionary<(int Glyph, string Text), int> _codes = [];
     private readonly SortedDictionary<int, (int Glyph, string Text)> _byCode = [];
@@ -57,7 +60,7 @@ internal sealed class PdfEmbeddedFont
     /// <summary>
     /// Records that the document draws a glyph for a text (the source characters of its cluster) and gives the code to draw it
     /// with, which <c>ToUnicode</c> will map back to exactly that text when the document is copied from or searched. A glyph that
-    /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and extracts as nothing.
+    /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and <c>ToUnicode</c> maps it to <see cref="ContinuationText"/>.
     /// </summary>
     /// <returns>
     /// The code of the glyph for this text: write it with <see cref="Code"/>. Codes are handed out in the order of the calls, so
@@ -278,7 +281,7 @@ internal sealed class PdfEmbeddedFont
             foreach (KeyValuePair<int, (int Glyph, string Text)> pair in chunk)
             {
                 cmap.Append('<').Append(pair.Key.ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
-                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text.Length == 0 ? "͏" : pair.Value.Text))).Append(">\n");
+                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text.Length == 0 ? ContinuationText : pair.Value.Text))).Append(">\n");
             }
 
             cmap.Append("endbfchar\n");

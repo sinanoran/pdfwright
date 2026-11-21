@@ -12,7 +12,8 @@ namespace Pdfwright.Text;
 /// Measured on the 61 corpus lines (see the plan's section on the mixed-direction test): a <c>Tm</c> per glyph reads better in xpdf's
 /// position-ordered mode than one <c>Tm</c> per run with <c>TJ</c> adjustments (36 of 61 against 29) and the same in pdf.js and PdfPig, and
 /// writing the glyphs of a cluster with those that have no advance first (to put the glyph that carries the advance last) made xpdf
-/// worse (25 of 61). The file is larger by about twenty bytes a glyph; a compressed content stream squeezes most of that out.
+/// worse (25 of 61). The file is larger by about twenty bytes a glyph (not measured after compression). Measured before the continuation codes were
+/// mapped to U+034F (see <see cref="PdfEmbeddedFont.ContinuationText"/>); under that mapping xpdf reads 44 of 61 once the joiner is removed.
 /// </remarks>
 internal static class GlyphRunWriter
 {
@@ -25,6 +26,8 @@ internal static class GlyphRunWriter
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(font);
         ArgumentNullException.ThrowIfNull(run);
+        ArgumentNullException.ThrowIfNull(fontName);
+        ArgumentNullException.ThrowIfNull(text);
         ShapedGlyph[] glyphs = run.Glyphs;
         if (glyphs.Length == 0)
         {
@@ -40,7 +43,7 @@ internal static class GlyphRunWriter
             pen += glyphs[i].XAdvance * scale;
         }
 
-        // Logical order: clusters ascending (a right-to-left run lists them downwards), the glyphs of one cluster as the shaper lists them.
+        // Logical order: clusters ascending (a right-to-left run lists them downwards), the glyphs of one cluster in the order the shaper lists them, which for a right-to-left run puts the base first (the glyph that carries the text).
         int[] order = [.. Enumerable.Range(0, glyphs.Length)];
         if (run.IsRightToLeft)
         {
@@ -51,6 +54,12 @@ internal static class GlyphRunWriter
 
         // The text of each cluster: from its value to the next greater one in the run, or the end of the run.
         int[] values = [.. glyphs.Select(g => g.Cluster).Distinct().Order()];
+        Dictionary<int, int> indexOfValue = [];
+        for (int v = 0; v < values.Length; v++)
+        {
+            indexOfValue[values[v]] = v;
+        }
+
         int runEnd = run.Utf16Start + run.Utf16Length;
         content.Font(fontName, size);
         int previousCluster = -1;
@@ -60,7 +69,7 @@ internal static class GlyphRunWriter
             string? clusterText = null;
             if (cluster != previousCluster)
             {
-                int next = Array.IndexOf(values, cluster) + 1;
+                int next = indexOfValue[cluster] + 1;
                 clusterText = text[cluster..(next < values.Length ? values[next] : runEnd)];
                 previousCluster = cluster;
             }
