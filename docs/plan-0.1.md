@@ -296,6 +296,31 @@ every page), which viewers handle well into the thousands of pages and which a b
 memory, with a few copies while it is compressed, so one very large page costs several times its own size at completion.
 A document's other pages are written as they end and cost nothing more.
 
+### Go or stop assessment (21 November 2026, after S1 and S2)
+
+**Verdict: go, on to S3.** Measured against the plan's own criteria:
+
+- **Effort.** The contingency is "S1 and S2 overrun by more than 50 percent". They were planned at 8 and 7 working days and were done in
+  about one working session each (including an independent opus review of each and the fixes it found), so there is no overrun.
+- **Arabic and Devanagari extraction** (the criterion that failed with Skia). `ShapingSpikeTests` shapes every single-direction corpus line
+  of Arabic, Hebrew (with points), Devanagari (conjuncts, matras, nukta, reph), Bengali, Tamil (split vowels) and Thai with HarfBuzz, draws it
+  with the S2 font engine, and reads it back with PdfPig: **29 of 29 lines come back in logical order, exactly**, and qpdf accepts all of
+  them. The method: glyphs are written in logical (cluster) order, each at the position the shaper gave it; each cluster's text is
+  attached to its first glyph; a glyph drawn for a second text gets its own code (a CID above the glyph count, sent to the glyph by
+  `CIDToGIDMap`), so `ToUnicode` has exactly one text per code and no reader needs `ActualText`. The first attempt (one `ToUnicode` entry
+  per glyph) failed 17 of 29 lines, all for the one reason this fixed.
+- **What this does not show, and the risks that remain.** (1) Only **single-direction** lines were measured: mixed direction and nesting
+  (bidi, S3) are the open risk, and extraction in logical order across direction runs has not been tried. (2) **Nothing was rendered**: that
+  the glyphs are drawn at the right places is shaping output we trust, not a check; the PDFium image comparison of section 8 is S6 and
+  should come earlier, as soon as S4 draws a page. (3) PdfPig reads the content stream in order, and so do most extractors, but
+  extractors that sort by geometry (some pdftotext modes) may reorder lines of mixed direction; the viewer check of the release
+  list must include copying Arabic text out of three viewers. (4) One glyph per `Tm` is correct and large: the layout (S4) will write
+  runs with `TJ` adjustments where glyphs are adjacent, which has to keep this extraction result. (5) Line breaking (UAX #14), bidi and
+  the Unicode tables are still to be written and are the bulk of S3 (12 days): the estimate of the whole plan stands, with S3 now
+  the item to watch.
+- **Stop condition.** If bidi extraction of mixed lines (S3's second half) cannot be made correct with logical-order content, or the
+  visual check shows misplaced marks, stop and choose the contingency of section 3.
+
 **Risks.** (1) A script with a shaping subtlety we do not know about (Tamil and Bengali reordering are the likely ones): mitigated by HarfBuzz
 doing the work and by the native-speaker review. (2) Viewer incompatibility from an own writer: the PDF subset is small and fixed, `qpdf` and
 four viewers check it. (3) The Unicode tables and Thai breaking: the conformance files make the first measurable; the second is documented as a

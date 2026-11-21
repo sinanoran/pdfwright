@@ -7,17 +7,26 @@ namespace Pdfwright.Pdf;
 
 /// <summary>
 /// A TrueType font embedded in a document as a subset (ISO 32000-1, 9.7): a Type 0 font with the identity encoding over a
-/// CIDFontType2, so that content names glyphs by their id (two bytes each), with the widths of the glyphs used and a
-/// <c>ToUnicode</c> map from each glyph to the text it was drawn for.
+/// CIDFontType2, so that content names glyphs by a two-byte code, with the widths of the glyphs used and a <c>ToUnicode</c>
+/// map from each code to the text it was drawn for.
 /// </summary>
 /// <remarks>
 /// The reference is handed out at once and the objects are written when the document is completed, when the set of glyphs
 /// the pages used is known: a page's resources can refer to the font long before the font's last glyph is drawn.
+/// <para>
+/// A code is the glyph's id the first time the glyph is drawn for a text. When the same glyph is drawn for another text (a
+/// consonant alone and the same consonant inside a conjunct, U+2126 and U+03A9, a ligature in two words), it gets a code of
+/// its own, above the font's glyph count, and a <c>CIDToGIDMap</c> sends both codes to the one glyph. Every code then has exactly one
+/// text in <c>ToUnicode</c>, so any reader extracts the text that was drawn, with no <c>ActualText</c> and no ambiguity.
+/// </para>
 /// </remarks>
 internal sealed class PdfEmbeddedFont
 {
     private readonly TrueTypeFont _font;
-    private readonly SortedDictionary<int, string?> _glyphs = [];
+    private readonly Dictionary<(int Glyph, string Text), int> _codes = [];
+    private readonly SortedDictionary<int, (int Glyph, string Text)> _byCode = [];
+    private readonly HashSet<int> _glyphsWithCode = [];
+    private int _nextExtra;
     private bool _written;
 
     internal PdfEmbeddedFont(PdfDocumentWriter document, TrueTypeFont font)
@@ -31,6 +40,7 @@ internal sealed class PdfEmbeddedFont
         }
 
         _font = font;
+        _nextExtra = font.GlyphCount;
         Reference = document.AllocateObject();
         document.OnComplete(Write);
     }
@@ -42,15 +52,12 @@ internal sealed class PdfEmbeddedFont
     internal TrueTypeFont Font => _font;
 
     /// <summary>
-    /// Records that the document draws a glyph, and the text it stands for (the source characters of its cluster), which
-    /// <c>ToUnicode</c> will give back when the document is copied from or searched. An empty text is no text.
+    /// Records that the document draws a glyph for a text (the source characters of its cluster) and gives the code to draw it
+    /// with, which <c>ToUnicode</c> will map back to exactly that text when the document is copied from or searched. A glyph that
+    /// is only the continuation of a cluster (the second glyph of a split vowel) is recorded with no text, and extracts as nothing.
     /// </summary>
-    /// <returns>
-    /// <c>true</c> when <c>ToUnicode</c> will give back the text passed. <c>false</c> when the glyph is already drawn for different
-    /// text, which keeps the first: the caller then wraps this use in <see cref="ContentStreamBuilder.BeginActualText"/> so that the
-    /// text it means is what is extracted.
-    /// </returns>
-    internal bool UseGlyph(int glyph, string? text)
+    /// <returns>The code of the glyph for this text: write it with <see cref="Code"/>.</returns>
+    internal int UseGlyph(int glyph, string? text)
     {
         if (_written)
         {
@@ -62,24 +69,21 @@ internal sealed class PdfEmbeddedFont
             throw new ArgumentOutOfRangeException(nameof(glyph), glyph, $"The font has {_font.GlyphCount} glyphs.");
         }
 
-        if (text is { Length: 0 })
+        text ??= string.Empty;
+        if (_codes.TryGetValue((glyph, text), out int known))
         {
-            text = null;
+            return known;
         }
 
-        if (!_glyphs.TryGetValue(glyph, out string? existing))
+        int code = _glyphsWithCode.Add(glyph) ? glyph : _nextExtra++;
+        if (code > 0xFFFF)
         {
-            _glyphs[glyph] = text;
-            return true;
+            throw new InvalidOperationException("The font has been used for more distinct glyph and text pairs than a two-byte code can name (65,536).");
         }
 
-        if (existing is null && text is not null)
-        {
-            _glyphs[glyph] = text;
-            return true;
-        }
-
-        return text is null || text == existing;
+        _codes[(glyph, text)] = code;
+        _byCode[code] = (glyph, text);
+        return code;
     }
 
     /// <summary>
@@ -88,21 +92,22 @@ internal sealed class PdfEmbeddedFont
     /// </summary>
     internal double Advance(int glyph) => Math.Round(_font.Advance(glyph) * 1000.0 / _font.UnitsPerEm);
 
-    /// <summary>The bytes of a glyph in a content stream string: two, big-endian (the identity encoding's code is the glyph id).</summary>
-    internal static byte[] Code(int glyph) => [(byte)(glyph >> 8), (byte)glyph];
+    /// <summary>The bytes of a code in a content stream string: two, big-endian (the identity encoding).</summary>
+    internal static byte[] Code(int code) => [(byte)(code >> 8), (byte)code];
 
     private void Write(PdfDocumentWriter document)
     {
         _written = true;
-        if (_glyphs.Count == 0)
+        if (_byCode.Count == 0)
         {
             // A font that no page used still has to be a valid object, because pages may refer to it.
-            _glyphs[0] = null;
+            _byCode[0] = (0, string.Empty);
+            _glyphsWithCode.Add(0);
         }
 
         string tag = SubsetTag();
         string baseFont = tag + "+" + _font.PostScriptName;
-        byte[] subset = TrueTypeSubsetter.Subset(_font, [.. _glyphs.Keys]);
+        byte[] subset = TrueTypeSubsetter.Subset(_font, [.. _glyphsWithCode]);
 
         PdfReference file = document.AddObject(new PdfStream(
             new PdfDictionary().Set("Length1", subset.Length),
@@ -137,6 +142,10 @@ internal sealed class PdfEmbeddedFont
             .Set("StemV", 40 + (_font.WeightClass / 10))
             .Set("FontFile2", file));
 
+        // Codes above the glyph count exist only when a glyph was drawn for a second text: a map sends them to their glyph.
+        PdfObject glyphMap = _nextExtra > _font.GlyphCount
+            ? document.AddObject(new PdfStream(new PdfDictionary(), CidToGidMap()))
+            : new PdfName("Identity");
         PdfReference cidFont = document.AddObject(new PdfDictionary()
             .Set("Type", "Font")
             .Set("Subtype", "CIDFontType2")
@@ -148,7 +157,7 @@ internal sealed class PdfEmbeddedFont
             .Set("FontDescriptor", descriptor)
             .Set("DW", 1000)
             .Set("W", Widths())
-            .Set("CIDToGIDMap", "Identity"));
+            .Set("CIDToGIDMap", glyphMap));
 
         PdfReference toUnicode = document.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(ToUnicodeMap())));
 
@@ -171,9 +180,12 @@ internal sealed class PdfEmbeddedFont
     {
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(_font.Bytes);
-        foreach (int glyph in _glyphs.Keys)
+        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode)
         {
-            hash.AppendData(BigEndian(glyph));
+            hash.AppendData(BigEndian(pair.Key));
+            hash.AppendData(BigEndian(pair.Value.Glyph));
+            hash.AppendData(Encoding.UTF8.GetBytes(pair.Value.Text));
+            hash.AppendData([0]);
         }
 
         byte[] digest = hash.GetHashAndReset();
@@ -186,11 +198,30 @@ internal sealed class PdfEmbeddedFont
         return new string(tag);
     }
 
-    /// <summary>The <c>/W</c> array: runs of consecutive glyph ids as <c>first [w1 w2 ...]</c>.</summary>
+    /// <summary>The map from codes to glyphs: two bytes per code, the glyph's own id for the codes that are glyph ids.</summary>
+    private byte[] CidToGidMap()
+    {
+        byte[] map = new byte[_nextExtra * 2];
+        for (int code = 0; code < _font.GlyphCount; code++)
+        {
+            map[code * 2] = (byte)(code >> 8);
+            map[(code * 2) + 1] = (byte)code;
+        }
+
+        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode.Where(p => p.Key >= _font.GlyphCount))
+        {
+            map[pair.Key * 2] = (byte)(pair.Value.Glyph >> 8);
+            map[(pair.Key * 2) + 1] = (byte)pair.Value.Glyph;
+        }
+
+        return map;
+    }
+
+    /// <summary>The <c>/W</c> array: runs of consecutive codes as <c>first [w1 w2 ...]</c>.</summary>
     private PdfArray Widths()
     {
         PdfArray widths = new();
-        int[] ids = [.. _glyphs.Keys];
+        int[] ids = [.. _byCode.Keys];
         int i = 0;
         while (i < ids.Length)
         {
@@ -203,7 +234,7 @@ internal sealed class PdfEmbeddedFont
             PdfArray run = new();
             for (int k = start; k <= i; k++)
             {
-                run.Add(new PdfInteger((long)Math.Round(Advance(ids[k]))));
+                run.Add(new PdfInteger((long)Advance(_byCode[ids[k]].Glyph)));
             }
 
             widths.Add(new PdfInteger(ids[start]));
@@ -215,12 +246,12 @@ internal sealed class PdfEmbeddedFont
     }
 
     /// <summary>
-    /// The <c>ToUnicode</c> CMap (ISO 32000-1, 9.10.3): one <c>bfchar</c> per glyph that has a text, the text as UTF-16BE
+    /// The <c>ToUnicode</c> CMap (ISO 32000-1, 9.10.3): one <c>bfchar</c> per code, the text as UTF-16BE
     /// (several code points when the glyph stands for a cluster, such as a ligature), in blocks of at most 100 as the format requires.
     /// </summary>
     private string ToUnicodeMap()
     {
-        List<KeyValuePair<int, string?>> mapped = [.. _glyphs.Where(g => !string.IsNullOrEmpty(g.Value))];
+        List<KeyValuePair<int, (int Glyph, string Text)>> mapped = [.. _byCode]; // a code with no text (the rest of a cluster) maps to the empty string
         StringBuilder cmap = new();
         cmap.Append("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n");
         cmap.Append("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n");
@@ -228,12 +259,12 @@ internal sealed class PdfEmbeddedFont
         cmap.Append("1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
         for (int block = 0; block < mapped.Count; block += 100)
         {
-            List<KeyValuePair<int, string?>> chunk = mapped.GetRange(block, Math.Min(100, mapped.Count - block));
+            List<KeyValuePair<int, (int Glyph, string Text)>> chunk = mapped.GetRange(block, Math.Min(100, mapped.Count - block));
             cmap.Append(chunk.Count.ToString(CultureInfo.InvariantCulture)).Append(" beginbfchar\n");
-            foreach (KeyValuePair<int, string?> pair in chunk)
+            foreach (KeyValuePair<int, (int Glyph, string Text)> pair in chunk)
             {
                 cmap.Append('<').Append(pair.Key.ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
-                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value!))).Append(">\n");
+                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text))).Append(">\n");
             }
 
             cmap.Append("endbfchar\n");

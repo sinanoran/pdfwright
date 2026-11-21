@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using HarfBuzzSharp;
 using Pdfwright.Fonts;
 using Pdfwright.Pdf;
+using Pdfwright.Tests.Pdf;
 
 namespace Pdfwright.Tests.FontEngine;
 
@@ -240,18 +241,47 @@ public class FontHardeningTests
     }
 
     [Fact]
-    public void A_glyph_drawn_for_other_text_is_reported_so_the_caller_can_use_actual_text()
+    public void A_glyph_drawn_for_other_text_gets_a_code_of_its_own_and_the_same_text_gets_the_same_code()
     {
         using MemoryStream stream = new();
         using PdfDocumentWriter document = new(stream, new PdfDocumentOptions());
         PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(NotoSans()));
         int a = font.Font.GlyphForCodePoint('A');
 
-        Assert.True(font.UseGlyph(a, "A"));
-        Assert.True(font.UseGlyph(a, "A"));
-        Assert.True(font.UseGlyph(a, null));
-        Assert.True(font.UseGlyph(a, string.Empty));
-        Assert.False(font.UseGlyph(a, "Α"));
+        int first = font.UseGlyph(a, "A");
+        int greek = font.UseGlyph(a, "Α");
+        int none = font.UseGlyph(a, null);
+
+        Assert.Equal(a, first);
+        Assert.Equal(first, font.UseGlyph(a, "A"));
+        Assert.Equal(greek, font.UseGlyph(a, "Α"));
+        Assert.Equal(none, font.UseGlyph(a, string.Empty));
+        Assert.Equal(3, new[] { first, greek, none }.Distinct().Count());
+        Assert.All(new[] { greek, none }, code => Assert.True(code >= font.Font.GlyphCount));
+    }
+
+    [Fact]
+    public void Two_texts_of_one_glyph_extract_as_their_own_text_through_a_glyph_map()
+    {
+        using MemoryStream stream = new();
+        using (PdfDocumentWriter document = new(stream, new PdfDocumentOptions()))
+        {
+            PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(NotoSans()));
+            int a = font.Font.GlyphForCodePoint('A');
+            PdfPageWriter page = document.BeginPage(300, 300);
+            page.Content.BeginText().Font(page.UseFont(font.Reference), 20).TextMove(20, 200)
+                .ShowHex(PdfEmbeddedFont.Code(font.UseGlyph(a, "A")))
+                .ShowHex(PdfEmbeddedFont.Code(font.UseGlyph(a, "Α")))
+                .ShowHex(PdfEmbeddedFont.Code(font.UseGlyph(a, "A")))
+                .EndText();
+            page.End();
+            document.Complete();
+        }
+
+        using UglyToad.PdfPig.PdfDocument pdf = UglyToad.PdfPig.PdfDocument.Open(stream.ToArray());
+
+        Assert.Equal("AΑA", pdf.GetPage(1).Text);
+        PdfTestKit.AssertQpdfAccepts(stream.ToArray(), "glyph-map");
     }
 
     [Fact]
