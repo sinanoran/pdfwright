@@ -79,8 +79,7 @@ public class EmbeddedFontTests
                 continue;
             }
 
-            font.UseGlyph(glyph, rune.ToString());
-            codes.AddRange(PdfEmbeddedFont.Code(glyph));
+            codes.AddRange(PdfEmbeddedFont.Code(font.UseGlyph(glyph, rune.ToString())));
         }
 
         return [.. codes];
@@ -140,8 +139,8 @@ public class EmbeddedFontTests
             PdfEmbeddedFont font = new(document, Font("NotoSans-Regular.ttf"));
             PdfPageWriter page = document.BeginPage(300, 300);
             int f = font.Font.GlyphForCodePoint('f');
-            font.UseGlyph(f, "ffi");
-            page.Content.BeginText().Font(page.UseFont(font.Reference), 20).TextMove(20, 200).ShowHex(PdfEmbeddedFont.Code(f)).EndText();
+            int code = font.UseGlyph(f, "ffi");
+            page.Content.BeginText().Font(page.UseFont(font.Reference), 20).TextMove(20, 200).ShowHex(PdfEmbeddedFont.Code(code)).EndText();
             page.End();
             document.Complete();
         }
