@@ -53,11 +53,11 @@ Noto Sans Bengali, Noto Sans Tamil, Noto Sans Thai
 
 The Unicode Character Database, version 18.0.0 (Unicode License v3, Copyright (c) 1991-2026 Unicode, Inc.)
   Used: the bidirectional class, paired brackets, line break class, grapheme cluster break class, East Asian Width,
-  Extended_Pictographic, Indic_Conjunct_Break and a few General_Category facts, turned into tables by
+  Extended_Pictographic, Indic_Conjunct_Break, scripts and script extensions and a few General_Category facts, turned into tables by
   tools/Pdfwright.UnicodeGen and compiled into the library (src/Pdfwright/Unicode/*.g.cs).
   The conformance files (BidiTest, BidiCharacterTest, LineBreakTest, GraphemeBreakTest) are used by the tests only and are not in the package.
   The files and the licence text: data/unicode (LICENSE-UNICODE.txt).
 
 == To be added with the code that needs it ==
 
-More of the Unicode Character Database (scripts), added with the slice that reads them.
+More of the Unicode Character Database, added with the slices that read it.
