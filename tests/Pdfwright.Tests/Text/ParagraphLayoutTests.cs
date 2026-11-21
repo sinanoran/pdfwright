@@ -87,7 +87,7 @@ public class ParagraphLayoutTests
 
     [Theory]
     [MemberData(nameof(CorpusAtNarrowWidths))]
-    public void A_line_fits_its_width_unless_it_is_one_unbreakable_unit(string id, int width)
+    public void A_line_fits_its_width_unless_it_is_one_cluster(string id, int width)
     {
         CorpusTests.Case c = LayoutTestKit.Case(id);
 
@@ -95,20 +95,17 @@ public class ParagraphLayoutTests
 
         foreach (LaidOutLine line in layout.Lines)
         {
-            if (line.Width <= width + Tolerance)
+            if (line.Width > width + Tolerance)
             {
-                continue;
-            }
-
-            // Too wide: then nothing inside the line's content may be a place where it could have been cut.
-            int[] content = UnicodeText.CodePoints(LineText(c.Text, line).TrimEnd(), out _);
-            LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(content);
-            for (int i = 1; i < content.Length; i++)
-            {
-                Assert.Equal(LineBreakKind.None, breaks[i]);
+                // Too wide: a word is cut between clusters, so only a single glyph cluster can be wider than the width.
+                Assert.Equal(1, ContentClusters(line));
             }
         }
     }
+
+    /// <summary>The number of different glyph clusters among the glyphs of a line's content (its trailing white space left out).</summary>
+    private static int ContentClusters(LaidOutLine line) =>
+        line.Runs.Where(r => !r.IsTrailingSpace).SelectMany(r => r.Run.Glyphs).Select(g => g.Cluster).Distinct().Count();
 
     [Fact]
     public void Lines_of_a_latin_sentence_break_at_spaces_and_the_space_hangs()
@@ -227,19 +224,19 @@ public class ParagraphLayoutTests
     }
 
     [Fact]
-    public void A_unit_wider_than_the_box_is_aligned_to_the_start_whatever_the_alignment()
+    public void A_cluster_wider_than_the_box_is_aligned_to_the_start_whatever_the_alignment()
     {
         ShapingFont[] latin = LayoutTestKit.Fonts(LayoutTestKit.Latin);
         ShapingFont[] arabic = LayoutTestKit.Fonts(LayoutTestKit.Arabic);
 
         foreach (TextAlignment alignment in new[] { TextAlignment.End, TextAlignment.Center })
         {
-            LaidOutLine ltr = Assert.Single(LayoutTestKit.Layout("Donaudampfschifffahrt", latin, 10, alignment).Lines);
+            LaidOutLine ltr = Assert.Single(LayoutTestKit.Layout("W", latin, 1, alignment).Lines);
             Assert.Equal(0, ltr.X, Tolerance);
 
-            LaidOutLine rtl = Assert.Single(LayoutTestKit.Layout(LayoutTestKit.Case("long-unbreakable-ar").Text, arabic, 10, alignment).Lines);
-            Assert.True(rtl.Width > 10);
-            Assert.Equal(10 - rtl.Width, rtl.X, Tolerance);
+            LaidOutLine rtl = Assert.Single(LayoutTestKit.Layout(((char)0x0645).ToString(), arabic, 1, alignment).Lines);
+            Assert.True(rtl.Width > 1);
+            Assert.Equal(1 - rtl.Width, rtl.X, Tolerance);
         }
     }
 
@@ -264,7 +261,7 @@ public class ParagraphLayoutTests
     [Theory]
     [InlineData(0.0)]
     [InlineData(1.0)]
-    public void A_width_smaller_than_every_unit_still_ends_with_one_unit_a_line(double width)
+    public void A_width_smaller_than_every_cluster_ends_with_one_cluster_a_line(double width)
     {
         CorpusTests.Case c = LayoutTestKit.Case("latin-long-unbreakable");
         ShapingFont[] fonts = LayoutTestKit.Fonts(c.Fonts);
@@ -272,8 +269,9 @@ public class ParagraphLayoutTests
         ParagraphLayout layout = LayoutTestKit.Layout(c.Text, fonts, width);
 
         AssertTiles(c.Text, layout);
-        Assert.Equal(c.Text.Split(' ').Length, layout.LineCount);
         Assert.All(layout.Lines, l => Assert.True(l.Width > width));
+        Assert.All(layout.Lines, l => Assert.Equal(1, ContentClusters(l)));
+        Assert.True(layout.LineCount > c.Text.Split(' ').Length);
     }
 
     [Fact]

@@ -18,7 +18,8 @@ internal static class ParagraphLayouter
     /// Lays out <paramref name="text"/>, which is one paragraph (a paragraph separator may only be its last character: split text with
     /// <see cref="UnicodeBidi.Paragraphs"/> and lay the paragraphs out one after another). Hard line breaks inside the paragraph (U+2028,
     /// U+000B, U+000C) end a line; a line break at the very end of the text does not add an empty line, and an empty text is one empty line.
-    /// A unit wider than the width (a long word) stands alone on its line and overflows.
+    /// A unit wider than the width (a long word, Thai text without spaces) is cut between grapheme clusters, as much as fits on each line and
+    /// never less than one cluster, with no hyphen (CSS <c>overflow-wrap: anywhere</c>); one cluster wider than the width stands alone and overflows.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The size, the width or the line spacing is not usable.</exception>
     internal static ParagraphLayout Layout(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
@@ -128,6 +129,7 @@ internal static class ParagraphLayouter
         private readonly int[] _codePointOf;
         private readonly List<bool> _mandatory = [];
         private readonly GlyphOrder[] _glyphOrder;
+        private readonly bool[] _anywhere;
 
         internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
         {
@@ -192,6 +194,14 @@ internal static class ParagraphLayouter
                 _boundary[u] &= _codePointOf[u] >= 0;
             }
 
+            // Where a unit wider than the width may be cut: between grapheme clusters (UAX #29) that are also glyph clusters.
+            bool[] graphemeBoundary = UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints);
+            _anywhere = new bool[Count + 1];
+            for (int i = 1; i < paragraph.CodePoints.Length; i++)
+            {
+                _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]];
+            }
+
             // The places where a line may end: a break opportunity of UAX #14 that is also a cluster boundary, so that no cluster is split.
             LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(paragraph.CodePoints);
             for (int i = 1; i < breaks.Length; i++)
@@ -213,7 +223,7 @@ internal static class ParagraphLayouter
         /// <summary>
         /// Where the line that starts at <paramref name="start"/> ends: at the last break opportunity before the content outgrows the width
         /// (the white space in front of the opportunity hangs and is not counted), at a hard line break, or, when even the first unit is too
-        /// wide, at the end of that unit. <paramref name="firstCandidate"/> is the first candidate after <paramref name="start"/>.
+        /// wide, inside that unit (see <see cref="BreakUnit"/>). <paramref name="firstCandidate"/> is the first candidate after <paramref name="start"/>.
         /// </summary>
         internal int FindLineEnd(int start, int firstCandidate)
         {
@@ -224,7 +234,7 @@ internal static class ParagraphLayouter
                 bool fits = _options.MaxWidth is not { } limit || _prefix[ContentEnd(start, end)] - _prefix[start] <= limit + Tolerance;
                 if (!fits)
                 {
-                    return lastFit >= 0 ? lastFit : end;
+                    return lastFit >= 0 ? lastFit : BreakUnit(start, end);
                 }
 
                 lastFit = end;
@@ -235,6 +245,39 @@ internal static class ParagraphLayouter
             }
 
             return Count;
+        }
+
+        /// <summary>
+        /// Where a line ends when the unit [<paramref name="start"/>, <paramref name="unitEnd"/>) alone is wider than the width (a long word, a
+        /// number, Thai text without spaces): as much of it as fits, cut between grapheme clusters that are also glyph clusters (the behaviour of
+        /// CSS <c>overflow-wrap: anywhere</c>; no hyphen is added), and at least one cluster so that the line always advances. A unit that is
+        /// one cluster wide stays whole, with the white space after it, and overflows.
+        /// </summary>
+        private int BreakUnit(int start, int unitEnd)
+        {
+            int[] utf16 = _paragraph.Utf16Index;
+            double limit = _options.MaxWidth ?? double.PositiveInfinity;
+            int contentEndCp = _codePointOf[ContentEnd(start, unitEnd)];
+            int first = -1;
+            int best = -1;
+            for (int i = _codePointOf[start] + 1; i < contentEndCp; i++)
+            {
+                int position = utf16[i];
+                if (!_anywhere[position])
+                {
+                    continue;
+                }
+
+                first = first < 0 ? position : first;
+                if (_prefix[position] - _prefix[start] > limit + Tolerance)
+                {
+                    break;
+                }
+
+                best = position;
+            }
+
+            return best >= 0 ? best : first >= 0 ? first : unitEnd;
         }
 
         /// <summary>

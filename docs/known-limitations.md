@@ -14,6 +14,12 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
   character, because a reader that is given nothing for a code (pdf.js) shows the code itself as a junk character. The joiner is invisible and does not break the joining of Arabic letters;
   what it does to searching and comparing copied text is described in the last section.
 
+## Line breaking
+
+- **A word wider than its box is cut between characters, with no hyphen.** Lines break at the opportunities of UAX #14 (spaces, hyphens, punctuation); a word, a number or a
+  run of Thai text with no space that is wider than the width is cut between grapheme clusters as far as fits on each line, and a single cluster wider than the width is
+  left whole and overflows. There is no hyphenation and no dictionary line breaking for Thai, Lao, Khmer or Burmese in 0.1.
+
 ## Writing
 
 - The writer writes to its stream synchronously and unbuffered, and holds one page's content stream in memory; the page tree is flat (see the plan).
