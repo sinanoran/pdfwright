@@ -11,8 +11,8 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
   tagged reading) get the text exactly. The 36 is kept as a regression floor in `XpdfRegressionFloorTests`.
 - **Copying text out of a PDF made by Pdfwright can carry an invisible character, U+034F COMBINING GRAPHEME JOINER, after some letters of Arabic, Indic and Thai text.** Cause: a letter
   that the font draws as several glyphs (an Arabic letter and its dots, a consonant and a vowel sign) has one glyph that carries the text and the others map to this
-  character, because a reader that is given nothing for a code (pdf.js) shows the code itself as a junk character. The joiner is invisible, ignored by search in
-  most programs and does not break the joining of Arabic letters, but a program that counts characters or compares strings will see it.
+  character, because a reader that is given nothing for a code (pdf.js) shows the code itself as a junk character. The joiner is invisible and does not break the joining of Arabic letters;
+  what it does to searching and comparing copied text is described in the last section.
 
 ## Writing
 
