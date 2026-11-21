@@ -268,11 +268,12 @@ internal static class ParagraphLayouter
                 _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]] && !IsSoftHyphenEdge(paragraph.CodePoints, i);
             }
 
-            // The places where a line may end: a break opportunity of UAX #14 that is also a cluster boundary, so that no cluster is split.
+            // The places where a line may end: a break opportunity of UAX #14 that is also a grapheme and a glyph cluster boundary, so that no cluster is split
+            // (a right-to-left run has a cluster for a mark of its own, so the glyph clusters alone no longer keep a mark with its base).
             LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(paragraph.CodePoints);
             for (int i = 1; i < breaks.Length; i++)
             {
-                if (breaks[i] != LineBreakKind.None && _boundary[utf16[i]] && (i == paragraph.CodePoints.Length || paragraph.CodePoints[i - 1] != SoftHyphen))
+                if (breaks[i] != LineBreakKind.None && graphemeBoundary[i] && _boundary[utf16[i]] && (i == paragraph.CodePoints.Length || paragraph.CodePoints[i - 1] != SoftHyphen))
                 {
                     CandidateIndex.Add(utf16[i]);
                     _mandatory.Add(breaks[i] == LineBreakKind.Mandatory);

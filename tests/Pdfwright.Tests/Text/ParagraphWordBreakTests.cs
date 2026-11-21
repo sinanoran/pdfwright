@@ -161,6 +161,27 @@ public class ParagraphWordBreakTests
     }
 
     [Fact]
+    public void A_break_opportunity_between_a_space_and_a_mark_in_a_right_to_left_run_is_not_used()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Hebrew);
+
+        // Right-to-left runs are shaped at cluster level 1, so the mark after the space has a glyph cluster of its own and the break opportunity
+        // of UAX #14 (rule LB10) in front of it is a cluster boundary: only the grapheme cluster rule keeps the line from ending there.
+        string word = new([(char)0x05E9, (char)0x05DC, (char)0x05D5, (char)0x05DD]);
+        string text = word + " " + (char)0x05B8 + word;
+        ShapedParagraph shaped = TextShaper.Shape(text, fonts);
+        Assert.Contains(shaped.Runs.SelectMany(r => r.Glyphs), g => g.Cluster == 5);
+        int[] codePoints = UnicodeText.CodePoints(text, out _);
+        Assert.NotEqual(LineBreakKind.None, UnicodeLineBreaker.Breaks(codePoints)[5]);
+
+        double width = TextMeasurer.Measure(word, fonts, new ParagraphOptions { Size = 14 }).Width;
+        ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, width + 0.5);
+
+        AssertTiles(text, layout);
+        Assert.Equal([0, 4, 9], layout.Lines.Select(l => l.Start).ToArray());
+    }
+
+    [Fact]
     public void A_text_that_ends_in_a_soft_hyphen_is_still_cut_to_the_width()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
