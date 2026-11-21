@@ -33,6 +33,7 @@ internal sealed partial class DocumentRenderer
     private readonly List<TruncatedTable> _truncated = [];
     private readonly HashSet<string> _families;
 
+    private readonly bool _overlay;
     private PdfPageWriter? _page;
     private double _y;
     private bool _hasContent;
@@ -40,6 +41,7 @@ internal sealed partial class DocumentRenderer
     private DocumentRenderer(PdfDocumentOptions options, IReadOnlyList<Block> blocks, FontCollection.Snapshot fonts, Stream output, CancellationToken cancellation)
     {
         _options = options;
+        _overlay = options.Header is not null || options.Footer is not null;
         _blocks = blocks;
         _fonts = fonts;
         _cancellation = cancellation;
@@ -83,6 +85,16 @@ internal sealed partial class DocumentRenderer
         if (options.PageSize.Width.Points - m.Left.Points - m.Right.Points < 1 || options.PageSize.Height.Points - m.Top.Points - m.Bottom.Points < 1)
         {
             throw new ArgumentException("The margins leave less than one point for content.", nameof(options));
+        }
+
+        if (options.HeaderOffset is { } headerOffset && headerOffset > m.Top)
+        {
+            throw new ArgumentException("The header offset is more than the top margin.", nameof(options));
+        }
+
+        if (options.FooterOffset is { } footerOffset && footerOffset > m.Bottom)
+        {
+            throw new ArgumentException("The footer offset is more than the bottom margin.", nameof(options));
         }
 
         FontCollection.Snapshot fonts = options.Fonts.Current;
@@ -133,6 +145,12 @@ internal sealed partial class DocumentRenderer
                 case Table table:
                     PlaceTable(table, i);
                     break;
+                case Columns or Drawing or Image:
+                    PlaceFixed(current);
+                    break;
+                case Callout:
+                    PlaceCallout(current);
+                    break;
                 case Spacer spacer:
                     PlaceSpacer(spacer.Height.Points);
                     break;
@@ -157,6 +175,7 @@ internal sealed partial class DocumentRenderer
 
         ClosePage();
         _cancellation.ThrowIfCancellationRequested();
+        DrawOverlays();
         _writer.Complete();
 
         // The fonts are written by Complete, after the last page: this is the check that holds the limit. The caller's stream has not been touched, so nothing of an oversized file escapes.
@@ -175,43 +194,33 @@ internal sealed partial class DocumentRenderer
 
         internal bool KeepWithNext { get; init; }
 
+        internal bool KeepTogether { get; init; }
+
+        internal FixedItem? Fixed { get; init; }
+
+        internal CalloutPlan? Callout { get; init; }
+
+        /// <summary>The height of what a block needs to start (its first line, a whole picture), when it is not a text block.</summary>
+        internal double? FirstUnit { get; init; }
+
         /// <summary>The height of the first line of the block, or what the block takes to start a page for the purpose of keeping a heading with it.</summary>
-        internal double FirstLineHeight => Text is { Layout.Lines.Count: > 0 } t ? t.Layout.Lines[0].Pitch : 0;
+        internal double FirstLineHeight => FirstUnit ?? (Text is { Layout.Lines.Count: > 0 } t ? t.Layout.Lines[0].Pitch : 0);
+
+        internal bool HasFlow => Text is not null || FirstUnit is not null;
     }
 
     private Prepared Prepare(Block block)
     {
         switch (block)
         {
-            case Paragraph paragraph:
+            case Paragraph or Heading:
             {
-                ResolvedStyle style = _base.Apply(paragraph.Style);
-                StyledLayout layout = BlockText.Layout(paragraph.Runs, style, _fonts, _contentWidth, paragraph.Alignment, paragraph.Direction ?? _options.Direction, paragraph.LineSpacing);
-                NoteFamilies(layout);
-                return new Prepared
-                {
-                    Text = layout,
-                    Before = Space(paragraph.SpaceBefore, 0),
-                    After = Space(paragraph.SpaceAfter, style.Size * 0.6),
-                };
-            }
-
-            case Heading heading:
-            {
-                ResolvedStyle style = _headings[heading.Level - 1];
-                StyledLayout layout = BlockText.Layout(heading.Runs, style, _fonts, _contentWidth, heading.Alignment, heading.Direction ?? _options.Direction, 1.0);
-                NoteFamilies(layout);
-                return new Prepared
-                {
-                    Text = layout,
-                    Before = Space(heading.SpaceBefore, style.Size),
-                    After = Space(heading.SpaceAfter, style.Size * 0.4),
-                    KeepWithNext = true,
-                };
+                TextItem item = BuildTextItem(block, _contentWidth, _options.Direction);
+                return new Prepared { Text = item.Styled, Before = item.Before, After = item.After, KeepWithNext = item.KeepWithNext, KeepTogether = item.KeepTogether };
             }
 
             default:
-                return new Prepared();
+                return PrepareFlowBlock(block);
         }
     }
 
@@ -222,10 +231,7 @@ internal sealed partial class DocumentRenderer
     {
         foreach (ResolvedStyle style in layout.Styles)
         {
-            if (!_families.Contains(style.Family) && !_missingFamilies.Contains(style.Family, StringComparer.OrdinalIgnoreCase))
-            {
-                _missingFamilies.Add(style.Family);
-            }
+            NoteFamily(style.Family);
         }
     }
 
@@ -254,8 +260,17 @@ internal sealed partial class DocumentRenderer
         // (unless it is already at the top of one). The space before the next block counts because it is dropped only at the top of a page, and the next block is below the heading.
         if (block.KeepWithNext && _hasContent && _page is not null)
         {
-            double rest = lines.Sum(l => l.Pitch) + block.After + (next?.Text is not null ? next.Before + next.FirstLineHeight : 0);
+            double rest = lines.Sum(l => l.Pitch) + block.After + (next is { HasFlow: true } ? next.Before + next.FirstLineHeight : 0);
             if (rest <= _contentHeight && _y + block.Before + rest > _contentHeight)
+            {
+                ClosePage();
+            }
+        }
+
+        if (block.KeepTogether && _hasContent && _page is not null)
+        {
+            double whole = lines.Sum(l => l.Pitch);
+            if (whole <= _contentHeight && _y + block.Before + whole > _contentHeight + 1e-9)
             {
                 ClosePage();
             }
@@ -355,11 +370,24 @@ internal sealed partial class DocumentRenderer
                     ? char.ConvertToUtf32(layout.Text[index], layout.Text[index + 1])
                     : layout.Text[index];
                 string? language = styled.LanguageAt(index);
-                if (_missing.Count < MaxReportedGlyphs && _missingSeen.Add((codePoint, language, pageNumber)))
-                {
-                    _missing.Add(new MissingGlyph(codePoint, language, pageNumber));
-                }
+                AddMissing(codePoint, language, pageNumber);
             }
+        }
+    }
+
+    private void AddMissing(int codePoint, string? language, int pageNumber)
+    {
+        if (_missing.Count < MaxReportedGlyphs && _missingSeen.Add((codePoint, language, pageNumber)))
+        {
+            _missing.Add(new MissingGlyph(codePoint, language, pageNumber));
+        }
+    }
+
+    private void NoteFamily(string family)
+    {
+        if (!_families.Contains(family) && !_missingFamilies.Contains(family, StringComparer.OrdinalIgnoreCase))
+        {
+            _missingFamilies.Add(family);
         }
     }
 
@@ -382,7 +410,16 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
-        _page.End();
+        if (_overlay)
+        {
+            _page.EndBody(_options.Header is not null, _options.Footer is not null);
+            _pending.Add(_page);
+        }
+        else
+        {
+            _page.End();
+        }
+
         _page = null;
         _y = 0;
         _hasContent = false;

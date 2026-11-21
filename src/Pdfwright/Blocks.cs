@@ -137,6 +137,9 @@ public sealed record Paragraph : Block
         init => _lineSpacing = Check.LineSpacing(value, nameof(LineSpacing));
     }
 
+    /// <summary>Whether the paragraph stays on one page: when it does not fit on the rest of the page it moves, whole, to the next page, instead of being split between lines. A paragraph taller than a page is split whatever this is. Inside a column cell it has no effect (a cell is not split).</summary>
+    public bool KeepTogether { get; init; }
+
     /// <summary>Whether another paragraph has the same runs (compared one by one), style and settings.</summary>
     /// <param name="other">The other paragraph.</param>
     /// <returns><see langword="true"/> when it does.</returns>
@@ -148,7 +151,8 @@ public sealed record Paragraph : Block
         && Direction == other.Direction
         && SpaceBefore == other.SpaceBefore
         && SpaceAfter == other.SpaceAfter
-        && LineSpacing.Equals(other.LineSpacing);
+        && LineSpacing.Equals(other.LineSpacing)
+        && KeepTogether == other.KeepTogether;
 
     /// <inheritdoc />
     public override int GetHashCode()
@@ -165,6 +169,7 @@ public sealed record Paragraph : Block
         hash.Add(SpaceBefore);
         hash.Add(SpaceAfter);
         hash.Add(LineSpacing);
+        hash.Add(KeepTogether);
         return hash.ToHashCode();
     }
 }
