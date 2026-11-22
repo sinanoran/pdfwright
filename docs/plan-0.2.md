@@ -136,7 +136,7 @@ Slice C1 is done: the shaping seam, the `hb-subset` binding, and the proof that 
 - **`IFontSubsetter` is left to C2.** `PdfEmbeddedFont` takes bytes from `TrueTypeSubsetter` and nothing else; the seam's result (bytes, kind, old-to-new map) is C2's design, so it is not guessed at here.
 - **Proof the exports load.** `HarfBuzzSubsetterTests` (not skipped anywhere) checks that every export is present and that a subset of Noto Sans has the glyphs asked for, their advances and outlines, and the right map; it runs in the `build` job on
   Windows, Linux and macOS and on every target framework. The job `linux-runtime-images` publishes `tools/Pdfwright.NativeProbe` and runs the same call inside `aspnet:10.0` (glibc) and `aspnet:10.0-alpine` (musl); the probe exits with 2 when an export is missing.
-  CI result: RESULT_PLACEHOLDER
+  CI result (PR 29): the tests passed on windows-latest, ubuntu-latest and macos-latest (all four target frameworks run in the one job), and the probe passed in `aspnet:10.0` (linux-x64, glibc) and `aspnet:10.0-alpine` (linux-musl-x64): every export, including `hb_subset_input_pin_all_axes_to_default`, is present in the native library on all five. The other native assets (x86, arm64, arm) are not run by CI.
 
 ## 6. Open points for the maintainer
 
