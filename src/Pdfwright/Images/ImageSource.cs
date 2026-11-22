@@ -21,7 +21,7 @@ internal sealed class ImageSource
 {
     /// <summary>
     /// The most pixels an image may have (width times height) unless the caller says otherwise with <see cref="PdfImageOptions.MaxPixels"/>: 40 million, which a PNG
-    /// with transparency decodes to about 160 MB (4 bytes a pixel).
+    /// with transparency decodes to about 160 MB (4 bytes a pixel), and a lossless WebP can decode to as much from a file of a few bytes.
     /// </summary>
     internal const long DefaultMaxPixels = 40_000_000;
 
@@ -92,7 +92,7 @@ internal sealed class ImageSource
             return JpegReader.Read(bytes, maxPixels);
         }
 
-        if (WebpDecoder.HasSignature(bytes))
+        if (WebpDecoder.HasSignature(bytes) || WebpDecoder.IsRiff(bytes))
         {
             return WebpDecoder.Decode(bytes, maxPixels);
         }
@@ -125,7 +125,7 @@ internal sealed class ImageSource
             ? string.Create(invariant, $"To read it, pass a PdfImageOptions with a larger MaxPixels (up to {MaxPixelsCap:N0}) to PdfImage.FromBytes.")
             : "That is the largest limit that PdfImageOptions.MaxPixels allows.";
         throw new ImageFormatException(
-            string.Create(invariant, $"The {format} is {width:N0} by {height:N0} pixels ({pixels:N0} in all), more than the limit of {maxPixels:N0} pixels (PdfImageOptions.MaxPixels, {DefaultMaxPixels:N0} by default; it applies to a JPEG as well as to a PNG). {how}"),
+            string.Create(invariant, $"The {format} is {width:N0} by {height:N0} pixels ({pixels:N0} in all), more than the limit of {maxPixels:N0} pixels (PdfImageOptions.MaxPixels, {DefaultMaxPixels:N0} by default; it applies to every format: JPEG, PNG and WebP). {how}"),
             limitExceeded: true);
     }
 

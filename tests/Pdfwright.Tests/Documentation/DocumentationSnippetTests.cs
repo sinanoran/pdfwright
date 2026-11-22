@@ -491,7 +491,7 @@ public class DocumentationSnippetTests
         byte[] photoBytes = LogoBytes;
 
         // <snippet guide-images-limit>
-        // The limit is on width times height, for a JPEG as well as a PNG; the default is 40 million, and the most that can be set is 100 million.
+        // The limit is on width times height, for every format (JPEG, PNG and WebP); the default is 40 million, and the most that can be set is 100 million.
         PdfImage photo = PdfImage.FromBytes(photoBytes, new PdfImageOptions { MaxPixels = 60_000_000 });
         // </snippet>
 

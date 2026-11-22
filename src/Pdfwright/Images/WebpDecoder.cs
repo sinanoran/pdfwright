@@ -36,12 +36,27 @@ internal static class WebpDecoder
     internal static bool HasSignature(ReadOnlySpan<byte> bytes) =>
         bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8);
 
+    /// <summary>Whether the data starts with <c>RIFF</c> and so is some RIFF file; the decoder says what kind if it is not a WebP.</summary>
+    internal static bool IsRiff(ReadOnlySpan<byte> bytes) => bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8);
+
     /// <summary>Reads a WebP file.</summary>
     /// <exception cref="ImageFormatException">The data is not a WebP, is damaged or cut short, is an animation, or is larger than the limits allow.</exception>
     internal static ImageSource Decode(ReadOnlySpan<byte> file, long maxPixels = ImageSource.DefaultMaxPixels)
     {
         if (!HasSignature(file))
         {
+            if (file.Length >= 12 && file[..4].SequenceEqual("RIFF"u8))
+            {
+                char[] type = new char[4];
+                for (int i = 0; i < 4; i++)
+                {
+                    byte b = file[8 + i];
+                    type[i] = b is >= 0x20 and < 0x7f ? (char)b : '?';
+                }
+
+                throw new ImageFormatException($"The data is a RIFF file of type {new string(type)}, not a WebP picture.");
+            }
+
             throw new ImageFormatException("The data is not a WebP: the RIFF header is wrong.");
         }
 
@@ -50,9 +65,10 @@ internal static class WebpDecoder
         {
             return Read(data, maxPixels);
         }
-        catch (Exception exception) when (exception is IndexOutOfRangeException or ArgumentException or OverflowException or InvalidOperationException)
+        catch (Exception exception) when (exception is IndexOutOfRangeException or ArgumentException or OverflowException or InvalidOperationException or NullReferenceException or DivideByZeroException)
         {
             // A last line of defence: the decoders check what they read, and a damaged file that gets past a check must still not surface as an exception of the runtime.
+            // The original stays as the InnerException, so that the tests can tell a refusal the decoder made from one this net made (which is a bug that was hidden).
             throw new ImageFormatException("The WebP is damaged: " + exception.Message, exception);
         }
     }
@@ -97,6 +113,11 @@ internal static class WebpDecoder
 
             if (id.SequenceEqual("VP8X"u8))
             {
+                if (start - 8 != 12)
+                {
+                    throw new ImageFormatException("The WebP's VP8X chunk is not the first chunk, as the format says it must be.");
+                }
+
                 if (seenVp8x)
                 {
                     throw new ImageFormatException("The WebP has two VP8X chunks.");

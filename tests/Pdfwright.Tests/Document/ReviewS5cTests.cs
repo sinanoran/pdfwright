@@ -292,7 +292,7 @@ public class ReviewS5cTests
 
         Assert.Null(error.InnerException);
         Assert.Equal("bytes", error.ParamName);
-        Assert.Contains("JPEG or PNG", error.Message);
+        Assert.Contains("JPEG, PNG or WebP", error.Message);
     }
 
     // ---- 10. a callout that cannot be split and is taller than a page

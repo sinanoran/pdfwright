@@ -147,6 +147,8 @@ internal sealed partial class Vp8Decoder
     /// <summary>Decodes the frame whose header <see cref="ReadFrameHeader"/> read, and applies the loop filter.</summary>
     internal void DecodeFrame()
     {
+        // The headers and the partition sizes are checked before anything is allocated for the pixels, so that a few bytes claiming a huge picture cost nothing.
+        ParseOtherHeaders();
         YStride = 16 * _mbw;
         CStride = 8 * _mbw;
         Y = new byte[(long)YStride * 16 * _mbh];
@@ -156,8 +158,6 @@ internal sealed partial class Vp8Decoder
         _upPred = new byte[_mbw * 4];
         _upNzMask = new byte[_mbw];
         _upNzY16 = new byte[_mbw];
-
-        ParseOtherHeaders();
         Array.Clear(_upPred);
         Array.Clear(_upNzMask);
         Array.Clear(_upNzY16);
@@ -173,19 +173,9 @@ internal sealed partial class Vp8Decoder
                 fs.Inner = fs.Inner || !skip;
                 _perMbFilterParams[(_mbw * mby) + mbx] = fs;
             }
-        }
 
-        if (_fp.UnexpectedEof)
-        {
-            throw Truncated();
-        }
-
-        for (int i = 0; i < _nOP; i++)
-        {
-            if (_op[i].UnexpectedEof)
-            {
-                throw Truncated();
-            }
+            // As libwebp does at the end of every row: a frame whose data ends early is refused here, not decoded to the end from zero bits.
+            CheckEof();
         }
 
         // Even if there are per-segment levels, section 15 says that "loop filtering must be skipped entirely if loop_filter_level at either the frame header level or macroblock override level is 0".
@@ -198,6 +188,22 @@ internal sealed partial class Vp8Decoder
             else
             {
                 NormalFilter();
+            }
+        }
+    }
+
+    private void CheckEof()
+    {
+        if (_fp.UnexpectedEof)
+        {
+            throw Truncated();
+        }
+
+        for (int i = 0; i < _nOP; i++)
+        {
+            if (_op[i].UnexpectedEof)
+            {
+                throw Truncated();
             }
         }
     }

@@ -57,7 +57,7 @@ public sealed class PdfImage
         }
         catch (ImageFormatException error)
         {
-            throw new ArgumentException(error.LimitExceeded ? error.Message : "The data is not a usable JPEG or PNG (or WebP) picture: " + error.Message, nameof(bytes));
+            throw new ArgumentException(error.LimitExceeded ? error.Message : "The data is not a usable JPEG, PNG or WebP picture: " + error.Message, nameof(bytes));
         }
     }
 }
