@@ -117,7 +117,7 @@ internal static class GlyphRunWriter
                 }
 
                 SetFont(content, fontName, size);
-                _ = content.TextMatrix(1, 0, 0, 1, x[g], y).ShowCode(code);
+                _ = content.TextPlace(x[g], y).ShowCode(code);
             }
         }
         finally

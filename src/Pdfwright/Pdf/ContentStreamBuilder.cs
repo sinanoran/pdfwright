@@ -129,7 +129,11 @@ internal sealed class ContentStreamBuilder
 
     // ---- text
 
-    internal ContentStreamBuilder BeginText() => Op("BT\n"u8);
+    internal ContentStreamBuilder BeginText()
+    {
+        _lineKnown = false;
+        return Op("BT\n"u8);
+    }
 
     internal ContentStreamBuilder EndText() => Op("ET\n"u8);
 
@@ -144,11 +148,49 @@ internal sealed class ContentStreamBuilder
     }
 
     /// <summary>Sets the text matrix, which also sets the line matrix: an absolute position for the next text.</summary>
-    internal ContentStreamBuilder TextMatrix(double a, double b, double c, double d, double e, double f) =>
-        Op("Tm\n"u8, a, b, c, d, e, f);
+    internal ContentStreamBuilder TextMatrix(double a, double b, double c, double d, double e, double f)
+    {
+        _lineKnown = false; // a matrix that is not a pure translation changes what a later Td means
+        return Op("Tm\n"u8, a, b, c, d, e, f);
+    }
+
+    /// <summary>One unit of the position the stream keeps: a hundred-thousandth, the precision a number is written with.</summary>
+    private const double Unit = 100000;
+
+    private bool _lineKnown;
+    private long _lineX;
+    private long _lineY;
+
+    /// <summary>
+    /// Puts the next text at (<paramref name="x"/>, <paramref name="y"/>) with the unit text matrix: a <c>Td</c> by the difference from the line matrix as
+    /// written so far when that is a pure translation (the delta is taken from the rounded position the reader holds, so rounding never adds up),
+    /// otherwise (the start of a text object, or after <see cref="TextMatrix"/>) an absolute <c>Tm</c>.
+    /// </summary>
+    internal ContentStreamBuilder TextPlace(double x, double y)
+    {
+        long targetX = (long)Math.Round(x * Unit, MidpointRounding.AwayFromZero);
+        long targetY = (long)Math.Round(y * Unit, MidpointRounding.AwayFromZero);
+        if (!_lineKnown)
+        {
+            _ = Op("Tm\n"u8, 1, 0, 0, 1, targetX / Unit, targetY / Unit);
+            _lineKnown = true;
+        }
+        else
+        {
+            _ = Op("Td\n"u8, (targetX - _lineX) / Unit, (targetY - _lineY) / Unit);
+        }
+
+        _lineX = targetX;
+        _lineY = targetY;
+        return this;
+    }
 
     /// <summary>Moves to the start of the next line, offset from the start of the current one.</summary>
-    internal ContentStreamBuilder TextMove(double x, double y) => Op("Td\n"u8, x, y);
+    internal ContentStreamBuilder TextMove(double x, double y)
+    {
+        _lineKnown = false;
+        return Op("Td\n"u8, x, y);
+    }
 
     internal ContentStreamBuilder TextRenderMode(int mode) => Op("Tr\n"u8, mode);
 
