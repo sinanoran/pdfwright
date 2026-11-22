@@ -8,6 +8,14 @@ internal sealed class HarfBuzzShaper : IShaper
 {
     internal static HarfBuzzShaper Instance { get; } = new();
 
+    [ThreadStatic]
+    private static HarfBuzzSharp.Buffer? t_buffer;
+
+    /// <summary>The longest run (in UTF-16 units) that is shaped in the buffer of the thread; a longer one gets a buffer of its own that is freed at once, so no thread keeps native memory in proportion to the longest text it ever shaped.</summary>
+    internal const int ReusedBufferLimit = 4096;
+
+    /// <summary>The length of the buffer this thread keeps, or -1 when it has none. For tests.</summary>
+    internal static int ThreadBufferLength => t_buffer is { } b ? b.Length : -1;
     public ShaperFont CreateFont(byte[] fontBytes, int unitsPerEm)
     {
         ArgumentNullException.ThrowIfNull(fontBytes);
@@ -21,7 +29,32 @@ internal sealed class HarfBuzzShaper : IShaper
             throw new ArgumentException("The font was not made by the HarfBuzz shaper.", nameof(font));
         }
 
-        using HarfBuzzSharp.Buffer buffer = new();
+        // One buffer for each thread for the usual short run: a buffer is a native object that costs more to make than to reset. A long run uses a buffer that is disposed after it.
+        bool reused = length <= ReusedBufferLimit;
+        HarfBuzzSharp.Buffer buffer = reused ? (t_buffer ??= new HarfBuzzSharp.Buffer()) : new HarfBuzzSharp.Buffer();
+        try
+        {
+            return ShapeIn(buffer, hb, text, start, length, rightToLeft, scriptTag, language);
+        }
+        finally
+        {
+            if (!reused)
+            {
+                buffer.Dispose();
+            }
+            else if (buffer.Length > ReusedBufferLimit)
+            {
+                // The glyphs of a short run outgrew the limit (a run of marks that expands): do not keep the memory.
+                buffer.Dispose();
+                t_buffer = null;
+            }
+        }
+    }
+
+    private static ShapedGlyph[] ShapeIn(HarfBuzzSharp.Buffer buffer, HarfBuzzFont hb, string text, int start, int length, bool rightToLeft, string scriptTag, string? language)
+    {
+        buffer.ClearContents();
+        buffer.ClusterLevel = ClusterLevel.Default;
 
         // The item offset and length make HarfBuzz see the text before and after the run as context (a joining letter, a tatweel).
         buffer.AddUtf16(text, start, length);
@@ -40,8 +73,8 @@ internal sealed class HarfBuzzShaper : IShaper
         }
 
         hb.Font.Shape(buffer);
-        GlyphInfo[] infos = buffer.GlyphInfos;
-        GlyphPosition[] positions = buffer.GlyphPositions;
+        ReadOnlySpan<GlyphInfo> infos = buffer.GetGlyphInfoSpan();
+        ReadOnlySpan<GlyphPosition> positions = buffer.GetGlyphPositionSpan();
         ShapedGlyph[] glyphs = new ShapedGlyph[infos.Length];
         for (int i = 0; i < infos.Length; i++)
         {
