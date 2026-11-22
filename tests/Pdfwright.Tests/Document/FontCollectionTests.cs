@@ -170,4 +170,47 @@ public class FontCollectionTests
 
         Assert.All(results, r => Assert.True(results[0].AsSpan().SequenceEqual(r)));
     }
+
+    [Fact]
+    public void More_than_256_spellings_from_several_threads_give_the_orders_the_general_lookup_gives()
+    {
+        // A fresh snapshot has no spelling remembered; past 256 of them it stops remembering, and the threads that find the table full together may pass the limit by a few. None of that may change an order.
+        FontCollection.Snapshot snapshot = new(DocumentTestKit.Fonts.Current.Entries);
+        FontCollection.FontEntry[] entries = snapshot.Entries;
+        List<(string Family, int Weight, bool Italic)> keys = [];
+        string[] known = ["Noto Sans", "noto sans", "NOTO SANS", "Noto Sans Arabic", "noto sans hebrew", "Missing", string.Empty];
+        foreach (string family in known)
+        {
+            foreach (int weight in new[] { 100, 400, 450, 700 })
+            {
+                keys.Add((family, weight, false));
+                keys.Add((family, weight, true));
+            }
+        }
+
+        for (int i = 0; i < 600; i++)
+        {
+            keys.Add(("Family " + i, 300 + (i % 5 * 100), i % 2 == 0));
+        }
+
+        // The general lookup, as it is without any table: the family first, then the style, then the nearest weight, then the order they were added in.
+        int[][] expected = [.. keys.Select(k => Enumerable.Range(0, entries.Length)
+            .OrderBy(i => string.Equals(entries[i].Family, k.Family, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(i => entries[i].Italic == k.Italic ? 0 : 1)
+            .ThenBy(i => Math.Abs(entries[i].Weight - k.Weight))
+            .ThenBy(i => i)
+            .ToArray())];
+
+        ParallelOptions options = new() { MaxDegreeOfParallelism = 8, CancellationToken = TestContext.Current.CancellationToken };
+        Parallel.For(0, keys.Count * 6, options, n =>
+        {
+            int i = (n * 7) % keys.Count;
+            Assert.Equal(expected[i], snapshot.Order(keys[i].Family, keys[i].Weight, keys[i].Italic));
+        });
+
+        for (int i = 0; i < keys.Count; i++)
+        {
+            Assert.Equal(expected[i], snapshot.Order(keys[i].Family, keys[i].Weight, keys[i].Italic));
+        }
+    }
 }

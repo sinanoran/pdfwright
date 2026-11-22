@@ -1,4 +1,5 @@
 using System.Buffers;
+using Pdfwright.Pdf;
 using Pdfwright.Tests.Conformance;
 using Pdfwright.Tests.Document;
 using Pdfwright.Text;
@@ -21,30 +22,37 @@ public class LayoutStateReuseTests
     private static string RandomText(Random random) =>
         string.Concat(Enumerable.Range(0, 1 + random.Next(14)).Select(_ => Pieces[random.Next(Pieces.Length)] + (random.Next(3) > 0 ? " " : string.Empty)));
 
-    /// <summary>Fills pooled arrays of every type the layout rents with values that would change a result if they were read, and gives them back.</summary>
+    /// <summary>
+    /// Fills pooled arrays of every type the layout rents with values that would change a result if they were read, and gives them back. A dozen arrays of each size are held at once before any is
+    /// returned, so that the pool's per-core stacks are filled as well as the slot of this thread: a single rent and return only dirties that slot, which the next rent on the thread takes first.
+    /// It fills only arrays it rented and gives every one back, so it leaves nothing of the pool's state corrupt for tests of other classes that run at the same time.
+    /// </summary>
     private static void Poison()
     {
-        for (int size = 8; size <= 2048; size *= 2)
+        static void Fill<T>(T value)
         {
-            double[] doubles = ArrayPool<double>.Shared.Rent(size);
-            Array.Fill(doubles, 1e9);
-            ArrayPool<double>.Shared.Return(doubles);
-            bool[] bools = ArrayPool<bool>.Shared.Rent(size);
-            Array.Fill(bools, true);
-            ArrayPool<bool>.Shared.Return(bools);
-            int[] ints = ArrayPool<int>.Shared.Rent(size);
-            Array.Fill(ints, 12345);
-            ArrayPool<int>.Shared.Return(ints);
-            LineBreakKind[] kinds = ArrayPool<LineBreakKind>.Shared.Rent(size);
-            Array.Fill(kinds, LineBreakKind.Mandatory);
-            ArrayPool<LineBreakKind>.Shared.Return(kinds);
-            LineBreakClass[] classes = ArrayPool<LineBreakClass>.Shared.Rent(size);
-            Array.Fill(classes, LineBreakClass.BK);
-            ArrayPool<LineBreakClass>.Shared.Return(classes);
-            CharacterInfo[] infos = ArrayPool<CharacterInfo>.Shared.Rent(size);
-            Array.Fill(infos, CharacterProperties.Of(0x1F600));
-            ArrayPool<CharacterInfo>.Shared.Return(infos);
+            for (int size = 8; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                T[][] held = new T[12][];
+                for (int k = 0; k < held.Length; k++)
+                {
+                    held[k] = ArrayPool<T>.Shared.Rent(size);
+                    Array.Fill(held[k], value);
+                }
+
+                foreach (T[] array in held)
+                {
+                    ArrayPool<T>.Shared.Return(array);
+                }
+            }
         }
+
+        Fill(1e9);
+        Fill(true);
+        Fill(12345);
+        Fill(LineBreakKind.Mandatory);
+        Fill(LineBreakClass.BK);
+        Fill(CharacterProperties.Of(0x1F600));
     }
 
     [Fact]
@@ -148,5 +156,113 @@ public class LayoutStateReuseTests
         string[] pages = DocumentTestKit.PageTexts(first);
         Assert.Equal("Short.", pages[^1].Trim());
         Assert.True(pages.Length > 2);
+    }
+
+    [Fact]
+    public void A_scratch_array_above_the_pool_limit_is_allocated_and_never_pooled()
+    {
+        long[] big = ScratchArray.Rent<long>(ScratchArray.PoolLimit + 1);
+        Assert.Equal(ScratchArray.PoolLimit + 1, big.Length);
+        ScratchArray.Return(big);
+
+        // The pool of this thread would hand the array it was given back to the next rent of its size.
+        long[] again = ScratchArray.Rent<long>(ScratchArray.PoolLimit + 1);
+        Assert.NotSame(big, again);
+        Assert.All(again, v => Assert.Equal(0L, v));
+        ScratchArray.Return(again);
+    }
+
+    [Fact]
+    public void A_scratch_array_up_to_the_pool_limit_comes_from_the_pool_and_goes_back_to_it()
+    {
+        foreach (int length in new[] { 1, 100, ScratchArray.PoolLimit })
+        {
+            short[] small = ScratchArray.Rent<short>(length);
+            Assert.True(small.Length >= length);
+            Assert.True(small.Length <= ScratchArray.PoolLimit);
+            ScratchArray.Return(small);
+
+            Assert.Same(small, ScratchArray.Rent<short>(length));
+        }
+    }
+
+    [Fact]
+    public void A_layout_of_a_text_above_the_pool_limit_leaves_nothing_in_the_pool()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        string text = LongText(100_000);
+        int size = text.Length + 1;
+
+        // An array of the size the layout needs, marked and given back to the pool of this thread: a layout that rents from the pool takes it first, and writes its own values over the marks.
+        // (A pooled array is not cleared, so the test looks for the marks and not for zeros.)
+        bool[] flags = ArrayPool<bool>.Shared.Rent(size);
+        int[] ints = ArrayPool<int>.Shared.Rent(size);
+        double[] doubles = ArrayPool<double>.Shared.Rent(size);
+        Array.Fill(flags, true);
+        Array.Fill(ints, 7);
+        Array.Fill(doubles, 7.0);
+        ArrayPool<bool>.Shared.Return(flags);
+        ArrayPool<int>.Shared.Return(ints);
+        ArrayPool<double>.Shared.Return(doubles);
+
+        ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, 3000);
+        Assert.True(layout.Lines.Count > 100);
+
+        Assert.All(flags, v => Assert.True(v));
+        Assert.All(ints, v => Assert.Equal(7, v));
+        Assert.All(doubles, v => Assert.Equal(7.0, v));
+    }
+
+    [Fact]
+    public void A_layout_of_a_text_above_the_pool_limit_is_the_same_whatever_the_pooled_arrays_hold()
+    {
+        // The text is longer than the limit for every array the layout rents, so the allocated path is the one that runs; the arrays of the pool it does not use are dirty all the same.
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Arabic, LayoutTestKit.Hebrew);
+        string text = LongText(100_000) + " مرحبا بالعالم שלום עולם " + LongText(5_000);
+        ParagraphLayout clean = LayoutTestKit.Layout(text, fonts, 3000);
+        string expected = Describe(clean);
+        byte[] expectedDrawn = LayoutTestKit.Draw(clean, fonts);
+
+        Poison();
+        ParagraphLayout dirty = LayoutTestKit.Layout(text, fonts, 3000);
+        Assert.Equal(expected, Describe(dirty));
+        Assert.True(expectedDrawn.AsSpan().SequenceEqual(LayoutTestKit.Draw(dirty, fonts)));
+    }
+
+    private static string LongText(int length)
+    {
+        string[] words = ["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "sed", "do", "eiusmod", "tempor", "incididunt-ut", "labore"];
+        System.Text.StringBuilder builder = new(length + 20);
+        for (int i = 0; builder.Length < length; i++)
+        {
+            _ = builder.Append(words[((i * 7) + (i / 5)) % words.Length]).Append(' ');
+        }
+
+        return builder.ToString(0, length);
+    }
+
+    [Fact]
+    public void A_page_that_is_ended_does_not_allocate_a_builder_for_content_it_will_never_have_and_can_still_be_drawn_on()
+    {
+        ContentStreamBuilder body = new();
+        PdfPageWriter page = new(null!, 0, 100, 100, body);
+        _ = body.SaveState();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ContentStreamBuilder dropped = page.DropBody();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // A builder owns a buffer of 4 KB, which a page that is written and finished has no use for.
+        Assert.Same(body, dropped);
+        Assert.True(allocated < 1024, $"Dropping the body allocated {allocated} bytes.");
+
+        // What may still ask for the content gets a usable, empty builder, the same one each time, and a header or footer replaces it.
+        Assert.Equal(0, page.Content.Length);
+        Assert.Same(page.Content, page.Content);
+        Assert.NotSame(body, page.Content);
+        page.UseHeader();
+        Assert.Same(page.HeaderContent, page.Content);
+        page.UseFooter();
+        Assert.Same(page.FooterContent, page.Content);
     }
 }

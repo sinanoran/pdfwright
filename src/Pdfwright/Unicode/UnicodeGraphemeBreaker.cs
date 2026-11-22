@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace Pdfwright.Unicode;
 
 /// <summary>
@@ -34,8 +32,8 @@ internal static class UnicodeGraphemeBreaker
             return;
         }
 
-        // Rented from the shared pool and given back (every entry up to count is written before it is read).
-        CharacterInfo[] info = ArrayPool<CharacterInfo>.Shared.Rent(count);
+        // Rented (see ScratchArray: from the shared pool up to 4,096 elements, allocated above that) and given back; every entry up to count is written before it is read.
+        CharacterInfo[] info = ScratchArray.Rent<CharacterInfo>(count);
         try
         {
             for (int i = 0; i < count; i++)
@@ -56,7 +54,7 @@ internal static class UnicodeGraphemeBreaker
         }
         finally
         {
-            ArrayPool<CharacterInfo>.Shared.Return(info);
+            ScratchArray.Return(info);
         }
     }
 

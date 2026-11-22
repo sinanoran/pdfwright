@@ -445,7 +445,7 @@ internal sealed class PdfPageWriter
     internal PdfPageWriter(PdfDocumentWriter document, int index, double width, double height, ContentStreamBuilder content)
     {
         _document = document;
-        Content = content;
+        _content = content;
         Index = index;
         Width = width;
         Height = height;
@@ -460,7 +460,10 @@ internal sealed class PdfPageWriter
 
     internal double Height { get; }
 
-    internal ContentStreamBuilder Content { get; private set; }
+    private ContentStreamBuilder? _content;
+
+    /// <summary>The stream that is drawn on now: the body's, or after <see cref="UseHeader"/> or <see cref="UseFooter"/> that one. After <see cref="DropBody"/> it is an empty builder, made when something first asks for it.</summary>
+    internal ContentStreamBuilder Content => _content ??= new ContentStreamBuilder();
 
     /// <summary>The content stream written by <see cref="End"/>'s sibling <see cref="EndBody"/>, while the page waits for its header and footer.</summary>
     internal PdfReference? BodyContents { get; set; }
@@ -482,18 +485,21 @@ internal sealed class PdfPageWriter
     internal bool Finished { get; set; }
 
     /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the header's stream (drawn before the body).</summary>
-    internal void UseHeader() => Content = HeaderContent;
+    internal void UseHeader() => _content = HeaderContent;
 
-    /// <summary>Lets go of the body's content once it is written, so that a page waiting for its header and footer holds no more than its resources.</summary>
+    /// <summary>
+    /// Lets go of the body's content once it is written, so that a page waiting for its header and footer holds no more than its resources. No builder is made in its place: a page that is
+    /// ended has no use for one, and a header or footer replaces it by <see cref="UseHeader"/> or <see cref="UseFooter"/>; drawing on the page before that still works, on a builder made then.
+    /// </summary>
     internal ContentStreamBuilder DropBody()
     {
         ContentStreamBuilder body = Content;
-        Content = new ContentStreamBuilder();
+        _content = null;
         return body;
     }
 
     /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the footer's stream (drawn after the body).</summary>
-    internal void UseFooter() => Content = FooterContent;
+    internal void UseFooter() => _content = FooterContent;
 
     internal List<PdfDictionary> Links { get; } = [];
 

@@ -1,4 +1,4 @@
-using System.Buffers;
+using System.Diagnostics;
 using Pdfwright.Fonts;
 using Pdfwright.Unicode;
 
@@ -317,11 +317,12 @@ internal static class ParagraphLayouter
 
             // The width of everything left of each UTF-16 index: a glyph's advance sits at its cluster, so the width of a text range is
             // the difference of two prefix sums, and a range that does not start and end on cluster boundaries is never asked for.
-            // The arrays are rented from the shared pool and given back by Dispose, which Layout calls once the lines are built: a State lives for one layout, and the pool keeps a bounded number
-            // of arrays for all threads, so no thread holds memory in proportion to its longest text. A rented array may be longer than asked for and holds what it was left with: what is read is cleared or written first.
-            double[] advanceAt = ArrayPool<double>.Shared.Rent(Count + 1);
+            // The arrays are rented (see ScratchArray) and given back by Dispose, which Layout calls once the lines are built: a State lives for one layout. Up to 4,096 elements an array comes from the shared pool,
+            // which may keep it until the runtime trims the pool; a longer one is allocated and left to the garbage collector, so a very long text leaves nothing behind in the pool. A rented array may be longer than
+            // asked for and holds what it was left with: what is read is cleared or written first. It also accepts an index past the end of the text that a new array of the exact length would refuse, hence the asserts.
+            double[] advanceAt = ScratchArray.Rent<double>(Count + 1);
             Array.Clear(advanceAt, 0, Count + 1);
-            _boundary = ArrayPool<bool>.Shared.Rent(Count + 1);
+            _boundary = ScratchArray.Rent<bool>(Count + 1);
             Array.Clear(_boundary, 0, Count + 1);
             _boundary[0] = true;
             _boundary[Count] = true;
@@ -329,6 +330,7 @@ internal static class ParagraphLayouter
             for (int r = 0; r < paragraph.Runs.Count; r++)
             {
                 ShapedRun run = paragraph.Runs[r];
+                Debug.Assert((uint)run.Utf16Start <= (uint)Count, "A run starts inside the text.");
                 _boundary[run.Utf16Start] = true;
                 double scale = Scale(run);
                 bool ascending = true;
@@ -336,6 +338,7 @@ internal static class ParagraphLayouter
                 for (int g = 0; g < run.Glyphs.Length; g++)
                 {
                     ShapedGlyph glyph = run.Glyphs[g];
+                    Debug.Assert((uint)glyph.Cluster <= (uint)Count, "A cluster is an index into the text.");
                     advanceAt[glyph.Cluster] += glyph.XAdvance * scale;
                     _boundary[glyph.Cluster] = true;
                     if (g > 0)
@@ -348,20 +351,21 @@ internal static class ParagraphLayouter
                 _glyphOrder[r] = ascending ? GlyphOrder.Ascending : descending ? GlyphOrder.Descending : GlyphOrder.Unordered;
             }
 
-            _prefix = ArrayPool<double>.Shared.Rent(Count + 1);
+            _prefix = ScratchArray.Rent<double>(Count + 1);
             _prefix[0] = 0;
             for (int i = 0; i < Count; i++)
             {
                 _prefix[i + 1] = _prefix[i] + advanceAt[i];
             }
 
-            ArrayPool<double>.Shared.Return(advanceAt);
+            ScratchArray.Return(advanceAt);
 
             // Only a position that starts a code point can be a boundary (a cluster value is one by construction; this is a guard).
-            _codePointOf = ArrayPool<int>.Shared.Rent(Count + 1);
+            _codePointOf = ScratchArray.Rent<int>(Count + 1);
             Array.Fill(_codePointOf, -1, 0, Count + 1);
             for (int i = 0; i < paragraph.CodePoints.Length; i++)
             {
+                Debug.Assert((uint)utf16[i] <= (uint)Count, "A code point starts inside the text.");
                 _codePointOf[utf16[i]] = i;
             }
 
@@ -373,11 +377,11 @@ internal static class ParagraphLayouter
 
             // Where a unit wider than the width may be cut: between grapheme clusters (UAX #29) that are also glyph clusters.
             int codePointCount = paragraph.CodePoints.Length;
-            bool[] graphemeBoundary = ArrayPool<bool>.Shared.Rent(codePointCount + 1);
-            LineBreakKind[] breaks = ArrayPool<LineBreakKind>.Shared.Rent(codePointCount + 1);
-            _anywhere = ArrayPool<bool>.Shared.Rent(Count + 1);
-            _candidateIndex = ArrayPool<int>.Shared.Rent(codePointCount + 1);
-            _mandatory = ArrayPool<bool>.Shared.Rent(codePointCount + 1);
+            bool[] graphemeBoundary = ScratchArray.Rent<bool>(codePointCount + 1);
+            LineBreakKind[] breaks = ScratchArray.Rent<LineBreakKind>(codePointCount + 1);
+            _anywhere = ScratchArray.Rent<bool>(Count + 1);
+            _candidateIndex = ScratchArray.Rent<int>(codePointCount + 1);
+            _mandatory = ScratchArray.Rent<bool>(codePointCount + 1);
             try
             {
                 UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints, graphemeBoundary);
@@ -402,8 +406,8 @@ internal static class ParagraphLayouter
             }
             finally
             {
-                ArrayPool<bool>.Shared.Return(graphemeBoundary);
-                ArrayPool<LineBreakKind>.Shared.Return(breaks);
+                ScratchArray.Return(graphemeBoundary);
+                ScratchArray.Return(breaks);
             }
         }
 
@@ -416,12 +420,12 @@ internal static class ParagraphLayouter
             }
 
             _disposed = true;
-            ArrayPool<double>.Shared.Return(_prefix);
-            ArrayPool<bool>.Shared.Return(_boundary);
-            ArrayPool<int>.Shared.Return(_codePointOf);
-            ArrayPool<bool>.Shared.Return(_anywhere);
-            ArrayPool<int>.Shared.Return(_candidateIndex);
-            ArrayPool<bool>.Shared.Return(_mandatory);
+            ScratchArray.Return(_prefix);
+            ScratchArray.Return(_boundary);
+            ScratchArray.Return(_codePointOf);
+            ScratchArray.Return(_anywhere);
+            ScratchArray.Return(_candidateIndex);
+            ScratchArray.Return(_mandatory);
         }
 
         /// <summary>The length of the text in UTF-16 units.</summary>

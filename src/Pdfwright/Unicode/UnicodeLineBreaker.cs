@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace Pdfwright.Unicode;
 
 /// <summary>What the line breaking algorithm says about the boundary before a character.</summary>
@@ -48,28 +46,29 @@ internal static class UnicodeLineBreaker
         }
 
         // LB1 and, with LB9 and LB10, the units: a base character with the combining marks and joiners that attach to it.
-        // The working arrays are rented from the shared pool, which keeps a bounded number of them whatever the number of threads, and given back: they hold the units of this call and nothing after it.
+        // The working arrays are rented (see ScratchArray) and given back: they hold the units of this call and nothing after it. Up to 4,096 elements they come from the shared pool, which may keep them until the
+        // runtime trims it; for a longer text they are allocated and left to the garbage collector.
         // An entry is written when its unit is made, before anything reads it, so the contents a rented array arrives with do not matter.
-        int[] unitStart = ArrayPool<int>.Shared.Rent(count);
-        LineBreakClass[] cls = ArrayPool<LineBreakClass>.Shared.Rent(count);
-        CharacterInfo[] info = ArrayPool<CharacterInfo>.Shared.Rent(count);
-        bool[] endsInJoiner = ArrayPool<bool>.Shared.Rent(count);
-        bool[] dottedCircle = ArrayPool<bool>.Shared.Rent(count);
-        int[] runOfRegionalIndicators = ArrayPool<int>.Shared.Rent(count);
-        LineBreakClass[] baseClass = ArrayPool<LineBreakClass>.Shared.Rent(count);
+        int[] unitStart = ScratchArray.Rent<int>(count);
+        LineBreakClass[] cls = ScratchArray.Rent<LineBreakClass>(count);
+        CharacterInfo[] info = ScratchArray.Rent<CharacterInfo>(count);
+        bool[] endsInJoiner = ScratchArray.Rent<bool>(count);
+        bool[] dottedCircle = ScratchArray.Rent<bool>(count);
+        int[] runOfRegionalIndicators = ScratchArray.Rent<int>(count);
+        LineBreakClass[] baseClass = ScratchArray.Rent<LineBreakClass>(count);
         try
         {
             FindBreaks(text, breaks, unitStart, cls, info, endsInJoiner, dottedCircle, runOfRegionalIndicators, baseClass);
         }
         finally
         {
-            ArrayPool<int>.Shared.Return(unitStart);
-            ArrayPool<LineBreakClass>.Shared.Return(cls);
-            ArrayPool<CharacterInfo>.Shared.Return(info);
-            ArrayPool<bool>.Shared.Return(endsInJoiner);
-            ArrayPool<bool>.Shared.Return(dottedCircle);
-            ArrayPool<int>.Shared.Return(runOfRegionalIndicators);
-            ArrayPool<LineBreakClass>.Shared.Return(baseClass);
+            ScratchArray.Return(unitStart);
+            ScratchArray.Return(cls);
+            ScratchArray.Return(info);
+            ScratchArray.Return(endsInJoiner);
+            ScratchArray.Return(dottedCircle);
+            ScratchArray.Return(runOfRegionalIndicators);
+            ScratchArray.Return(baseClass);
         }
     }
 

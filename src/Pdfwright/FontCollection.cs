@@ -119,6 +119,11 @@ public sealed class FontCollection : IDisposable
         private readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), int[]> _orders = new();
         private readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), int[]> _ordersBySpelling = new();
 
+        /// <summary>The most spellings of a family that are remembered as they were written.</summary>
+        private const int MaxSpellings = 256;
+
+        private int _spellings;
+
         internal FontEntry[] Entries { get; } = entries;
 
         internal IReadOnlyList<ShapingFont> Shaping { get; } = [.. entries.Select(e => e.Shaping)];
@@ -142,9 +147,11 @@ public sealed class FontCollection : IDisposable
                     .ThenBy(i => Entries[i].Italic == italic ? 0 : 1)
                     .ThenBy(i => Math.Abs(Entries[i].Weight - weight))
                     .ThenBy(i => i)]);
-            if (_ordersBySpelling.Count < 256)
+            // The count is kept apart because ConcurrentDictionary.Count takes every lock of the table, which would make each miss past the limit wait for all the threads. Threads that read it
+            // together may each add one more, so the table can pass the limit by about the number of threads, which does not matter: the limit only keeps an endless variety of spellings from growing it.
+            if (Volatile.Read(ref _spellings) < MaxSpellings && _ordersBySpelling.TryAdd((family, weight, italic), order))
             {
-                _ordersBySpelling.TryAdd((family, weight, italic), order);
+                _ = Interlocked.Increment(ref _spellings);
             }
 
             return order;

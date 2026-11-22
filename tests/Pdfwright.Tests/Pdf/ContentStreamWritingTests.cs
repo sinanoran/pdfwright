@@ -414,4 +414,20 @@ public class ContentStreamWritingTests
 
         Assert.Equal("BT\n1 0 0 1 10 20 Tm\n1 0 0 1 100000000000000 -200000000000000 Tm\n1 0 0 1 10.5 20 Tm\n0.5 0 Td\nET\n", Encoding.ASCII.GetString(content.ToMemory().Span));
     }
+
+    [Fact]
+    public void A_cleared_builder_writes_what_a_new_one_writes_and_forgets_the_text_position()
+    {
+        // The running text position is part of what the builder knows of its stream: a Td after Clear would be relative to a line of the stream that is gone.
+        ContentStreamBuilder used = new();
+        _ = used.BeginText().TextPlace(10, 10);
+        used.Clear();
+        _ = used.TextPlace(20, 20);
+
+        ContentStreamBuilder fresh = new();
+        _ = fresh.TextPlace(20, 20);
+
+        Assert.Equal(Encoding.ASCII.GetString(fresh.ToMemory().Span), Encoding.ASCII.GetString(used.ToMemory().Span));
+        Assert.Equal("1 0 0 1 20 20 Tm\n", Encoding.ASCII.GetString(used.ToMemory().Span));
+    }
 }

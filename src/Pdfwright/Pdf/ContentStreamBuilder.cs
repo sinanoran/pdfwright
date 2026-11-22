@@ -33,11 +33,17 @@ internal sealed class ContentStreamBuilder
     /// <summary>The size of the buffer, in bytes.</summary>
     internal int Capacity => _bytes.Capacity;
 
-    /// <summary>Empties the builder to be written again, keeping its buffer: the bytes of the buffer are left as they are, and <see cref="ToMemory"/> covers only what is written after.</summary>
+    /// <summary>
+    /// Empties the builder to be written again, keeping its buffer: the bytes of the buffer are left as they are, and <see cref="ToMemory"/> covers only what is written after.
+    /// What the builder knows of the stream so far (the font and the running text position) is forgotten too, so that it writes what a new builder would.
+    /// </summary>
     internal void Clear()
     {
         _bytes.ResetWrittenCount();
         CurrentFont = null;
+        _lineKnown = false;
+        _lineX = 0;
+        _lineY = 0;
     }
 
     internal ReadOnlyMemory<byte> ToMemory() => _bytes.WrittenMemory;

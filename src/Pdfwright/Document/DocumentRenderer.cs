@@ -393,7 +393,8 @@ internal sealed partial class DocumentRenderer
         PdfPageWriter page = _page!;
 
         // The fonts the lines use, in the order their first run names them (the order the page's font names are handed out in). The two arrays belong to this renderer
-        // and are cleared for each call: a renderer draws on one thread, and a layout does not keep the arrays it is given.
+        // and are cleared for each call: a renderer draws on one thread, and a layout does not keep the arrays it is given. They are filled only here, after the recursive Draw of the list marker above has
+        // returned, which is why that recursion cannot find them holding the fonts of this call.
         PdfEmbeddedFont?[] embedded = _drawEmbedded;
         string?[] names = _drawNames;
         Array.Clear(embedded);
