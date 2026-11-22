@@ -8,7 +8,7 @@ namespace Pdfwright.Text;
 /// <summary>
 /// Writes a shaped run into a content stream so that readers get the right text whichever way they read it: the glyphs are written in
 /// <b>logical</b> order (a right-to-left run backwards from how the shaper lists them, so that a reader that follows the content stream
-/// gets the text in the order it was typed) and each at the place the shaper put it, with a text matrix of its own (so that a reader that
+/// gets the text in the order it was typed) and each at the place the shaper put it, with a positioning operator of its own (so that a reader that
 /// works from positions sees the glyphs where they are drawn).
 /// </summary>
 /// <remarks>
@@ -16,8 +16,17 @@ namespace Pdfwright.Text;
 /// Measured on the 61 corpus lines (see the plan's section on the mixed-direction test): a <c>Tm</c> per glyph reads better in xpdf's
 /// position-ordered mode than one <c>Tm</c> per run with <c>TJ</c> adjustments (36 of 61 against 29) and the same in pdf.js and PdfPig, and
 /// writing the glyphs of a cluster with those that have no advance first (to put the glyph that carries the advance last) made xpdf
-/// worse (25 of 61). The file is larger by about twenty bytes a glyph (not measured after compression). Measured before the continuation codes were
+/// worse (25 of 61). Measured before the continuation codes were
 /// mapped to U+034F (see <see cref="PdfEmbeddedFont.ContinuationText"/>); under that mapping xpdf reads 44 of 61 once the joiner is removed.
+/// </para>
+/// <para>
+/// The one positioning operator of a glyph is a <c>Td</c> (a move of the line matrix, <see cref="ContentStreamBuilder.TextPlace"/>) instead of an absolute <c>Tm</c> wherever the text matrix
+/// is the unit matrix, which is every ordinary glyph after the first of a text object: the file is much smaller (an absolute matrix is about 42 bytes a glyph before compression, a
+/// move 20 or less, and what is left compresses far better). It reads the same, because a reader that works from positions sees the same place, and one that follows the content
+/// stream still sees one operator and one <c>Tj</c> a glyph in the same order (what cost xpdf was a <c>TJ</c> with several glyphs, not the operator that places one). A <c>Td</c> moves from the start of the current
+/// <i>line</i>, not from the end of the previous glyph, so each is the difference from the position last written, taken from the rounded values (five decimals) that the reader holds, and errors
+/// never add up; the y offset of a glyph is part of that position. A <c>Tm</c> stays for the first glyph of a text object and for the scaled matrices of the mark glyphs below,
+/// after which the line matrix is not a pure translation (a <c>Td</c> would be scaled by it), so the next ordinary glyph is placed with a <c>Tm</c> again.
 /// </para>
 /// <para>
 /// Firefox's pdf.js needs three more things of the file, measured on the same lines (61 of 61 with them, 56 without) and read in its source (6.3.335): it treats a glyph whose

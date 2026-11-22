@@ -8,6 +8,8 @@ All notable changes to this project are recorded here. The format follows
 
 ### Changed
 
+- **Much smaller files; same positions.** Each glyph is still placed by one positioning operator and shown by its own `Tj`, but the operator is now a `Td` relative to the position last written (rounded to five decimals, so errors do not add up) instead of an absolute `Tm`; `Tm` stays for the first glyph of a text object and the scaled marks. The 1,000-row table goes from 514 KB to 76 KB and the ten-page report from 103 KB to 57 KB. Text extraction (PdfPig, pdf.js, xpdf) and every render is unchanged. The byte goldens were regenerated.
+
 - **Writing the content of a page allocates far less; the output is unchanged.** Numbers, operators and glyph codes are now written straight into the content stream's byte buffer instead of through a string for each, and the glyphs of a run are ordered without LINQ. Every byte of every golden file is the same as before, and a test holds the new writer to the old one over random operators and over many doubles.
 
 ## [0.1.1] - 2026-11-22
