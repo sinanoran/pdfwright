@@ -16,7 +16,7 @@ dotnet add package Pdfwright
 
 > **Status: version 0.1.0 (22 November 2026) is the first release.** It is a first release: the text of every script is read back and checked, but the review of the test text was done by an AI agent rather than by native speakers, the sample files were checked
 > as PDFium renders and not in Acrobat Reader or macOS Preview, CJK fonts with TrueType outlines are accepted but not tested (CFF outlines come in 0.2), and the speed and memory targets of the plan are not met (see [docs/baselines.md](docs/baselines.md)).
-> The list is in [docs/known-limitations.md](docs/known-limitations.md) and the checks that were and were not made are in [RELEASING.md](RELEASING.md). Version 0.1.0 is installed with the command above.
+> The list is in [docs/known-limitations.md](docs/known-limitations.md) and the checks that were and were not made are in [RELEASING.md](RELEASING.md). Version 0.1.0 is installed with the command above once it is on nuget.org.
 
 Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). Besides the Windows, Linux and macOS runners, CI makes the sample report inside the slim
 .NET runtime images `mcr.microsoft.com/dotnet/aspnet:10.0` (Debian, glibc) and `mcr.microsoft.com/dotnet/aspnet:10.0-alpine` (musl). The package ships no font.
