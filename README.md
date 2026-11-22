@@ -145,7 +145,7 @@ stream get the text exactly. Poppler's `pdftotext` (the library behind Evince an
 
 ## Compared with the usual alternatives
 
-Measured on one Windows machine on 21 November 2026, one run each: baselines to beat, not benchmarks (method and how to repeat them: [docs/baselines.md](docs/baselines.md)). The scenario is a table of 1,000 rows and 6 columns over 20 A4
+Measured on one Windows machine on 21 and 22 November 2026 (the browser and Skia: one run each, on the 21st; Pdfwright: the median of 30 runs, on the 22nd): baselines to beat, not benchmarks (method and how to repeat them: [docs/baselines.md](docs/baselines.md)). The scenario is a table of 1,000 rows and 6 columns over 20 A4
 pages with a repeated header. Where a cell says "not measured", nobody measured it here; where it says "documented", it comes from that project's own documentation.
 
 | | Pdfwright 0.1 | Skia's PDF backend (SkiaSharp 4.157.0) | A headless browser (Playwright, Chromium headless shell) |
@@ -155,13 +155,13 @@ pages with a repeated header. Where a cell says "not measured", nobody measured 
 | Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here |
 | Mixed-direction paragraph (Latin in Arabic) | itemized and ordered by UAX #9 | the stock shaper does no bidirectional itemization: a mixed line was drawn with the Arabic in isolated forms | not measured here |
 | Tagged (accessible) PDF | **not in 0.1** (planned for 0.2) | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
-| 1,000-row table, cold process | not benchmarked yet (the plan's targets are in section 7) | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms, 495 MB peak over the process tree, 154 KB |
+| 1,000-row table, cold process | 2,095 ms median (p95 2,270 ms) over 30 fresh processes, including about 150 ms of runtime start, 52 MB peak (30 MB over the 22 MB of a bare runtime start), 514 KB, 21 pages: slower and larger than the plan's targets (section 7), on a machine low on free memory (0.6 to 7.5 GB free; the same build gave 1.5 to 2.1 s depending on the memory state, see baselines.md); 8 mm side margins and 3 pt cell padding against the browser's none and 1 px | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms from browser launch to the end of `page.pdf` (node start and browser close excluded), 495 MB peak over the process tree, 154 KB. The "cold" numbers are taken differently: Pdfwright's is process start to exit, runtime start included; the Skia spike's method is not documented; the layouts differ (margins, padding, fonts) |
 | Fonts | supplied by you, embedded as subsets | not assessed here | looked up by the browser on the machine, unless the page loads its own |
 | Byte-stable output (golden files) | yes (`Deterministic`, optionally `Compress = false`) | Skia writes a document id and dates; stability not assessed | not assessed here |
 
 Reading it: the browser is the most complete and costs a browser; the Skia backend is the lightest and failed the extraction criterion for the scripts that matter here; Pdfwright's claim is the third row, measured by the tests in this
 repository, and it pays for it with what is not in 0.1 (tested CJK, tagged PDF, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
-extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwright's own timings will be added to `docs/baselines.md` once a benchmark scenario exists.
+extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwright's own timings, a ten-page report and how to repeat them are in `docs/baselines.md`; they are order-of-magnitude comparisons only (the browser and Skia rows are one run each).
 
 ## Known limitations
 

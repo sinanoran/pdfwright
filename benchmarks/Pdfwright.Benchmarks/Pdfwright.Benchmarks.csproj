@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <None Include="Baselines\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Regular.ttf" Link="fonts\NotoSans-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Bold.ttf" Link="fonts\NotoSans-Bold.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSansArabic-Regular.ttf" Link="fonts\NotoSansArabic-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
