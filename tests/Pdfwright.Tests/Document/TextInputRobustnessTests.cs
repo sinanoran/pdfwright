@@ -8,7 +8,8 @@ namespace Pdfwright.Tests.Document;
 public class TextInputRobustnessTests
 {
     private static readonly string[] LineBreaks =
-        ["\n", "\r\n", "\r", ((char)0x2028).ToString(), ((char)0x2029).ToString(), ((char)0x85).ToString(), ((char)0x0B).ToString(), ((char)0x0C).ToString()];
+        ["\n", "\r\n", "\r", ((char)0x2028).ToString(), ((char)0x2029).ToString(), ((char)0x85).ToString(), ((char)0x0B).ToString(), ((char)0x0C).ToString(),
+        ((char)0x1C).ToString(), ((char)0x1D).ToString(), ((char)0x1E).ToString()];
 
     private static TextMeasurer Measurer => new(DocumentTestKit.Fonts);
 
@@ -66,7 +67,7 @@ public class TextInputRobustnessTests
     public void Other_controls_are_removed_and_take_no_room()
     {
         double plain = Measurer.Measure("ab").Width.Points;
-        foreach (int control in new[] { 0x0000, 0x0001, 0x0007, 0x0008, 0x001B, 0x001C, 0x001D, 0x001E, 0x001F, 0x007F, 0x0080, 0x0090, 0x009F })
+        foreach (int control in new[] { 0x0000, 0x0001, 0x0007, 0x0008, 0x001B, 0x001F, 0x007F, 0x0080, 0x0090, 0x009F })
         {
             TextMeasurement m = Measurer.Measure("a" + (char)control + "b");
             Assert.Equal(1, m.LineCount);

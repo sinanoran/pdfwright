@@ -10,7 +10,7 @@ internal sealed record ResolvedStyle(string Family, double Size, int Weight, boo
     /// <summary>The style of the document: the default style over the library's defaults, with the first font's family when none is named.</summary>
     internal static ResolvedStyle Base(FontCollection.Snapshot fonts, TextStyle? defaults, string? documentLanguage)
     {
-        ResolvedStyle library = new(fonts.Entries[0].Family, 10, 400, false, Color.Black, documentLanguage);
+        ResolvedStyle library = new(fonts.Entries[0].Family, 10, 400, false, Color.Black, Label(documentLanguage));
         return library.Apply(defaults);
     }
 
@@ -34,8 +34,15 @@ internal sealed record ResolvedStyle(string Family, double Size, int Weight, boo
             throw new ArgumentOutOfRangeException(nameof(over), weight, "A font weight is from 1 to 1000.");
         }
 
-        return new ResolvedStyle(over.Family ?? Family, size, weight, over.Italic ?? Italic, over.Color ?? Color, over.Language ?? Language);
+        return new ResolvedStyle(Label(over.Family) ?? Family, size, weight, over.Italic ?? Italic, over.Color ?? Color, Label(over.Language) ?? Language);
     }
+
+    /// <summary>
+    /// A family or a language a caller gave, as it is used and reported: read by the rule for metadata (controls removed, a line break or tab a space, a lone surrogate U+FFFD, white space at the ends trimmed), so that no control reaches the
+    /// language of the shaper (BCP 47), the language of a missing glyph or the families reported as missing. A string that is empty only after it is read counts as not given (<see langword="null"/>). The caller's own record is not changed.
+    /// </summary>
+    private static string? Label(string? text) => text is null || text.Length == 0 ? text : (TextNormalizer.Metadata(text) is { Length: > 0 } cleaned ? cleaned : null);
+
 }
 
 /// <summary>A paragraph laid out, and what is needed to say where a character of it is set.</summary>

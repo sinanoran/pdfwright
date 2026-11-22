@@ -14,14 +14,14 @@ internal static class TextNormalizer
     /// <summary>U+FFFD REPLACEMENT CHARACTER, what a surrogate without its pair becomes.</summary>
     internal const char Replacement = (char)0xFFFD;
 
-    /// <summary>Whether <paramref name="c"/> ends a line: a line feed, a carriage return, a next line (U+0085), a vertical tab, a form feed, or a line or paragraph separator (U+2028, U+2029).</summary>
-    internal static bool IsLineBreak(char c) => c is '\n' or '\r' or (char)0x0B or (char)0x0C or (char)0x85 or (char)0x2028 or (char)0x2029;
+    /// <summary>Whether <paramref name="c"/> ends a line: a line feed, a carriage return, a next line (U+0085), a vertical tab, a form feed, a line or paragraph separator (U+2028, U+2029), or one of the information separators U+001C to U+001E (bidirectional class B, a paragraph separator to the Unicode standard, which 0.1.0 already broke the line at).</summary>
+    internal static bool IsLineBreak(char c) => c is '\n' or '\r' or (char)0x0B or (char)0x0C or (char)0x1C or (char)0x1D or (char)0x1E or (char)0x85 or (char)0x2028 or (char)0x2029;
 
     /// <summary>Whether <paramref name="c"/> is a control character that is dropped: a C0 or C1 control (and U+007F DELETE) that is not a tab and not a line break.</summary>
     internal static bool IsDroppedControl(char c) => !IsLineBreak(c) && c != '\t' && (c < 0x20 || (c >= 0x7F && c <= 0x9F));
 
     /// <summary>
-    /// Text as it is laid out. Every line break (U+000A, U+000D, a U+000D U+000A pair as one, U+0085, U+000B, U+000C, U+2028, U+2029) becomes one U+2028, a hard line break inside the
+    /// Text as it is laid out. Every line break (U+000A, U+000D, a U+000D U+000A pair as one, U+0085, U+000B, U+000C, U+001C to U+001E, U+2028, U+2029) becomes one U+2028, a hard line break inside the
     /// same block (a paragraph separator does not start a new block). Every other control character (C0, U+007F, C1; U+0000 too) is removed; a tab is kept (the layout sets it as a space).
     /// A surrogate without its pair becomes U+FFFD. Everything else (including unassigned and private use code points, joiners and U+FEFF) is kept as it is.
     /// </summary>
@@ -75,8 +75,8 @@ internal static class TextNormalizer
     }
 
     /// <summary>
-    /// Text for the metadata of the file (title, subject, author, creator, keywords, language): a line break or a tab becomes one space, every other control is removed, a surrogate
-    /// without its pair becomes U+FFFD, and the characters XML 1.0 forbids (U+FFFE, U+FFFF) are removed, so that the Info dictionary and the XMP packet say the same and the packet is well formed.
+    /// Text for the metadata of the file (title, subject, author, creator, keywords, language), and for the family and language of a style: a line break or a tab becomes one space, every other control is removed, a surrogate
+    /// without its pair becomes U+FFFD, and the characters XML 1.0 forbids (U+FFFE, U+FFFF) are removed, and the result is trimmed (white space at either end is not part of a title or a language tag), so that the Info dictionary and the XMP packet say the same and the packet is well formed. A string that is empty after it is left out of the file by the writer.
     /// </summary>
     internal static string Metadata(string text)
     {
@@ -112,7 +112,7 @@ internal static class TextNormalizer
             }
         }
 
-        return result.ToString();
+        return result.ToString().Trim();
     }
 
     private static bool IsPlain(string text, int index)

@@ -148,11 +148,12 @@ document.Add(new Paragraph(
 A colour does not change how text is shaped: a word of which one letter is red has the same shape and width, and Arabic letters keep joining across a change of colour.
 Every text a caller gives (a run, a table cell, a header or footer, a list item, a drawn or a measured string) is read by one rule, so that no string makes a save throw:
 
-- A line break of any kind (`\n`, `\r\n`, `\r`, U+0085, U+000B, U+000C, U+2028, U+2029) is a hard line break inside the same paragraph. It is never a new paragraph: not even U+2029 PARAGRAPH SEPARATOR starts one. Make several `Paragraph`s to get spacing and a direction for each. This holds in a heading, a table cell (a header cell too), a list item, a header or footer and a string drawn on a canvas as much as in a paragraph; no place takes a single line only.
-- The other control characters (U+0000 to U+001F, U+007F, U+0080 to U+009F) are removed from the layout and from the text layer. A tab is set as a space.
+- A line break of any kind (`\n`, `\r\n`, `\r`, U+0085, U+000B, U+000C, U+001C to U+001E, U+2028, U+2029) is a hard line break inside the same paragraph. A break at the very end of a text adds no empty line, a `\r\n` is one break (not two), and an empty line (two breaks in a row, or one at the start) is as tall as a line of text. It is never a new paragraph: not even U+2029 PARAGRAPH SEPARATOR starts one. Make several `Paragraph`s to get spacing and a direction for each. This holds in a heading, a table cell (a header cell too), a list item, a header or footer and a string drawn on a canvas as much as in a paragraph; no place takes a single line only.
+- The other control characters (U+0000 to U+001F except the line breaks above, U+007F, U+0080 to U+009F) are removed from the layout and from the text layer. A tab is set as a space.
 - A surrogate without its pair (a lone high or low surrogate, a pair in the wrong order) is replaced by U+FFFD, which is drawn with the font's replacement glyph (or its `.notdef` when it has none, and then reported in `DocumentDiagnostics.MissingGlyphs`).
 - Everything else is kept, unassigned and private-use code points included: a font without a glyph for it draws `.notdef` and the character is reported as missing.
 - The strings you gave are never changed: the rule is applied when the text is laid out, so a `Paragraph` or a `TextRun` still holds exactly what you wrote.
+- Metadata (title, subject, author, creator, language) is read by the same rule except that a line break or a tab becomes a space, and white space at either end is trimmed; an entry that is empty after that is left out of the file. The `Family` and `Language` of a `TextStyle` are read the same way before they are used or reported (so `"en-US\n"` is `"en-US"` in `MissingGlyph.Language` and in the language the shaper gets, and a family of only control characters counts as not given).
 
 ## Headings, paragraphs and page breaks
 
