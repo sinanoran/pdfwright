@@ -26,13 +26,13 @@ long|para|أرسل الفريق ملف Quarterly Report إلى العميل في
 @language en
 long|para|The Arabic team wrote تقرير المبيعات الشهري for the board, and the Hebrew team added דוח מכירות חודשי; both mention 3 offices, 45.50 EUR and a growth of +12.5% (up from -3% last year).
 @language he
-long|para|קראתי את Quarterly Report המלא היום, והוא אמר "תודה (רבה)" ויצא; הקובץ (Report [final]) נשמר בתיקייה, ומספר הטלפון הוא +972-3-1234567.
+long|para|קראתי את ה־Quarterly Report המלא היום, והוא אמר "תודה (רבה)" ויצא; הקובץ (Report [final]) נשמר בתיקייה, ומספר הטלפון הוא +972-3-1234567.
 @language en
 long|head|Client عميل|Note ملاحظة|Amount
 @language ar
 long|row|أحمد Ahmad|طلب Order 12 صندوقا|-15% و +5
 @language en
-long|row|Sarah שרה|Delivered אושר on 2026-11-21|1,234.50 USD
+long|row|Sarah שרה|Delivered נמסר on 2026-11-21|1,234.50 USD
 @language he
 long|row|דוד David|החזרה Return 45.50|-3.5%
 @language ar

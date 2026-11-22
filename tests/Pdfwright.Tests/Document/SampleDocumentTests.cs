@@ -62,7 +62,8 @@ public class SampleDocumentTests
             ZebraFill = Color.Gray(0.97),
         });
         double[] sales = [4, 7, 5, 9, 6];
-        document.Add(new Heading(2, "Sales by quarter"));
+        string[] months = ["Jan", "Feb", "Mar", "Apr", "May"];
+        document.Add(new Heading(2, "Sales by month"));
         document.Add(new DrawingBlock(Length.Mm(120), Length.Mm(50), canvas =>
         {
             double step = canvas.Width / sales.Length;
@@ -72,11 +73,11 @@ public class SampleDocumentTests
             {
                 double height = sales[i] / 10 * (canvas.Height - 24);
                 canvas.Fill(new DrawingPathBuilder().Rectangle((i * step) + 6, canvas.Height - 14 - height, step - 12, height).Build(), Color.FromHex("#3366CC"));
-                canvas.DrawText($"Q{i + 1}", (i * step) + (step / 2), canvas.Height - 3, alignment: TextAlignment.Center);
+                canvas.DrawText(months[i], (i * step) + (step / 2), canvas.Height - 3, alignment: TextAlignment.Center);
                 canvas.DrawText(sales[i].ToString(System.Globalization.CultureInfo.InvariantCulture), (i * step) + (step / 2), canvas.Height - 18 - height, new TextStyle { Size = Length.Pt(8) }, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by quarter" });
+        { AltText = "Bar chart of sales by month" });
         document.Add(new Image(logo) { Width = Length.Mm(30), AltText = "Logo" });
         return document;
     }
@@ -94,7 +95,7 @@ public class SampleDocumentTests
         Assert.Contains($"1 / {pages.Length}", pages[0]);
         Assert.Contains($"{pages.Length} / {pages.Length}", pages[^1]);
         Assert.Contains("Revenue", string.Concat(pages));
-        Assert.Contains("Q5", string.Concat(pages));
+        Assert.Contains("May", string.Concat(pages));
         DocumentTestKit.AssertValid(pdf, "sample-report");
     }
 
