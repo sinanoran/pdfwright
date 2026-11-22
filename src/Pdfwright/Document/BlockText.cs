@@ -107,7 +107,10 @@ internal static class BlockText
         TextDirection direction,
         double lineSpacing)
     {
-        StringBuilder text = new();
+        // The text is joined from the runs' chunks; a paragraph of one chunk (a table cell) is that string, with no builder.
+        string? only = null;
+        StringBuilder? text = null;
+        int length = 0;
         List<ResolvedStyle> styles = [baseStyle];
         List<StyledSpan> spans = [];
         foreach (TextRun run in runs)
@@ -133,10 +136,21 @@ internal static class BlockText
             }
             else
             {
-                spans.Add(new StyledSpan(text.Length, chunk.Length, index));
+                spans.Add(new StyledSpan(length, chunk.Length, index));
             }
 
-            text.Append(chunk);
+            if (only is null && text is null)
+            {
+                only = chunk;
+            }
+            else
+            {
+                text ??= new StringBuilder(only);
+                only = null;
+                text.Append(chunk);
+            }
+
+            length += chunk.Length;
         }
 
         RunStyle[] runStyles = [.. styles.Select(s => new RunStyle
@@ -148,7 +162,7 @@ internal static class BlockText
         })];
 
         ParagraphLayout layout = ParagraphLayouter.Layout(
-            text.ToString(),
+            only ?? text?.ToString() ?? string.Empty,
             fonts.Shaping,
             new ParagraphOptions
             {

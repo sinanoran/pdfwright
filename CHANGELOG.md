@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Less allocation in layout and drawing; output unchanged.** The working arrays of the line breaker, the grapheme breaker and the per-paragraph layout state are rented from the shared array pool and given back when they are up to 4,096 elements (the pool may keep them until the runtime trims it; a longer array, for a very long text, is allocated and collected, so it never stays in the pool), a page's content buffer is kept for the next page of the same save instead of being grown again by doubling, drawing a paragraph no longer builds a hash set and LINQ iterators to find the fonts it uses, and a one-style paragraph (a table cell) skips the style tables and the string builder. Every byte of every golden file is the same; tests lay the corpus and random mixed-script texts out with the pool filled with other values, compare parallel saves with serial ones byte for byte, and compare the breakers in a dirty, longer array with a new one. On the warm 1,000-row table the allocation falls from 59.0 MB to 28.2 MB per run and the ten-page report from 8.1 MB to 4.7 MB; the times are within the noise of this machine, so no speed-up is claimed (the warm table moved by 1 and 8 percent in two sets and the cold table by 8 and 4 percent, while two sets of the same build differ by up to 10 percent; the cost is mostly HarfBuzz shaping and the JIT), and the peak working set is unchanged.
+
 ## [0.1.3] - 2026-11-22
 
 ### Fixed

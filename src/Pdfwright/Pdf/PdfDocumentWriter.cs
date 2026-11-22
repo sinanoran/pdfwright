@@ -112,8 +112,29 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new ArgumentOutOfRangeException(nameof(height), height, "A page is 3 to 14,400 units high.");
         }
 
-        _open = new PdfPageWriter(this, _pages.Count, width, height);
+        _open = new PdfPageWriter(this, _pages.Count, width, height, _spareContent ?? new ContentStreamBuilder());
+        _spareContent = null;
         return _open;
+    }
+
+    /// <summary>
+    /// The buffer of the content stream of the last page that was written, emptied, for the next page to use: a page's content grows its buffer by doubling (and a dense one passes the
+    /// large object heap's threshold), which every page of a long table would repeat. It belongs to this writer, which is one save, so it is never shared between documents or threads.
+    /// </summary>
+    private ContentStreamBuilder? _spareContent;
+
+    /// <summary>The largest buffer kept for the next page: a page with a lot of drawing does not make the rest of the save carry its buffer.</summary>
+    private const int SpareContentLimit = 1 << 20;
+
+    /// <summary>Takes the content builder of a page whose content stream is written, empties it and keeps it for the next page when it is not large.</summary>
+    private void RecycleContent(PdfPageWriter page)
+    {
+        ContentStreamBuilder content = page.DropBody();
+        if (content.Capacity <= SpareContentLimit)
+        {
+            content.Clear();
+            _spareContent = content;
+        }
     }
 
     /// <summary>Writes the page: its content stream first, then its dictionary, so nothing of it stays in memory.</summary>
@@ -125,6 +146,7 @@ internal sealed class PdfDocumentWriter : IDisposable
         }
 
         PdfReference contents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
+        RecycleContent(page);
         PdfReference pageReference = _file.Allocate();
         _file.Write(pageReference, BuildPage(page, contents));
         _pages.Add(pageReference);
@@ -143,13 +165,13 @@ internal sealed class PdfDocumentWriter : IDisposable
         }
 
         page.BodyContents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
+        RecycleContent(page);
         page.Reference = _file.Allocate();
         page.HeaderContents = header ? _file.Allocate() : null;
         page.FooterContents = footer ? _file.Allocate() : null;
         _pages.Add(page.Reference);
         _open = null;
         _unfinished++;
-        page.DropBody();
     }
 
     /// <summary>Writes the header and footer streams and the dictionary of a page whose body was written by <see cref="EndPageBody"/>.</summary>
@@ -420,9 +442,10 @@ internal sealed class PdfPageWriter
     private readonly List<(string Name, PdfReference Object)> _xObjects = [];
     private readonly List<(string Name, double Fill, double Stroke)> _graphicStates = [];
 
-    internal PdfPageWriter(PdfDocumentWriter document, int index, double width, double height)
+    internal PdfPageWriter(PdfDocumentWriter document, int index, double width, double height, ContentStreamBuilder content)
     {
         _document = document;
+        _content = content;
         Index = index;
         Width = width;
         Height = height;
@@ -437,7 +460,10 @@ internal sealed class PdfPageWriter
 
     internal double Height { get; }
 
-    internal ContentStreamBuilder Content { get; private set; } = new();
+    private ContentStreamBuilder? _content;
+
+    /// <summary>The stream that is drawn on now: the body's, or after <see cref="UseHeader"/> or <see cref="UseFooter"/> that one. After <see cref="DropBody"/> it is an empty builder, made when something first asks for it.</summary>
+    internal ContentStreamBuilder Content => _content ??= new ContentStreamBuilder();
 
     /// <summary>The content stream written by <see cref="End"/>'s sibling <see cref="EndBody"/>, while the page waits for its header and footer.</summary>
     internal PdfReference? BodyContents { get; set; }
@@ -459,13 +485,21 @@ internal sealed class PdfPageWriter
     internal bool Finished { get; set; }
 
     /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the header's stream (drawn before the body).</summary>
-    internal void UseHeader() => Content = HeaderContent;
+    internal void UseHeader() => _content = HeaderContent;
 
-    /// <summary>Lets go of the body's content once it is written, so that a page waiting for its header and footer holds no more than its resources.</summary>
-    internal void DropBody() => Content = new ContentStreamBuilder();
+    /// <summary>
+    /// Lets go of the body's content once it is written, so that a page waiting for its header and footer holds no more than its resources. No builder is made in its place: a page that is
+    /// ended has no use for one, and a header or footer replaces it by <see cref="UseHeader"/> or <see cref="UseFooter"/>; drawing on the page before that still works, on a builder made then.
+    /// </summary>
+    internal ContentStreamBuilder DropBody()
+    {
+        ContentStreamBuilder body = Content;
+        _content = null;
+        return body;
+    }
 
     /// <summary>After <see cref="EndBody"/>, makes <see cref="Content"/> the footer's stream (drawn after the body).</summary>
-    internal void UseFooter() => Content = FooterContent;
+    internal void UseFooter() => _content = FooterContent;
 
     internal List<PdfDictionary> Links { get; } = [];
 
@@ -474,10 +508,12 @@ internal sealed class PdfPageWriter
     /// <summary>Makes a font object of the document available to this page's content and returns the name to use in <c>Tf</c>.</summary>
     internal string UseFont(PdfReference font)
     {
-        int found = _fonts.FindIndex(f => f.Font.Number == font.Number);
-        if (found >= 0)
+        foreach ((string known, PdfReference reference) in _fonts)
         {
-            return _fonts[found].Name;
+            if (reference.Number == font.Number)
+            {
+                return known;
+            }
         }
 
         string name = "F" + (_fonts.Count + 1).ToString(CultureInfo.InvariantCulture);

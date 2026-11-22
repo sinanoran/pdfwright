@@ -190,10 +190,18 @@ internal sealed class ParagraphLayout
             throw new ArgumentOutOfRangeException(nameof(firstLine), firstLine, $"Lines {firstLine} to {firstLine + count} are outside the {Lines.Count} lines of the paragraph.");
         }
 
-        HashSet<int> used = [.. Lines.Skip(firstLine).Take(count).SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
+        Span<bool> used = _fonts.Length <= 256 ? stackalloc bool[_fonts.Length] : new bool[_fonts.Length];
+        for (int l = firstLine; l < firstLine + count; l++)
+        {
+            foreach (PlacedRun placed in Lines[l].Runs)
+            {
+                used[placed.Run.FontIndex] = true;
+            }
+        }
+
         for (int i = 0; i < _fonts.Length; i++)
         {
-            if (!used.Contains(i) && embedded[i] is null && fontResourceNames[i] is null)
+            if (!used[i] && embedded[i] is null && fontResourceNames[i] is null)
             {
                 continue;
             }
@@ -212,8 +220,9 @@ internal sealed class ParagraphLayout
         content.BeginText();
         double lineTop = top;
         Color? current = null;
-        foreach (LaidOutLine line in Lines.Skip(firstLine).Take(count))
+        for (int l = firstLine; l < firstLine + count; l++)
         {
+            LaidOutLine line = Lines[l];
             double baseline = lineTop - line.Ascent;
             foreach (PlacedRun placed in line.Runs)
             {

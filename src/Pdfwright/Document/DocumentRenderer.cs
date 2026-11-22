@@ -1,3 +1,4 @@
+using Pdfwright.Fonts;
 using Pdfwright.Pdf;
 using Pdfwright.Text;
 
@@ -34,6 +35,9 @@ internal sealed partial class DocumentRenderer
     private readonly HashSet<string> _families;
 
     private readonly bool _overlay;
+    private readonly PdfEmbeddedFont?[] _embeddedFonts;
+    private readonly PdfEmbeddedFont?[] _drawEmbedded;
+    private readonly string?[] _drawNames;
     private PdfPageWriter? _page;
     private double _y;
     private bool _hasContent;
@@ -44,6 +48,9 @@ internal sealed partial class DocumentRenderer
         _overlay = options.Header is not null || options.Footer is not null;
         _blocks = blocks;
         _fonts = fonts;
+        _embeddedFonts = new PdfEmbeddedFont?[fonts.Entries.Length];
+        _drawEmbedded = new PdfEmbeddedFont?[fonts.Entries.Length];
+        _drawNames = new string?[fonts.Entries.Length];
         _cancellation = cancellation;
         _output = new CountingStream(output);
         _families = new HashSet<string>(fonts.Entries.Select(e => e.Family), StringComparer.OrdinalIgnoreCase);
@@ -384,19 +391,46 @@ internal sealed partial class DocumentRenderer
         }
 
         PdfPageWriter page = _page!;
-        PdfEmbeddedFont?[] embedded = new PdfEmbeddedFont?[_fonts.Entries.Length];
-        string?[] names = new string?[_fonts.Entries.Length];
-        HashSet<int> used = [.. layout.Lines.Skip(firstLine).Take(count).SelectMany(l => l.Runs).Select(r => r.Run.FontIndex)];
-        foreach (int index in used)
+
+        // The fonts the lines use, in the order their first run names them (the order the page's font names are handed out in). The two arrays belong to this renderer
+        // and are cleared for each call: a renderer draws on one thread, and a layout does not keep the arrays it is given. They are filled only here, after the recursive Draw of the list marker above has
+        // returned, which is why that recursion cannot find them holding the fonts of this call.
+        PdfEmbeddedFont?[] embedded = _drawEmbedded;
+        string?[] names = _drawNames;
+        Array.Clear(embedded);
+        Array.Clear(names);
+        for (int l = firstLine; l < firstLine + count; l++)
         {
-            FontCollection.FontEntry entry = _fonts.Entries[index];
-            PdfEmbeddedFont font = _writer.GetOrAddShared(entry.Font, () => new PdfEmbeddedFont(_writer, entry.Font));
-            embedded[index] = font;
-            names[index] = page.UseFont(font.Reference);
+            foreach (PlacedRun placed in layout.Lines[l].Runs)
+            {
+                int index = placed.Run.FontIndex;
+                if (embedded[index] is not null)
+                {
+                    continue;
+                }
+
+                PdfEmbeddedFont font = EmbeddedFont(index);
+                embedded[index] = font;
+                names[index] = page.UseFont(font.Reference);
+            }
         }
 
         layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count);
         RecordMissing(styled, firstLine, count, page.Index + 1);
+    }
+
+    /// <summary>The embedded form of a font of the collection in this document, made on first use and kept (the document keeps one for each font, see <see cref="PdfDocumentWriter.GetOrAddShared"/>).</summary>
+    private PdfEmbeddedFont EmbeddedFont(int index)
+    {
+        if (_embeddedFonts[index] is { } known)
+        {
+            return known;
+        }
+
+        TrueTypeFont font = _fonts.Entries[index].Font;
+        PdfEmbeddedFont made = _writer.GetOrAddShared(font, () => new PdfEmbeddedFont(_writer, font));
+        _embeddedFonts[index] = made;
+        return made;
     }
 
     private void RecordMissing(StyledLayout styled, int firstLine, int count, int pageNumber)
