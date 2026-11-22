@@ -17,6 +17,14 @@ match in the table below is not from there. `.webp` and `.png` files are stored 
 | `yellow_rose.lossy-with-alpha.webp` | lossy with an alpha plane (VP8X and ALPH) | colour close to `yellow_rose.png`, alpha present |
 | `video-001.lossy.webp` | lossy, a still from a video | decodes, with the size its header gives |
 
+## Credits and licences of the pictures themselves
+
+These pictures are test data only and are not in the package. The licence of the repository (BSD-3-Clause) covers the files as distributed there; where a picture has an author of its own, it is credited here (and in `NOTICE`):
+
+- `gopher-doc.*`: the Go gopher was designed by Renée French, licensed under Creative Commons Attribution 3.0 (https://creativecommons.org/licenses/by/3.0/).
+- `tux.*`: Tux, by Larry Ewing, drawn with The GIMP; the permission to use it is given provided that Larry Ewing and The GIMP are acknowledged.
+- `yellow_rose.*` and `blue-purple-pink.*`: distributed in the golang.org/x/image testdata under that repository's BSD-3-Clause licence; the original source is not stated there.
+
 ## Where each file comes from
 
 | File | Source URL | Version | Licence | SHA-256 |

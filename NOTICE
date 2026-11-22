@@ -176,7 +176,10 @@ litigation is filed.
 
 == Carried in the repository (WebP test pictures; the package ships none of them) ==
 
-The files in tests/Pdfwright.Tests/Images/Files/webp are the test pictures of golang.org/x/image v0.48.0 (BSD-3-Clause, Copyright 2009 The Go Authors; the licence text is above), unmodified.
+The files in tests/Pdfwright.Tests/Images/Files/webp are the test pictures of golang.org/x/image v0.48.0 (BSD-3-Clause, Copyright 2009 The Go Authors; the licence text is above), unmodified. They are test data only and are not in the package. Where a picture has an author of its own, it is credited here:
+  gopher-doc.*: the Go gopher was designed by Renée French, licensed under Creative Commons Attribution 3.0 (https://creativecommons.org/licenses/by/3.0/).
+  tux.*: Tux, by Larry Ewing, drawn with The GIMP; the permission to use it is given provided that Larry Ewing and The GIMP are acknowledged.
+  yellow_rose.* and blue-purple-pink.*: distributed in the golang.org/x/image testdata under that repository's BSD-3-Clause licence; the original source is not stated there.
 Source, version, licence and hash of each: tests/Pdfwright.Tests/Images/Files/webp/README.md.
 == Data compiled into the package ==
 

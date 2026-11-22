@@ -21,13 +21,13 @@ Port the WebP decoder of Go's `golang.org/x/image`, tag **v0.48.0**, to C#, and 
 
 The output has the form `PngDecoder` produces: 8-bit RGB samples and, when there is transparency, a separate alpha plane, written as an image XObject with a soft mask. An animated WebP (the animation flag of `VP8X`, or an `ANIM` or `ANMF` chunk) is **refused** with a message that says so. The first frame of an animation is not shown; supporting it would be about a day of work (the `ANMF` chunk, the frame offsets and the compositing of the first frame) and has not been asked for. The `ICCP`, `EXIF` and `XMP ` chunks are skipped, so the colour profile is ignored, as it is for PNG and JPEG.
 
-Go v0.48.0 contains the fixes of three advisories of 2026 that matter for a decoder of untrusted input, and each has a regression test here with a crafted input:
+Go v0.48.0 contains the fixes of three advisories of 2026 that matter for a decoder of untrusted input, and each has a regression test here with a crafted input. Each was checked at https://vuln.go.dev/ID/<id>.json (the addresses are in the table):
 
 | Advisory | What it was | Test |
 |---|---|---|
-| GO-2026-4961 | The product of the canvas width and height of `VP8X` did not fit a 32-bit size. | A canvas of 65,536 by 32,768 and one of 16,777,216 by 16,777,216 are refused by the limits before anything is allocated. |
-| GO-2026-5061 | A `VP8X` canvas smaller than the `VP8` or `VP8L` picture that follows it made the decoder allocate for the picture and write it to a smaller canvas. | A `VP8X` canvas of 1 by 1 in front of a real lossy and a real lossless picture is refused. |
-| GO-2026-6222 | One image could name up to 65,535 Huffman groups and make the decoder allocate more than 3 GB for them. | A `VP8L` stream that names group 65,535 is refused without the memory for it; group 2,600 is refused and group 2,599 is read, keeping only the one group a tile uses. |
+| GO-2026-4961 (CVE-2026-33813; https://vuln.go.dev/ID/GO-2026-4961.json) | A panic on a large WebP size on 32-bit platforms: the product of the canvas width and height of `VP8X` did not fit a 32-bit size. | A canvas of 65,536 by 32,768 and one of 16,777,216 by 16,777,216 are refused by the limits before anything is allocated. |
+| GO-2026-5061 (CVE-2026-46601; https://vuln.go.dev/ID/GO-2026-5061.json) | A panic when the VP8 alpha or the canvas size did not match: a `VP8X` canvas smaller than the `VP8` or `VP8L` picture that follows it made the decoder allocate for the picture and write it to a smaller canvas. | A `VP8X` canvas of 1 by 1 in front of a real lossy and a real lossless picture is refused. |
+| GO-2026-6222 (CVE-2026-46603; https://vuln.go.dev/ID/GO-2026-6222.json) | Excessive allocation for many unused Huffman groups: one image could name up to 65,535 Huffman groups and make the decoder allocate more than 3 GB for them. | A `VP8L` stream that names group 65,535 is refused without the memory for it; group 2,600 is refused and group 2,599 is read, keeping only the one group a tile uses. |
 
 ## Rejected
 
