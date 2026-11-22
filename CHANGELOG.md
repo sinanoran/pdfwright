@@ -6,7 +6,18 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Version 0.1.0 is complete in this repository and is not released: nothing is published to nuget.org (see `RELEASING.md`). Everything below is what 0.1.0 will contain.
+## [0.1.0] - 2026-11-22
+
+The first release of Pdfwright: a PDF writer for reports, with a layout engine, tables that paginate, vector drawing, embedded font subsets and right-to-left, mixed-direction and complex-script text that reads back in logical order. Everything below is the 0.1.0 surface.
+
+### Known limitations of this release
+
+This is a first release, and some of the checks that were planned were replaced by weaker ones (`RELEASING.md` has the record).
+
+- **Language review.** The corpus text, the sample report and the guide were reviewed by an AI agent on 22 November 2026 (corrections applied), not by native speakers. The agent was less confident about Tamil, Bengali, Thai and Marathi (and the Hebrew article point). A native-speaker review stays recommended.
+- **Viewers.** The golden pages were checked as PDFium renders (the engine of Chrome and Edge). Adobe Acrobat Reader and macOS Preview were not checked.
+- **Performance.** The speed and memory targets of the plan are missed. A table of 1,000 rows (21 pages) takes a cold p50 of 2,095 ms and a warm p50 of 347 ms, allocates 188 MB and has a peak working set 30 MB over the runtime baseline, against targets of 250 ms, 60 ms, 20 MB and 25 MB (`docs/baselines.md`: method, machine and the caveat about free memory). Diagnosis and fixes are a candidate for after 0.1.0.
+- **CJK.** A font with TrueType outlines is accepted (mapped, shaped, subset and line-broken), but CJK text is not tested. Fonts with CFF outlines (Noto Sans CJK, Source Han) are refused and come in 0.2 (`docs/plan-0.2.md`).
 
 ### Added
 
@@ -24,12 +35,13 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
 - **Fonts supplied, never discovered**: `FontCollection` (thread-safe, `IDisposable`) takes TrueType bytes, reads family, weight and style from the font, refuses fonts that forbid embedding with `FontNotEmbeddableException`,
   and chooses a font for each grapheme cluster by family, weight, style and coverage. Only the glyphs used are embedded, as subsets.
 - **Right-to-left and mixed-direction text** by the Unicode bidirectional algorithm, with Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping through HarfBuzz and Latin, Greek and Cyrillic. Text is written to the file in logical
-  order, so it can be searched, copied and read by a screen reader. Measured by reading the files back: 3120 of 3120 strings of the page corpus through PdfPig and through Firefox 157.0's pdf.js (21 November 2026), and 61 of 61 mixed-direction lines through PdfPig and through pdf.js 6.3.335 (21 November 2026, compared in NFD with white space, U+034F and the bidirectional controls removed);
+  order, so it can be searched, copied and read by a screen reader. Measured by reading the files back: 3120 of 3120 strings of the page corpus through PdfPig and through Firefox 157.0's pdf.js, and 61 of 61 mixed-direction lines through PdfPig and through pdf.js 6.3.335 (pdf.js measured again on 22 November 2026 after the language review changed the corpus text; compared in NFD with white space, U+034F and the bidirectional controls removed);
   xpdf's position-ordered `pdftotext` reads 45 of 61, a floor the tests hold (`docs/known-limitations.md`).
 - **Deterministic output** (`Deterministic`, `Creation`, `Compress`): the same document is the same bytes, and with compression off the same bytes on every .NET version. Metadata: title, subject, author, creator, language.
+- **Cancellation**: `SaveAsync` takes a `CancellationToken` and checks it while the document is laid out, so a long streamed table stops within a row when cancelled, not only when a page is written.
 - **Diagnostics and limits**: `PdfDocument.Diagnostics` lists the characters no font has (with language and page), the families that were not found, the tables that were cut, the page count and the byte count;
   `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
-- **Documentation and samples**: a user guide (`docs/guide.md`), the known limitations, the baselines of the alternatives that were measured, and a runnable sample report (`samples/Pdfwright.Samples.Report`). Every code block of the
+- **Documentation and samples**: a user guide (`docs/guide.md`), the known limitations, the baselines (the alternatives, and Pdfwright's own table of 1,000 rows and ten-page report, cold and warm, from the harness in `benchmarks/`), and a runnable sample report (`samples/Pdfwright.Samples.Report`). Every code block of the
   README and the guide is compiled and run by the tests, which fail when a block and its tested code differ.
 - **A pixel limit for pictures**: a JPEG or PNG of more than 40 million pixels (about 160 MB decoded for a PNG with transparency) is refused by `PdfImage.FromBytes` with an `ArgumentException` that names the picture's size, the limit and the option; the side limit of 65,535 is unchanged.
   `PdfImage.FromBytes(bytes, new PdfImageOptions { MaxPixels = n })` raises or lowers it, from 1 to 100,000,000.
@@ -37,7 +49,7 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
 
 ### Not in this version
 
-Tested CJK (fonts with CFF outlines, which most CJK fonts are, are refused; a TrueType CJK font is accepted but untested), vertical text, dictionary line breaking for Thai, Lao, Khmer and Burmese, emoji and colour fonts, forms, encryption, PDF/A, tagged (accessible) PDF, links on text, hyphenation, justification, table cell spans, widow and orphan control, synthetic bold and italic, and any use of system fonts.
+Tested CJK (a TrueType CJK font is accepted, not tested; fonts with CFF outlines, which most CJK fonts have, are refused and come in 0.2), vertical text, dictionary line breaking for Thai, Lao, Khmer and Burmese, emoji and colour fonts, forms, encryption, PDF/A, tagged (accessible) PDF, links on text, hyphenation, justification, table cell spans, widow and orphan control, synthetic bold and italic, and any use of system fonts.
 Each is named, with the reason, in `docs/known-limitations.md`.
 
 ### Internal, not public API
@@ -51,6 +63,8 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - The public surface (with nullability) is recorded in `tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt`, and a test fails when it changes without that file changing.
 - Golden files for each script group and the README report, compared by SHA-256, with `tools/Pdfwright.GoldenDiff` to see what differs; visual golden files, every page drawn by PDFium and compared with a stored picture;
   seeded property and fuzz tests; failure cases for every script; `qpdf --check` on every generated file in CI; `tools/pdfjs-check` for Firefox's pdf.js; the benchmark and process harness (`benchmarks/`).
-- CI on Linux, Windows and macOS, and a release workflow that publishes with Trusted Publishing and no stored key.
+- CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
+- A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/commits/main
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sinanoran/pdfwright/releases/tag/v0.1.0

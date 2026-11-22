@@ -1,6 +1,7 @@
 # Pdfwright
 
 [![CI](https://github.com/sinanoran/pdfwright/actions/workflows/ci.yml/badge.svg)](https://github.com/sinanoran/pdfwright/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Pdfwright.svg)](https://www.nuget.org/packages/Pdfwright)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Pdfwright writes PDF reports: headings, paragraphs, tables that paginate and vector charts, in every script, with text that reads back in logical order.**
@@ -13,9 +14,9 @@ It is a layout engine and a PDF writer in managed C#, with one small native libr
 dotnet add package Pdfwright
 ```
 
-> **Status: version 0.1 is complete and not released.** The code, tests and documentation of 0.1 are in this repository, but nothing is published: the package id `Pdfwright` is not on nuget.org yet, and
-> the command above works only once the maintainer has released 0.1.0. Until then, clone the repository and reference `src/Pdfwright/Pdfwright.csproj`. What remains is the maintainer's: a native-speaker review of the test text,
-> opening the sample files in the viewers people use, and the release itself (see [RELEASING.md](RELEASING.md)).
+> **Status: version 0.1.0 (22 November 2026) is the first release.** It is a first release: the text of every script is read back and checked, but the review of the test text was done by an AI agent rather than by native speakers, the sample files were checked
+> as PDFium renders and not in Acrobat Reader or macOS Preview, CJK fonts with TrueType outlines are accepted but not tested (CFF outlines come in 0.2), and the speed and memory targets of the plan are not met (see [docs/baselines.md](docs/baselines.md)).
+> The list is in [docs/known-limitations.md](docs/known-limitations.md) and the checks that were and were not made are in [RELEASING.md](RELEASING.md). Version 0.1.0 is installed with the command above once it is on nuget.org.
 
 Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). Besides the Windows, Linux and macOS runners, CI makes the sample report inside the slim
 .NET runtime images `mcr.microsoft.com/dotnet/aspnet:10.0` (Debian, glibc) and `mcr.microsoft.com/dotnet/aspnet:10.0-alpine` (musl). The package ships no font.

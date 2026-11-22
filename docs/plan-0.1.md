@@ -305,16 +305,15 @@ with a green CI and a reviewed pull request, as in Sheetwright.
 | **S4** | **Paragraph layout and the drawing canvas**: lines, alignment (logical), runs, the public `TextMeasurer`, paths, clip, transforms, opacity, JPEG and PNG | 8 | Done: #7 (S4a), #8 (S4b), #9 (S4c, the pdf.js reading check), #10 (S4d) |
 | **S5** | **Document layer:** the block set, flow and page breaks, keep-together, columns, **tables with pagination, repeated header, streamed rows, auto widths**, header and footer with page count (two passes only when the footer asks for it) | 10 | Done: #11 (S5a), #12 (S5b), #13 (S5c) |
 | **S6** | **Script conformance:** the corpora for Arabic, Hebrew, Devanagari, Bengali, Tamil, Thai, mixed direction; extraction and visual goldens; fixes in S2 to S4; native-speaker review | 8 | Done: #14 (S6a), #15 (S6b); the native-speaker review is the maintainer's (release checklist) |
-| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Done: #17 (documentation, samples, comparison table, `RELEASING.md` and the CHANGELOG; Trusted Publishing and 0.1.0 are the maintainer's, see below) |
-| | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S7 done; only the maintainer's items and the release remain |
+| **S7** | Documentation, samples, the README comparison table, `RELEASING.md`, Trusted Publishing, the CHANGELOG, **0.1.0** | 5 | Done: #17 (documentation, samples, comparison table, `RELEASING.md` and the CHANGELOG); 0.1.0 (22 November 2026) is the first release, tagged by the maintainer after the release-preparation pull request (Trusted Publishing and the tag are the maintainer's) |
+| | **Total to 0.1.0** | **64 days, about 13 weeks** | S0 to S7 done; 0.1.0 is the first release (the performance targets of section 7 are not met) |
 
-**Where it stands (21 November 2026).** Slices S0 to S7 are done (S7 is pull request #17, and this text is true once that is merged): the writer, the font engine, the text engine, paragraph layout and the
-canvas, the document layer (blocks, tables, columns, callouts, drawings, images, headers and footers), the script conformance corpus with its extraction and
-visual goldens, and the documentation (the README with its comparison table, the user guide, the sample report, `RELEASING.md` and the CHANGELOG). The day counts
-above were the estimate; they are kept as written. **Only the maintainer's items remain before 0.1.0:** the native-speaker review of the corpus text, opening the
-sample files in Chrome, Edge, Acrobat Reader and macOS Preview, the Trusted Publishing policy on nuget.org with the `NUGET_USER` secret, and the decision to release
-(the checklist is `RELEASING.md`). Tagging 0.1.0 and publishing are the maintainer's, and have not been done: no tag, no release, no version bump to a published state,
-nothing on nuget.org.
+**Where it stands (22 November 2026).** Slices S0 to S7 are done, and version 0.1.0 (22 November 2026) is the first release. The writer, the font engine, the text engine, paragraph layout and the
+canvas, the document layer (blocks including `ItemList`, tables, columns, callouts, drawings, images with `PdfImageOptions`, headers and footers), the script conformance corpus with its extraction and
+visual goldens, and the documentation (the README with its comparison table, the user guide, the sample report, `RELEASING.md` and the CHANGELOG) are in the repository, with CI that also makes the sample report in the glibc and musl runtime images, the benchmarks of
+`docs/baselines.md` and a language review of the corpus text by an AI agent (22 November 2026, pull request #27). The day counts above were the estimate; they are kept as written. **What 0.1.0 does not have, stated in `RELEASING.md` and the CHANGELOG:** a
+native-speaker review (a language review by an AI agent replaced it; a native-speaker review stays recommended), a check in Acrobat Reader and macOS Preview (the viewer check was PDFium renders), the performance targets of section 7 (not met, see there; the
+diagnosis and fixes are a candidate for after 0.1.0), and tested CJK (a TrueType CJK font is accepted, not tested; CFF outlines come in 0.2, `plan-0.2.md`). The tag, Trusted Publishing and the publication are the maintainer's.
 
 **Order and parallel work:** S0 first; then **S1 and S2 can run beside S3** (the text engine has no dependency on the writer until S4);
 S4 needs S2 and S3; S5 needs S4; S6 runs from S3 on as the corpus grows and finishes last. With three parallel sessions the calendar is
@@ -665,7 +664,7 @@ that the two competitors' rows are spikes made for this plan and when to choose 
 
 **Package.** `Pdfwright.csproj` carries the description, the tags, the README (`PackageReadmeFile`), the MIT expression, the repository URL (from `Directory.Build.props`), and now `LICENSE` and `NOTICE` at the root of the package; there is no icon (Sheetwright has none). `dotnet pack` was run with `-nodeReuse:false -m:1`: `Pdfwright.nupkg` holds `lib/net8.0` to `lib/net11.0` (the dll and its XML documentation), `README.md`, `LICENSE` and `NOTICE`, and no font. The public XML documentation was scanned for names of slices and internal types, and the one stale comment (`LibraryInfo`, internal) was reworded.
 
-**Not done, by design (the maintainer's):** the Trusted Publishing policy and the `NUGET_USER` secret, the native-speaker review, the viewer checks, the pdf.js re-check on the release candidate, the tag, the release and nuget.org. The version stays `0.0.1` in `Directory.Build.props`; the tag gives the release its version.
+**Not done, by design (the maintainer's):** the Trusted Publishing policy and the `NUGET_USER` secret, the native-speaker review, the viewer checks, the pdf.js re-check on the release candidate, the tag, the release and nuget.org. The version stays `0.0.1` in `Directory.Build.props`; the tag gives the release its version. (Written on 21 November; on 22 November the native-speaker review became an AI agent's language review and the viewer check became PDFium renders, see `RELEASING.md`.)
 
 ### List block (added before 0.1.0, 21 November 2026)
 
