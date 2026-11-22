@@ -4,6 +4,10 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 ## Text extraction and copying
 
+- **A zero width joiner or non-joiner (U+200D, U+200C) at the very end of a line can be missing from the extracted text.** It joins nothing there, has no glyph
+  of its own and is drawn as nothing, so when it is the last character before a line break (seen with PdfPig in a mixed Hebrew and Latin paragraph, found by the
+  fuzz test of the text input) no code in the content stream carries it. The text that is drawn is unaffected; inside a line the joiner is kept, as the
+  corpus tests show.
 - **A reader that works from the position of glyphs (xpdf's `pdftotext` in its default mode) puts spaces inside words in some
   Arabic, Indic and Thai text.** Cause: it inserts a space where a glyph is drawn to the left of the end of the glyph before it, and shaped text does that by design
   (a vowel sign that is drawn before its consonant, a mark placed by an offset). Three ways of writing the glyphs were measured and none removes it (one `Tm` per glyph 36 of 61
