@@ -14,7 +14,6 @@ It is a layout engine and a PDF writer in managed C#, with one small native libr
 dotnet add package Pdfwright
 ```
 
-
 Targets `net8.0`, `net9.0`, `net10.0` and `net11.0`. Dependencies: `HarfBuzzSharp` and its native assets (Windows, Linux with glibc or musl, macOS). Besides the Windows, Linux and macOS runners, CI makes the sample report inside the slim
 .NET runtime images `mcr.microsoft.com/dotnet/aspnet:10.0` (Debian, glibc) and `mcr.microsoft.com/dotnet/aspnet:10.0-alpine` (musl). The package ships no font.
 
