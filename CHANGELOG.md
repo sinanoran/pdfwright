@@ -6,7 +6,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing user-visible yet. Internal groundwork for 0.2: an internal shaping seam (`IShaper`) with HarfBuzz as its one implementation, and a binding to the `hb-subset` entry points of the native HarfBuzz library, not used by the writer yet (`docs/plan-0.2.md`, section 5 and "C1 status").
+### Fixed
+
+- **A line break or another special character in a string no longer makes a save throw.** `DrawingCanvas.DrawText` threw an `ArgumentException` ("A paragraph separator ... is not the last character") for a string with a line feed, carriage return, U+0085, U+2029 or U+001C to U+001E in it, which is how a multi-line label drawn in a `Drawing` failed. All text is now read by one rule wherever it is laid out (paragraphs, headings, table and header cells, list items, headers and footers, canvas text, `TextMeasurer`): every line break (`\n`, `\r\n`, `\r`, U+0085, U+000B, U+000C, U+2028, U+2029) is a hard line break inside the same block, never a new paragraph; other control characters (U+0000 to U+001F, U+007F, U+0080 to U+009F) are removed instead of being drawn as an empty glyph box; a surrogate without its pair is replaced by U+FFFD. The caller's strings are not changed. In the metadata (title, subject, author, creator, language) a line break or tab becomes a space, controls are left out and a lone surrogate becomes U+FFFD (before, a line break was kept and a lone surrogate dropped). Text without these characters is laid out and written as before. `docs/guide.md` and `docs/known-limitations.md` state the rule.
+
+### Internal
+
+Groundwork for 0.2: an internal shaping seam (`IShaper`) with HarfBuzz as its one implementation, and a binding to the `hb-subset` entry points of the native HarfBuzz library, not used by the writer yet (`docs/plan-0.2.md`, section 5 and "C1 status").
 
 ## [0.1.0] - 2026-11-22
 

@@ -204,7 +204,7 @@ internal sealed class Canvas : IDisposable
     /// (the left edge of a left-to-right paragraph, the right edge of a right-to-left one), <see cref="TextAlignment.End"/> at the edge where it ends, and
     /// <see cref="TextAlignment.Center"/> in the middle; the lines of a text of several lines are aligned to one another in the same way.
     /// </summary>
-    /// <param name="text">One paragraph.</param>
+    /// <param name="text">One paragraph; a line break of any kind in it is a hard line break and the text is otherwise normalised as the document's text is (see <see cref="TextNormalizer"/>).</param>
     /// <param name="fonts">The fonts to draw with, the first for preference and the rest as fallbacks.</param>
     /// <param name="size">The font size in points (the canvas's units, if it has been scaled).</param>
     /// <param name="at">The start of the first baseline.</param>
@@ -224,6 +224,7 @@ internal sealed class Canvas : IDisposable
     {
         RequireOpen();
         ArgumentNullException.ThrowIfNull(text);
+        text = TextNormalizer.Normalize(text);
         ArgumentNullException.ThrowIfNull(fonts);
         if (!double.IsFinite(at.X) || !double.IsFinite(at.Y))
         {

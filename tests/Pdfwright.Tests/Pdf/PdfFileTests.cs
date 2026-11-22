@@ -222,7 +222,7 @@ public class PdfFileTests
     }
 
     [Fact]
-    public void Characters_that_xml_forbids_are_dropped_from_the_metadata_so_the_packet_stays_well_formed()
+    public void Characters_that_xml_forbids_are_dropped_and_a_lone_surrogate_is_replaced_in_the_metadata_so_the_packet_stays_well_formed()
     {
         using MemoryStream stream = new();
         using (PdfDocumentWriter document = new(
@@ -237,8 +237,9 @@ public class PdfFileTests
         XmlDocument xmp = new();
         xmp.LoadXml(packet[packet.IndexOf("<x:xmpmeta", StringComparison.Ordinal)..(packet.IndexOf("</x:xmpmeta>", StringComparison.Ordinal) + 12)]);
 
-        Assert.Contains("abcde ok", xmp.InnerXml);
-        Assert.Contains("/Title (abcde ok)", Latin(stream.ToArray()));
+        Assert.Contains("abcd" + (char)0xFFFD + "e ok", xmp.InnerXml);
+        using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(stream.ToArray());
+        Assert.Equal("abcd" + (char)0xFFFD + "e ok", read.Information.Title);
     }
 
     [Fact]

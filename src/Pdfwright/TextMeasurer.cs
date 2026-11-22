@@ -60,7 +60,7 @@ public sealed class TextMeasurer
     }
 
     /// <summary>Measures <paramref name="text"/> as one paragraph.</summary>
-    /// <param name="text">The text; a line break inside it ends a line.</param>
+    /// <param name="text">The text; a line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break and ends a line, other control characters are removed, and a surrogate without its pair is measured as U+FFFD.</param>
     /// <param name="style">The style, over the default style of the measurer; <see langword="null"/> for the default.</param>
     /// <param name="maxWidth">The width lines may fill, or <see langword="null"/> for no limit (lines then break only at hard line breaks).</param>
     /// <param name="direction">The base direction of the paragraph.</param>

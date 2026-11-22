@@ -270,7 +270,7 @@ internal sealed class PdfDocumentWriter : IDisposable
         PdfDictionary catalog = new PdfDictionary().Set("Type", "Catalog").Set("Pages", _pagesRoot);
         if (_options.Language is { Length: > 0 } language)
         {
-            catalog.Set("Lang", PdfString.Text(language));
+            catalog.Set("Lang", PdfString.Text(Clean(language)));
         }
 
         if (_options.Title is { Length: > 0 })
@@ -345,25 +345,11 @@ internal sealed class PdfDocumentWriter : IDisposable
     }
 
     /// <summary>
-    /// Text as the file carries it: the characters XML 1.0 forbids (controls other than tab, line feed and carriage return, the
-    /// noncharacters U+FFFE and U+FFFF, a surrogate without its pair) are dropped, so that the XMP packet is always well-formed
+    /// Text as the file carries it (see <see cref="Pdfwright.Text.TextNormalizer.Metadata"/>): line breaks and tabs become a space, other controls and the
+    /// noncharacters U+FFFE and U+FFFF are dropped, a surrogate without its pair becomes U+FFFD, so that the XMP packet is always well-formed
     /// and the Info dictionary says the same as it.
     /// </summary>
-    internal static string Clean(string text)
-    {
-        StringBuilder clean = new(text.Length);
-        foreach (Rune rune in text.EnumerateRunes())
-        {
-            int value = rune.Value;
-            bool allowed = value is 0x9 or 0xA or 0xD or (>= 0x20 and <= 0xD7FF) or (>= 0xE000 and <= 0xFFFD) or (>= 0x10000 and <= 0x10FFFF);
-            if (allowed && rune != Rune.ReplacementChar)
-            {
-                clean.Append(rune.ToString());
-            }
-        }
-
-        return clean.ToString();
-    }
+    internal static string Clean(string text) => Pdfwright.Text.TextNormalizer.Metadata(text);
 
     /// <summary>The XMP packet (ISO 16684-1) that repeats the Info dictionary in the form archives and indexers read.</summary>
     private string Xmp()

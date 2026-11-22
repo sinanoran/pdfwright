@@ -146,7 +146,13 @@ document.Add(new Paragraph(
 ```
 
 A colour does not change how text is shaped: a word of which one letter is red has the same shape and width, and Arabic letters keep joining across a change of colour.
-A line break inside a run (`\n`, `\r\n`) is a hard line break inside the paragraph, not a new paragraph; make several `Paragraph`s to get spacing and a direction for each.
+Every text a caller gives (a run, a table cell, a header or footer, a list item, a drawn or a measured string) is read by one rule, so that no string makes a save throw:
+
+- A line break of any kind (`\n`, `\r\n`, `\r`, U+0085, U+000B, U+000C, U+2028, U+2029) is a hard line break inside the same paragraph. It is never a new paragraph: not even U+2029 PARAGRAPH SEPARATOR starts one. Make several `Paragraph`s to get spacing and a direction for each. This holds in a heading, a table cell (a header cell too), a list item, a header or footer and a string drawn on a canvas as much as in a paragraph; no place takes a single line only.
+- The other control characters (U+0000 to U+001F, U+007F, U+0080 to U+009F) are removed from the layout and from the text layer. A tab is set as a space.
+- A surrogate without its pair (a lone high or low surrogate, a pair in the wrong order) is replaced by U+FFFD, which is drawn with the font's replacement glyph (or its `.notdef` when it has none, and then reported in `DocumentDiagnostics.MissingGlyphs`).
+- Everything else is kept, unassigned and private-use code points included: a font without a glyph for it draws `.notdef` and the character is reported as missing.
+- The strings you gave are never changed: the rule is applied when the text is laid out, so a `Paragraph` or a `TextRun` still holds exactly what you wrote.
 
 ## Headings, paragraphs and page breaks
 
@@ -617,7 +623,7 @@ PdfDocument document = new(options);
 document.Add(new Paragraph("Hello"));
 ```
 
-- Metadata is the title, subject, author, creator and language. Nothing is written that was not set, and the library records itself as the producer.
+- Metadata is the title, subject, author, creator and language. Nothing is written that was not set, and the library records itself as the producer. A line break or a tab in them is written as a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD, so that the Info dictionary and the XMP packet always agree and are well formed.
 - With `Deterministic = true` the clock is never read, so the same document is the same bytes. The file's `/ID` is a hash of its content either way. Without `Deterministic` and without `Creation`, the date is the time of the save.
 - `Compress` (on by default) is Flate. The compressed bytes depend on the zlib of the .NET runtime, so a compressed file is the same bytes on the same runtime but may differ between runtimes. For golden files that must match everywhere,
   switch it off.

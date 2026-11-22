@@ -36,14 +36,14 @@ public abstract record Block
 public sealed record TextRun
 {
     /// <summary>A run of text in the style of its paragraph.</summary>
-    /// <param name="text">The text. A line feed, carriage return, or paragraph separator inside it is a line break.</param>
+    /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     public TextRun(string text)
         : this(text, null)
     {
     }
 
     /// <summary>A run of text with a style that overrides the paragraph's for the properties it sets.</summary>
-    /// <param name="text">The text. A line feed, carriage return, or paragraph separator inside it is a line break.</param>
+    /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     /// <param name="style">The style of the run; its unset properties come from the paragraph, <see langword="null"/> for none.</param>
     public TextRun(string text, TextStyle? style)
     {
@@ -73,7 +73,7 @@ public sealed record Paragraph : Block
     private double _lineSpacing = 1.0;
 
     /// <summary>A paragraph of one run in the document's default style.</summary>
-    /// <param name="text">The text.</param>
+    /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     public Paragraph(string text)
         : this([new TextRun(text)])
     {
@@ -188,7 +188,7 @@ public sealed record Heading : Block
 
     /// <summary>A heading of one run.</summary>
     /// <param name="level">The level, 1 to 6.</param>
-    /// <param name="text">The text.</param>
+    /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     /// <exception cref="ArgumentOutOfRangeException">The level is not from 1 to 6.</exception>
     public Heading(int level, string text)
         : this(level, [new TextRun(text)])
