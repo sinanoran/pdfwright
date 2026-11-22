@@ -8,7 +8,7 @@ Every code block in this guide is compiled and run by the test suite (`tests/Pdf
 so what you copy is what was tested. A block is a piece of a program, not a whole one: unless it makes its own, the snippets assume
 
 - `fonts`, a `FontCollection` holding the fonts of the examples (Noto Sans in regular, bold and italic, and Noto Sans Arabic);
-- `fontDirectory`, the folder those `.ttf` files are in, and `logoBytes`, the bytes of a JPEG or PNG file;
+- `fontDirectory`, the folder those `.ttf` files are in, and `logoBytes`, the bytes of a JPEG, PNG or WebP file;
 - `invoices`, a sequence of your own records with a name, an amount and a status;
 - `stream`, a writable `Stream`, and `cancellationToken`, a `CancellationToken`.
 
@@ -452,17 +452,16 @@ at the content width of its place, so give `Measure` the width you mean.
 
 ## Images
 
-`PdfImage.FromBytes` reads a JPEG or a PNG, and only those: WebP, GIF, BMP, TIFF, HEIC and SVG are refused with an `ArgumentException`, so convert
+`PdfImage.FromBytes` reads a JPEG, a PNG or a WebP, and only those: GIF, BMP, TIFF, HEIC and SVG are refused with an `ArgumentException`, so convert
 such a picture to PNG (or to JPEG for a photograph) before you hand it over. A JPEG is read when it is baseline, extended or progressive with 8-bit
 samples (grey, RGB, YCbCr or CMYK); arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused. A PNG is read in every colour type and bit
-depth, interlaced or not, with its transparency (`tRNS` or an alpha channel); 16-bit samples are reduced to 8 bits. A JPEG is passed through into the file undecoded; a PNG is decoded once by a small managed decoder, and its transparency is kept. The picture is held decoded for the life
-of the object and written once to each document that uses it, so make it once and share it. The colour management of a PNG (`iCCP`, `gAMA`, `sRGB`, `cHRM`) is ignored, and the orientation and colour profile of a JPEG
-are too; an image is limited to 65,535 pixels on a side and, by default, 40 million pixels in all (a PNG with transparency is decoded to 4 bytes a pixel, so about 160 MB at that size), refused with an exception before memory is allocated.
+depth, interlaced or not, with its transparency (`tRNS` or an alpha channel); 16-bit samples are reduced to 8 bits. A WebP is read lossy (VP8), lossless (VP8L) and in the extended format (VP8X) with an alpha plane in any of the ways the format has (uncompressed or lossless coded, with each of its four filters); the picture comes out as 8-bit RGB with a separate alpha, as a PNG does. An **animated WebP is refused** with an `ArgumentException` that says so (its first frame is not shown). A JPEG is passed through into the file undecoded; a PNG and a WebP are decoded once by a managed decoder (no native image library), and their transparency is kept. The picture is held decoded for the life
+of the object and written once to each document that uses it, so make it once and share it. The colour management of a PNG (`iCCP`, `gAMA`, `sRGB`, `cHRM`) is ignored, and so are the orientation and colour profile of a JPEG and the `ICCP`, `EXIF` and `XMP ` chunks of a WebP; the colours of a lossy WebP are those of libwebp's formulas; an image is limited to 65,535 pixels on a side and, by default, 40 million pixels in all (a PNG or a WebP with transparency is decoded to 4 bytes a pixel, so about 160 MB at that size, and a lossless WebP needs about twice that while it is being decoded), refused with an exception before memory is allocated.
 The pixel limit applies to a JPEG as well, which is not decoded here but is decoded by whoever opens the file.
 
 <!-- snippet: guide-images -->
 ```csharp
-PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG or PNG; make it once and use it in any number of documents
+PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG, PNG or WebP; make it once and use it in any number of documents
 
 // The block keeps the picture's proportions: give a width, a height, or neither (the picture's natural size, 96 pixels to the inch).
 document.Add(new Image(logo) { Width = Length.Mm(30), Alignment = TextAlignment.End, AltText = "Company logo" });

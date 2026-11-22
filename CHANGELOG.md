@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **WebP pictures.** `PdfImage.FromBytes` now reads a WebP, lossy (VP8), lossless (VP8L) or extended (VP8X, with an alpha plane of either method and any of the four filters), as 8-bit RGB with a separate alpha that is written as a soft mask, as for a PNG. The decoder is managed code with no new dependency: a C# port of the WebP decoder of golang.org/x/image v0.48.0 with the YUV to RGB conversion and the upsampling of libwebp v1.6.0, so that the lossy colours are libwebp's formulas (the BSD-3-Clause licences and the patent grants of both projects are in `NOTICE`; the decision and the rejected alternatives are in `docs/decisions/0001-webp-decoder.md`). An **animated WebP is refused** with a message that says so, and the colour profile is ignored. The pixel limit is checked right after each header and before any allocation, the number of Huffman groups (2,600) and the memory of the Huffman tables (64 MB) are capped, a picture must be the size its `VP8X` header gives, and every failure is an `ArgumentException` from `PdfImage.FromBytes`; the three 2026 advisories of the Go decoder (a canvas size of 32 bits, a canvas smaller than the picture, Huffman groups without a limit) each have a regression test. No public type or member changed.
+
 ### Changed
 
 - **Writing the content of a page allocates far less; the output is unchanged.** Numbers, operators and glyph codes are now written straight into the content stream's byte buffer instead of through a string for each, and the glyphs of a run are ordered without LINQ. Every byte of every golden file is the same as before, and a test holds the new writer to the old one over random operators and over many doubles.

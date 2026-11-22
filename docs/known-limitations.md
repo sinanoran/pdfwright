@@ -86,9 +86,13 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **The canvas text has no wrapping:** `DrawingCanvas.DrawText` breaks only at hard line breaks; use `TextMeasurer` to wrap or fit text.
 - **A header or footer is one block drawn inside the margin**, with no splitting and no table; one taller than what the margin leaves (the margin minus the offset) fails the save, and so does a block that cannot be laid out there; the exception names the page and says whether it was the header or the footer. Its callback runs once for each page after the whole body is laid out, so it should be a pure function of the `PageContext`.
 - **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
-- **Pictures are JPEG or PNG only.** `PdfImage.FromBytes` refuses WebP, GIF, BMP, TIFF, HEIC, SVG and every other format with an `ArgumentException`;
-  convert them before. Arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused too. A WebP decoder is not part of 0.1.
-- **The picture of a `PdfImage` is held decoded** (a PNG's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
+- **Pictures are JPEG, PNG or WebP only.** `PdfImage.FromBytes` refuses GIF, BMP, TIFF, HEIC, SVG and every other format with an `ArgumentException`;
+  convert them before. Arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused too.
+- **An animated WebP is refused**, with an `ArgumentException` that says so (the animation flag of `VP8X`, or an `ANIM` or `ANMF` chunk): its first frame is not shown, as that would be a picture that is not the one the author sent. Convert it to a still picture first.
+- **The colour profile of a WebP (`ICCP`) is ignored**, as the profiles of PNG and JPEG are; `EXIF` and `XMP ` are skipped.
+- **The colours of a lossy WebP are libwebp's to within one level, by construction and not by comparison.** The conversion of YUV to RGB and the "fancy" upsampling of the chroma planes are ported from libwebp v1.6.0 (scalar code), and the rest of the lossy decoder from the Go port of the VP8 specification; no libwebp was run to compare the two, so a pixel-exact claim is not made. The lossless decoder is exact: its output equals the PNG the test pictures were made from.
+- **A WebP is decoded whole**: a lossless one of the pixel limit (40 million) needs about 320 MB while it is decoded and holds 160 MB when it is done; a lossy one about 220 MB while it is decoded. Lower `PdfImageOptions.MaxPixels` if that is too much. The Huffman tables of one image are capped at 64 MB, and an image that names more than 2,600 Huffman groups is refused.
+- **The picture of a `PdfImage` is held decoded** (a PNG's or a WebP's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
 
 ## Fonts and scripts
 

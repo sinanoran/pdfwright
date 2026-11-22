@@ -38,14 +38,14 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 
 - Blocks: headings (levels 1 to 6), paragraphs with styled runs, spacers, page breaks, callouts (a box around blocks), columns (one to four equal cells: a KPI row), images, and keep-together.
 - **Tables** with fixed, fractional and automatic column widths, cell padding, borders and fills, a header repeated on every page, rows that are never split unless taller than a page, rows streamed from an `IEnumerable`.
-- A **drawing canvas** for charts as vectors (paths, fills, strokes, dashes, clipping, transforms, opacity, text, images) and a **text measurer** that uses the engine that draws.
+- **Pictures** in JPEG, PNG (with transparency) and WebP (lossy, lossless and with an alpha plane; not animated), read by managed code with no native image library, and a **drawing canvas** for charts as vectors (paths, fills, strokes, dashes, clipping, transforms, opacity, text, images) and a **text measurer** that uses the engine that draws.
 - **Headers and footers** built for each page from a `PageContext` (page number, page count), so "page x of y" needs no second pass.
 - Embedded **font subsets** (TrueType), chosen by family, weight and style with fallback by coverage.
 - **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
 
 **Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
-hyphenation and justified text, table cell spans, floating images, pictures other than JPEG and PNG (no WebP, GIF, TIFF or SVG), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
+hyphenation and justified text, table cell spans, floating images, pictures other than JPEG, PNG and WebP (no GIF, TIFF, SVG or animated WebP), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
 

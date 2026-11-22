@@ -14,7 +14,7 @@ internal enum ImageColorSpace
 }
 
 /// <summary>
-/// An image that has been read once: its size, the samples as a PDF wants them and, for a PNG that has transparency, a soft mask. It is
+/// An image that has been read once: its size, the samples as a PDF wants them and, for a PNG or WebP that has transparency, a soft mask. It is
 /// written to a document at most once, however often it is drawn (see <see cref="WriteTo"/>).
 /// </summary>
 internal sealed class ImageSource
@@ -78,7 +78,7 @@ internal sealed class ImageSource
     /// <summary>One byte of opacity for each pixel (0 is transparent), or <see langword="null"/> when the image is opaque.</summary>
     internal ReadOnlyMemory<byte>? Mask => _mask is null ? default(ReadOnlyMemory<byte>?) : new ReadOnlyMemory<byte>(_mask);
 
-    /// <summary>Reads a JPEG or a PNG, by what its first bytes say it is.</summary>
+    /// <summary>Reads a JPEG, a PNG or a WebP, by what its first bytes say it is.</summary>
     /// <exception cref="ImageFormatException">It is neither, or it is damaged, cut short or too large.</exception>
     internal static ImageSource FromBytes(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels)
     {
@@ -92,7 +92,12 @@ internal sealed class ImageSource
             return JpegReader.Read(bytes, maxPixels);
         }
 
-        throw new ImageFormatException("The data is neither a PNG nor a JPEG.");
+        if (WebpDecoder.HasSignature(bytes))
+        {
+            return WebpDecoder.Decode(bytes, maxPixels);
+        }
+
+        throw new ImageFormatException("The data is neither a PNG, a JPEG nor a WebP.");
     }
 
     /// <summary>Reads a JPEG.</summary>
@@ -100,6 +105,9 @@ internal sealed class ImageSource
 
     /// <summary>Reads a PNG.</summary>
     internal static ImageSource FromPng(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels) => PngDecoder.Decode(bytes, maxPixels);
+
+    /// <summary>Reads a WebP.</summary>
+    internal static ImageSource FromWebp(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels) => WebpDecoder.Decode(bytes, maxPixels);
 
     /// <summary>Refuses an image of more pixels than <paramref name="maxPixels"/>, naming its size, the limit and the option that changes it.</summary>
     /// <exception cref="ImageFormatException">The image has too many pixels.</exception>

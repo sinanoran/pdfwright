@@ -470,7 +470,7 @@ public class DocumentationSnippetTests
         PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });
 
         // <snippet guide-images>
-        PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG or PNG; make it once and use it in any number of documents
+        PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG, PNG or WebP; make it once and use it in any number of documents
 
         // The block keeps the picture's proportions: give a width, a height, or neither (the picture's natural size, 96 pixels to the inch).
         document.Add(new Image(logo) { Width = Length.Mm(30), Alignment = TextAlignment.End, AltText = "Company logo" });

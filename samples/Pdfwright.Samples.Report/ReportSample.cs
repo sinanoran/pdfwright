@@ -28,7 +28,7 @@ public static class ReportSample
 
     /// <summary>Makes the report. Nothing is laid out until the document is saved.</summary>
     /// <param name="fonts">The fonts, made by <see cref="LoadFonts"/>.</param>
-    /// <param name="logoBytes">The bytes of a JPEG or PNG file, for the header.</param>
+    /// <param name="logoBytes">The bytes of a JPEG, PNG or WebP file, for the header.</param>
     public static PdfDocument Build(FontCollection fonts, byte[] logoBytes)
     {
         PdfImage logo = PdfImage.FromBytes(logoBytes);
