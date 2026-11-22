@@ -81,7 +81,7 @@ internal static class ScenarioDocuments
             if (section == 1)
             {
                 document.Add(new Heading(3, "Sales by month"));
-                document.Add(BarChart([4, 7, 5, 9, 6, 8, 3, 7], ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"]));
+                document.Add(BarChart([4, 7, 5, 9, 6, 8, 3, 7], ["Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"]));
             }
             else if (section == 2)
             {

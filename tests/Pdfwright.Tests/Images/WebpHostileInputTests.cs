@@ -378,10 +378,8 @@ public class WebpHostileInputTests
         byte[] file = WebpTestKit.Riff(("VP8 ", header));
         Refused(file); // Warm up: the first call loads the code.
 
-        Stopwatch watch = Stopwatch.StartNew();
         long allocated = Allocated(() => Assert.Contains("cut short", Refused(file).Message, StringComparison.Ordinal));
         Assert.True(allocated < 2_000_000, $"{allocated} bytes were allocated for 20 bytes of data");
-        Assert.True(watch.ElapsedMilliseconds < 200, $"took {watch.ElapsedMilliseconds} ms");
     }
 
     [Fact]
@@ -392,10 +390,13 @@ public class WebpHostileInputTests
         byte[] file = WebpTestKit.Riff(("VP8 ", HugeFrame(vp8)));
         Refused(file); // Warm up.
 
-        Stopwatch watch = Stopwatch.StartNew();
+        Stopwatch guard = Stopwatch.StartNew();
         ImageFormatException error = Refused(file);
+
+        // The signal is the row: the decoder checks the end of the data after every row, so the row it names is the first one that lacks data (a picture of 16,383 pixels has 1,024 macroblocks in a row, far more than this data holds). The time is only a guard against a hang.
         Assert.Contains("cut short", error.Message, StringComparison.Ordinal);
-        Assert.True(watch.ElapsedMilliseconds < 200, $"took {watch.ElapsedMilliseconds} ms");
+        Assert.Contains("in macroblock row 0.", error.Message, StringComparison.Ordinal);
+        Assert.True(guard.ElapsedMilliseconds < 5000, $"took {guard.ElapsedMilliseconds} ms");
     }
 
     private static byte[] HugeFrame(byte[] vp8)

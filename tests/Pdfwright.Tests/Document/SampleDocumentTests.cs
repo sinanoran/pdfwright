@@ -44,12 +44,12 @@ public class SampleDocumentTests
             change?.Invoke(b);
         }));
         document.Add(new Heading(1, "Monthly report"));
-        document.Add(new Paragraph("Sales rose 12 % over the quarter. " + DocumentTestKit.LongText(60)));
+        document.Add(new Paragraph("Sales rose 12% over the quarter. " + DocumentTestKit.LongText(60)));
         document.Add(new Callout(new Columns(
         [
             new Paragraph([new TextRun("Revenue\n"), new TextRun("1.2 M", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
             new Paragraph([new TextRun("Orders\n"), new TextRun("8,430", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
-            new Paragraph([new TextRun("Returns\n"), new TextRun("2.1 %", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
+            new Paragraph([new TextRun("Returns\n"), new TextRun("2.1%", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
         ])) { CornerRadius = Length.Pt(4), KeepTogether = true });
         document.Add(new Heading(2, "Invoices"));
         document.Add(new Table(
@@ -62,7 +62,7 @@ public class SampleDocumentTests
             ZebraFill = Color.Gray(0.97),
         });
         double[] sales = [4, 7, 5, 9, 6];
-        string[] months = ["Jan", "Feb", "Mar", "Apr", "May"];
+        string[] months = ["Jun", "Jul", "Aug", "Sep", "Oct"];
         document.Add(new Heading(2, "Sales by month"));
         document.Add(new DrawingBlock(Length.Mm(120), Length.Mm(50), canvas =>
         {
@@ -95,7 +95,7 @@ public class SampleDocumentTests
         Assert.Contains($"1 / {pages.Length}", pages[0]);
         Assert.Contains($"{pages.Length} / {pages.Length}", pages[^1]);
         Assert.Contains("Revenue", string.Concat(pages));
-        Assert.Contains("May", string.Concat(pages));
+        Assert.Contains("Oct", string.Concat(pages));
         DocumentTestKit.AssertValid(pdf, "sample-report");
     }
 

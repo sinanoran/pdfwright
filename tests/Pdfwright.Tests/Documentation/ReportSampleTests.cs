@@ -28,7 +28,7 @@ public class ReportSampleTests
         Assert.Empty(document.Diagnostics.MissingFamilies);
         Assert.Contains("Monthly report", pages[0]);
         Assert.Contains("Revenue", pages[0]);
-        Assert.Contains("May", pages[0]);
+        Assert.Contains("Oct", pages[0]);
         Assert.Contains($"Page 1 of {pages.Length}", pages[0]);
         Assert.Contains($"Page {pages.Length} of {pages.Length}", pages[^1]);
         Assert.Contains("Customer 90", string.Concat(pages));

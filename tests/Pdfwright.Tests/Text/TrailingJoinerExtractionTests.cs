@@ -9,10 +9,11 @@ public class TrailingJoinerExtractionTests
     private const char Zwnj = (char)0x200C;
     private const char LineSeparator = (char)0x2028;
     private const string Shalom = "שלום";
+    private const string Salam = "سلام";
 
     private static string Extract(string text, double? width)
     {
-        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Hebrew);
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin, LayoutTestKit.Hebrew, LayoutTestKit.Arabic);
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, width);
         using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(LayoutTestKit.Draw(layout, fonts));
         return string.Concat(document.GetPage(1).Text.Where(c => !char.IsWhiteSpace(c) && c != (char)0x034F));
@@ -37,6 +38,11 @@ public class TrailingJoinerExtractionTests
         { "abc" + Zwnj + " def" + Zwj + " ghi", 30 },
         { Shalom + Zwj + " abc" + Zwnj + " " + Shalom + Zwj + " abc", 30 },
         { "abcdef" + Zwj + "ghi", 28 },
+        { Shalom + " abc" + Zwj + "   def ghi jkl", 50 },
+        { Shalom + " a" + char.ConvertFromUtf32(0x1D400) + Zwj + LineSeparator + "x", null },
+        { Salam + " " + (char)0x0661 + (char)0x0662 + (char)0x0651 + Zwj + LineSeparator + "x", null },
+        { (char)0x0663 + "" + (char)0x0664 + Zwj + Salam, 20 },
+        { "abc " + Shalom + Zwj + LineSeparator + "def", null },
     };
 
     [Theory]

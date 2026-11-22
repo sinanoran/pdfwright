@@ -297,7 +297,7 @@ document.Add(new Callout(new Columns(
 [
     new Paragraph([new TextRun("Revenue\n"), new TextRun("1.2 M", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
     new Paragraph([new TextRun("Orders\n"), new TextRun("8,430", new TextStyle { Size = Length.Pt(16), Weight = 700 })]),
-    new Paragraph([new TextRun("Returns\n"), new TextRun("2.1 %", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
+    new Paragraph([new TextRun("Returns\n"), new TextRun("2.1%", new TextStyle { Size = Length.Pt(16), Weight = 700, Color = Color.Red })]),
 ]))
 {
     Fill = Color.FromHex("#E8F0FE"),
@@ -323,7 +323,7 @@ more paragraphs under it and nested lists. A list of plain texts takes the strin
 <!-- snippet: guide-lists -->
 ```csharp
 // A bulleted list of texts, and a numbered one that starts at 3.
-document.Add(new ItemList(["Revenue grew in every region.", "Returns fell to 2.1 %."]));
+document.Add(new ItemList(["Revenue grew in every region.", "Returns fell to 2.1%."]));
 document.Add(new ItemList(["Check the totals", "Send the report", "File the copy"]) { Marker = ListMarker.Decimal, Start = 3 });
 
 // An item may hold more paragraphs and a list of its own, one level deep.
@@ -366,7 +366,7 @@ All numbers on the canvas are `double`s in **points**, the origin is the **top l
 using System.Globalization;
 
 double[] values = [4, 7, 5, 9, 6];
-string[] labels = ["Jan", "Feb", "Mar", "Apr", "May"];
+string[] labels = ["Jun", "Jul", "Aug", "Sep", "Oct"];
 TextStyle small = new() { Size = Length.Pt(8) };
 TextMeasurer measurer = new(fonts, new TextStyle { Family = "Noto Sans" });
 
