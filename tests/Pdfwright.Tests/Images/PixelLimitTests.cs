@@ -74,7 +74,7 @@ public class PixelLimitTests
 
         Assert.Contains("larger MaxPixels", large.Message, StringComparison.Ordinal);
         Assert.Contains("100,000,000", large.Message, StringComparison.Ordinal);
-        Assert.Contains("JPEG as well as to a PNG", large.Message, StringComparison.Ordinal);
+        Assert.Contains("every format", large.Message, StringComparison.Ordinal);
     }
 
     [Fact]

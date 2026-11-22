@@ -470,7 +470,7 @@ public class DocumentationSnippetTests
         PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });
 
         // <snippet guide-images>
-        PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG or PNG; make it once and use it in any number of documents
+        PdfImage logo = PdfImage.FromBytes(logoBytes);   // JPEG, PNG or WebP; make it once and use it in any number of documents
 
         // The block keeps the picture's proportions: give a width, a height, or neither (the picture's natural size, 96 pixels to the inch).
         document.Add(new Image(logo) { Width = Length.Mm(30), Alignment = TextAlignment.End, AltText = "Company logo" });
@@ -491,7 +491,7 @@ public class DocumentationSnippetTests
         byte[] photoBytes = LogoBytes;
 
         // <snippet guide-images-limit>
-        // The limit is on width times height, for a JPEG as well as a PNG; the default is 40 million, and the most that can be set is 100 million.
+        // The limit is on width times height, for every format (JPEG, PNG and WebP); the default is 40 million, and the most that can be set is 100 million.
         PdfImage photo = PdfImage.FromBytes(photoBytes, new PdfImageOptions { MaxPixels = 60_000_000 });
         // </snippet>
 

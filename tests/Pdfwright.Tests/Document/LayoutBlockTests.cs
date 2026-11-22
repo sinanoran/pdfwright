@@ -809,7 +809,7 @@ public class LayoutBlockTests
 
         Assert.Equal("bytes", notAnImage.ParamName);
         Assert.Null(notAnImage.InnerException);
-        Assert.Contains("JPEG or PNG", notAnImage.Message);
+        Assert.Contains("JPEG, PNG or WebP", notAnImage.Message);
         Assert.Equal("bytes", truncated.ParamName);
     }
 
