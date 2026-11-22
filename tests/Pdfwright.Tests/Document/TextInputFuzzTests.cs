@@ -191,11 +191,8 @@ public class TextInputFuzzTests
         }
     }
 
-    /// <summary>
-    /// The text without white space and the combining grapheme joiner (as the other extraction tests compare it) and without the zero width joiners U+200C and U+200D: a joiner at the end of a line in a paragraph that
-    /// mixes directions is not in the extracted text (a gap of the text layer that is not about the normalisation rule).
-    /// </summary>
-    private static string Comparable(string text) => string.Concat(DocumentTestKit.Strip(text).Where(c => c is not ((char)0x200C or (char)0x200D)));
+    /// <summary>The text without white space and the combining grapheme joiner, as the other extraction tests compare it.</summary>
+    private static string Comparable(string text) => DocumentTestKit.Strip(text);
 
     private static string Hex(string text) => string.Join(' ', text.Select(c => ((int)c).ToString("X4")));
 
