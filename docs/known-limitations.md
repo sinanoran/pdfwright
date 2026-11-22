@@ -22,7 +22,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - **A word wider than its box is cut between characters, with no hyphen.** Lines break at the opportunities of UAX #14 (spaces, hyphens, punctuation); a word, a number or a
   run of Thai text with no space that is wider than the width is cut between grapheme clusters as far as fits on each line, and a single glyph cluster wider than the width (one glyph or ligature, such as ffi, or a conjunct a font draws as one, which can span several grapheme clusters) is
-  left whole and overflows. There is no hyphenation and no dictionary line breaking for Thai, Lao, Khmer or Burmese in 0.1, so an unspaced run of those scripts breaks mid-word; dictionary breaking is a candidate for 0.2.
+  left whole and overflows. There is no hyphenation and no dictionary line breaking for Thai, Lao, Khmer or Burmese in 0.1, so an unspaced run of those scripts breaks mid-word; dictionary breaking is a candidate for a later version.
 - **A soft hyphen (U+00AD) is never a place to break.** Nothing would draw the hyphen at the end of the line, so the character stays invisible inside its word, and a word that
   has one is cut like any other long word.
 - **A paragraph is shaped once, whole, so kerning across a place where a line breaks is not undone.** A pair of letters on either side of a hyphen that the font kerns keeps its
@@ -98,7 +98,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - **CJK is not tested or claimed in 0.1.** OpenType fonts with CFF outlines are refused, and most CJK fonts (the `.otf` Noto Sans CJK, Source Han) are such fonts. A CJK font with TrueType
   outlines is accepted: its characters are mapped (the reader takes character maps of format 4 and 12), shaped, embedded as a subset and broken between ideographs by UAX #14, but no
-  CJK text is in the test corpus, so nothing about it is measured. There is no vertical text. CFF support and a CJK corpus are planned for 0.2.
+  CJK text is in the test corpus, so nothing about it is measured. There is no vertical text. CFF support and a CJK corpus are not there yet.
   Of a font collection file (`.ttc`, such as many system CJK fonts), only the first font is read. A font with close to 65,535 glyphs has few codes left for a glyph drawn
   for a second text (or for several different missing characters), and the save fails with an `InvalidOperationException` when they run out.
 - **A mark that follows a character from another script is drawn as a missing glyph.** The font is chosen for a whole grapheme cluster, so a Hebrew point after a Latin digit (or an Arabic mark after a Hebrew letter) is shaped with the font of its base, which does not have it: it is drawn as that font's `.notdef` box and listed in `DocumentDiagnostics.MissingGlyphs`.
