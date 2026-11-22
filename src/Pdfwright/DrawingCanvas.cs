@@ -200,7 +200,7 @@ public sealed class DrawingCanvas
     /// <see cref="TextAlignment.Start"/> puts the point at the edge where the text begins (the left edge of a left-to-right paragraph, the right edge of a right-to-left one), <see cref="TextAlignment.End"/> at the edge where it ends, and
     /// <see cref="TextAlignment.Center"/> in the middle. A character no font has a glyph for is reported in the document's diagnostics, with the page.
     /// </summary>
-    /// <param name="text">One paragraph.</param>
+    /// <param name="text">One paragraph: a line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break, other control characters are removed, and a surrogate without its pair is drawn as U+FFFD.</param>
     /// <param name="x">The x of the start of the first baseline.</param>
     /// <param name="y">The y of the first baseline (below the top of the text by its ascent).</param>
     /// <param name="style">The style, or <see langword="null"/> for the document's default.</param>

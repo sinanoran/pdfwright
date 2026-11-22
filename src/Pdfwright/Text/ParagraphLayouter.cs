@@ -82,12 +82,41 @@ internal static class ParagraphLayouter
         // A line with nothing visible (an empty line between two hard breaks, a line of white space) is as high as the font of the nearest
         // line that has content (the one before it, else the one after it, else the first font), so that the empty lines of a paragraph in
         // one script do not take the height of another script's font.
+        // Two linear passes find the nearest line with content for each line without one (a long run of empty lines must not scan outward from every one of them).
+        int[] nearest = new int[raws.Count];
+        int previous = -1;
+        for (int i = 0; i < raws.Count; i++)
+        {
+            if (raws[i].FirstFont >= 0)
+            {
+                previous = i;
+            }
+            else
+            {
+                nearest[i] = previous;
+            }
+        }
+
+        int following = -1;
+        for (int i = raws.Count - 1; i >= 0; i--)
+        {
+            if (raws[i].FirstFont >= 0)
+            {
+                following = i;
+            }
+            else if (nearest[i] < 0)
+            {
+                nearest[i] = following;
+            }
+        }
+
         for (int i = 0; i < raws.Count; i++)
         {
             if (raws[i].FirstFont < 0)
             {
-                Raw nearest = NearestContent(raws, i);
-                (double ascent, double descent) = nearest.FirstFont >= 0 ? state.Metrics(nearest.FirstFont, nearest.FirstStyle) : state.Metrics(styles[0].FontOrder[0], 0);
+                (double ascent, double descent) = nearest[i] >= 0
+                    ? state.Metrics(raws[nearest[i]].FirstFont, raws[nearest[i]].FirstStyle)
+                    : state.Metrics(styles[0].FontOrder[0], 0);
                 raws[i] = raws[i] with { Ascent = ascent, Descent = descent };
             }
         }
@@ -190,28 +219,6 @@ internal static class ParagraphLayouter
         }
 
         return keys;
-    }
-
-    /// <summary>The closest line to <paramref name="index"/> that has content (the one before, else the one after), or the line itself when there is none: the line whose font a line with nothing visible takes.</summary>
-    private static Raw NearestContent(List<Raw> raws, int index)
-    {
-        for (int i = index - 1; i >= 0; i--)
-        {
-            if (raws[i].FirstFont >= 0)
-            {
-                return raws[i];
-            }
-        }
-
-        for (int i = index + 1; i < raws.Count; i++)
-        {
-            if (raws[i].FirstFont >= 0)
-            {
-                return raws[i];
-            }
-        }
-
-        return raws[index];
     }
 
     /// <summary>The left edge of a line's content in a box: logical alignment, with a line that is too wide aligned to the start.</summary>

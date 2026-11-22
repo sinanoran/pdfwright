@@ -107,16 +107,16 @@ public sealed class PdfDocumentOptions
         init => _footerOffset = Check.Space(value, nameof(FooterOffset));
     }
 
-    /// <summary>The document's title, shown by readers in the window title.</summary>
+    /// <summary>The document's title, shown by readers in the window title. In the file a line break or a tab becomes a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD.</summary>
     public string? Title { get; init; }
 
-    /// <summary>The document's subject.</summary>
+    /// <summary>The document's subject. In the file a line break or a tab becomes a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD.</summary>
     public string? Subject { get; init; }
 
-    /// <summary>The document's author.</summary>
+    /// <summary>The document's author. In the file a line break or a tab becomes a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD.</summary>
     public string? Author { get; init; }
 
-    /// <summary>The application that made the content (this library is recorded as the producer).</summary>
+    /// <summary>The application that made the content (this library is recorded as the producer). In the file a line break or a tab becomes a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD.</summary>
     public string? Creator { get; init; }
 
     /// <summary>The document's language as a BCP 47 tag, which a screen reader uses to choose its voice. It is also the language of text whose style sets none.</summary>

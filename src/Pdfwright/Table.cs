@@ -96,7 +96,7 @@ public sealed record TableCell
     private Margins? _padding;
 
     /// <summary>A cell with one paragraph of text.</summary>
-    /// <param name="text">The text.</param>
+    /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     public TableCell(string text)
         : this(new Paragraph(text))
     {

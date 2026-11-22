@@ -10,7 +10,7 @@ internal sealed record ResolvedStyle(string Family, double Size, int Weight, boo
     /// <summary>The style of the document: the default style over the library's defaults, with the first font's family when none is named.</summary>
     internal static ResolvedStyle Base(FontCollection.Snapshot fonts, TextStyle? defaults, string? documentLanguage)
     {
-        ResolvedStyle library = new(fonts.Entries[0].Family, 10, 400, false, Color.Black, documentLanguage);
+        ResolvedStyle library = new(fonts.Entries[0].Family, 10, 400, false, Color.Black, Label(documentLanguage));
         return library.Apply(defaults);
     }
 
@@ -34,8 +34,15 @@ internal sealed record ResolvedStyle(string Family, double Size, int Weight, boo
             throw new ArgumentOutOfRangeException(nameof(over), weight, "A font weight is from 1 to 1000.");
         }
 
-        return new ResolvedStyle(over.Family ?? Family, size, weight, over.Italic ?? Italic, over.Color ?? Color, over.Language ?? Language);
+        return new ResolvedStyle(Label(over.Family) ?? Family, size, weight, over.Italic ?? Italic, over.Color ?? Color, Label(over.Language) ?? Language);
     }
+
+    /// <summary>
+    /// A family or a language a caller gave, as it is used and reported: read by the rule for metadata (controls removed, a line break or tab a space, a lone surrogate U+FFFD, white space at the ends trimmed), so that no control reaches the
+    /// language of the shaper (BCP 47), the language of a missing glyph or the families reported as missing. A string that is empty only after it is read counts as not given (<see langword="null"/>). The caller's own record is not changed.
+    /// </summary>
+    private static string? Label(string? text) => text is null || text.Length == 0 ? text : (TextNormalizer.Metadata(text) is { Length: > 0 } cleaned ? cleaned : null);
+
 }
 
 /// <summary>A paragraph laid out, and what is needed to say where a character of it is set.</summary>
@@ -87,12 +94,9 @@ internal sealed class ListPlacement
 /// <summary>Turns the runs of a block into one laid out paragraph, the way the flow and the public text measurer both do it.</summary>
 internal static class BlockText
 {
-    /// <summary>U+2028 LINE SEPARATOR, a hard line break inside a paragraph.</summary>
-    private const char LineSeparator = (char)0x2028;
-
     /// <summary>
     /// Lays out <paramref name="runs"/> as one paragraph in <paramref name="width"/> points (no limit when <see langword="null"/>). Every run is set in
-    /// <paramref name="baseStyle"/> with the run's own style over it; a line break of any kind inside a run is one hard line break.
+    /// <paramref name="baseStyle"/> with the run's own style over it; text is normalised first (<see cref="TextNormalizer"/>): a line break of any kind inside a run is one hard line break, other controls are dropped, a broken surrogate is U+FFFD.
     /// </summary>
     internal static StyledLayout Layout(
         IReadOnlyList<TextRun> runs,
@@ -108,7 +112,7 @@ internal static class BlockText
         List<StyledSpan> spans = [];
         foreach (TextRun run in runs)
         {
-            string chunk = LineBreaks(run.Text);
+            string chunk = TextNormalizer.Normalize(run.Text);
             if (chunk.Length == 0)
             {
                 continue;
@@ -162,28 +166,5 @@ internal static class BlockText
                 Spans = spans,
             });
         return new StyledLayout { Layout = layout, Styles = styles, Spans = spans };
-    }
-
-    /// <summary>The text with every paragraph separator turned into U+2028, a line break inside the paragraph (a carriage return and a line feed together are one).</summary>
-    private static string LineBreaks(string text)
-    {
-        if (!text.Any(c => c < 0x20 || c == 0x85 || c == 0x2029))
-        {
-            return text;
-        }
-
-        StringBuilder result = new(text.Length);
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-            {
-                continue; // the line feed after it makes the break
-            }
-
-            result.Append(BidiData.ClassOf(c) == BidiClass.B ? LineSeparator : c);
-        }
-
-        return result.ToString();
     }
 }

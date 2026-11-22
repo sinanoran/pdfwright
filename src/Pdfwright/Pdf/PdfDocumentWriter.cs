@@ -268,12 +268,12 @@ internal sealed class PdfDocumentWriter : IDisposable
 
         PdfReference? info = WriteInfo();
         PdfDictionary catalog = new PdfDictionary().Set("Type", "Catalog").Set("Pages", _pagesRoot);
-        if (_options.Language is { Length: > 0 } language)
+        if (Meta(_options.Language) is { } language)
         {
             catalog.Set("Lang", PdfString.Text(language));
         }
 
-        if (_options.Title is { Length: > 0 })
+        if (Meta(_options.Title) is not null)
         {
             catalog.Set("ViewerPreferences", new PdfDictionary().Set("DisplayDocTitle", true));
         }
@@ -309,29 +309,29 @@ internal sealed class PdfDocumentWriter : IDisposable
     private PdfReference? WriteInfo()
     {
         PdfDictionary info = new();
-        if (_options.Title is { Length: > 0 } title)
+        if (Meta(_options.Title) is { } title)
         {
-            info.Set("Title", PdfString.Text(Clean(title)));
+            info.Set("Title", PdfString.Text(title));
         }
 
-        if (_options.Subject is { Length: > 0 } subject)
+        if (Meta(_options.Subject) is { } subject)
         {
-            info.Set("Subject", PdfString.Text(Clean(subject)));
+            info.Set("Subject", PdfString.Text(subject));
         }
 
-        if (_options.Author is { Length: > 0 } author)
+        if (Meta(_options.Author) is { } author)
         {
-            info.Set("Author", PdfString.Text(Clean(author)));
+            info.Set("Author", PdfString.Text(author));
         }
 
-        if (_options.Keywords is { Length: > 0 } keywords)
+        if (Meta(_options.Keywords) is { } keywords)
         {
-            info.Set("Keywords", PdfString.Text(Clean(keywords)));
+            info.Set("Keywords", PdfString.Text(keywords));
         }
 
-        if (_options.Creator is { Length: > 0 } creator)
+        if (Meta(_options.Creator) is { } creator)
         {
-            info.Set("Creator", PdfString.Text(Clean(creator)));
+            info.Set("Creator", PdfString.Text(creator));
         }
 
         info.Set("Producer", PdfString.Text(Clean(_options.Producer)));
@@ -345,25 +345,14 @@ internal sealed class PdfDocumentWriter : IDisposable
     }
 
     /// <summary>
-    /// Text as the file carries it: the characters XML 1.0 forbids (controls other than tab, line feed and carriage return, the
-    /// noncharacters U+FFFE and U+FFFF, a surrogate without its pair) are dropped, so that the XMP packet is always well-formed
+    /// Text as the file carries it (see <see cref="Pdfwright.Text.TextNormalizer.Metadata"/>): line breaks and tabs become a space, other controls and the
+    /// noncharacters U+FFFE and U+FFFF are dropped, a surrogate without its pair becomes U+FFFD, so that the XMP packet is always well-formed
     /// and the Info dictionary says the same as it.
     /// </summary>
-    internal static string Clean(string text)
-    {
-        StringBuilder clean = new(text.Length);
-        foreach (Rune rune in text.EnumerateRunes())
-        {
-            int value = rune.Value;
-            bool allowed = value is 0x9 or 0xA or 0xD or (>= 0x20 and <= 0xD7FF) or (>= 0xE000 and <= 0xFFFD) or (>= 0x10000 and <= 0x10FFFF);
-            if (allowed && rune != Rune.ReplacementChar)
-            {
-                clean.Append(rune.ToString());
-            }
-        }
+    internal static string Clean(string text) => Pdfwright.Text.TextNormalizer.Metadata(text);
 
-        return clean.ToString();
-    }
+    /// <summary>An entry of the metadata as the file carries it, or <see langword="null"/> when nothing of it is left (it was empty, or only controls and white space): such an entry is left out of the Info dictionary and of the XMP packet alike.</summary>
+    private static string? Meta(string? text) => text is null ? null : (Clean(text) is { Length: > 0 } cleaned ? cleaned : null);
 
     /// <summary>The XMP packet (ISO 16684-1) that repeats the Info dictionary in the form archives and indexers read.</summary>
     private string Xmp()
@@ -374,33 +363,33 @@ internal sealed class PdfDocumentWriter : IDisposable
         xmp.Append("<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
         xmp.Append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
         xmp.Append("<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
-        if (_options.Title is { Length: > 0 } title)
+        if (Meta(_options.Title) is { } title)
         {
             xmp.Append("<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">").Append(E(title)).Append("</rdf:li></rdf:Alt></dc:title>\n");
         }
 
-        if (_options.Subject is { Length: > 0 } subject)
+        if (Meta(_options.Subject) is { } subject)
         {
             xmp.Append("<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">").Append(E(subject)).Append("</rdf:li></rdf:Alt></dc:description>\n");
         }
 
-        if (_options.Author is { Length: > 0 } author)
+        if (Meta(_options.Author) is { } author)
         {
             xmp.Append("<dc:creator><rdf:Seq><rdf:li>").Append(E(author)).Append("</rdf:li></rdf:Seq></dc:creator>\n");
         }
 
-        if (_options.Language is { Length: > 0 } language)
+        if (Meta(_options.Language) is { } language)
         {
             xmp.Append("<dc:language><rdf:Bag><rdf:li>").Append(E(language)).Append("</rdf:li></rdf:Bag></dc:language>\n");
         }
 
         xmp.Append("<pdf:Producer>").Append(E(_options.Producer)).Append("</pdf:Producer>\n");
-        if (_options.Keywords is { Length: > 0 } keywords)
+        if (Meta(_options.Keywords) is { } keywords)
         {
             xmp.Append("<pdf:Keywords>").Append(E(keywords)).Append("</pdf:Keywords>\n");
         }
 
-        if (_options.Creator is { Length: > 0 } creator)
+        if (Meta(_options.Creator) is { } creator)
         {
             xmp.Append("<xmp:CreatorTool>").Append(E(creator)).Append("</xmp:CreatorTool>\n");
         }
