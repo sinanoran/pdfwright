@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster layout; output unchanged.** Text shaping reuses one HarfBuzz buffer per thread, text that is only printable ASCII skips the bidi, script and grapheme steps, code points are read without lists, and the glyphs of a whole-text run are cached per font (bounded, thread-safe). Every byte of every golden file is the same, and a test compares the shaped glyphs and positions of the whole corpus and of random mixed-script texts with the paths on and off. On the warm 1,000-row table the allocation falls from 82 MB to 59 MB per run and the ten-page report from 11.3 MB to 8.1 MB. A text longer than 4,096 UTF-16 units is shaped in a temporary buffer, so no thread keeps native memory for its longest text.
+
 ## [0.1.2] - 2026-11-22
 
 ### Added
@@ -17,7 +21,6 @@ All notable changes to this project are recorded here. The format follows
 - **Much smaller files; same positions.** Each glyph is still placed by one positioning operator and shown by its own `Tj`, but the operator is now a `Td` relative to the position last written (rounded to five decimals, so errors do not add up) instead of an absolute `Tm`; `Tm` stays for the first glyph of a text object and the scaled marks. The 1,000-row table goes from 514 KB to 76 KB and the ten-page report from 103 KB to 57 KB. Text extraction by PdfPig and pdf.js and every render are unchanged; xpdf’s position-ordered text is unchanged on the 61 single lines (45 of 61) and on 261 of the 264 corpus documents; in three (arabic-long, bengali-long, layout-arabic-persian-200) it differs, because positions that differ by at most 3e-13 break exact ties between a mark and its base differently in that reader. The byte goldens were regenerated.
 
 - **Writing the content of a page allocates far less; the output is unchanged.** Numbers, operators and glyph codes are now written straight into the content stream's byte buffer instead of through a string for each, and the glyphs of a run are ordered without LINQ. Every byte of every golden file is the same as before, and a test holds the new writer to the old one over random operators and over many doubles.
-- **Faster layout; output unchanged.** Text shaping reuses one HarfBuzz buffer per thread, text that is only printable ASCII skips the bidi, script and grapheme steps, code points are read without lists, and the glyphs of a whole-text run are cached per font (bounded, thread-safe). Every byte of every golden file is the same, and a test compares the shaped glyphs and positions of the whole corpus and of random mixed-script texts with the paths on and off. On the warm 1,000-row table the allocation falls from 82 MB to 59 MB per run and the ten-page report from 11.3 MB to 8.1 MB.
 
 ## [0.1.1] - 2026-11-22
 

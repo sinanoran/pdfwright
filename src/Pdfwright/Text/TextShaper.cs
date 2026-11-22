@@ -26,7 +26,11 @@ internal sealed class ShapingFont : IDisposable
 
     internal ShaperFont Handle { get; }
 
-    /// <summary>The most runs the cache of shaped text holds; when it is full it is emptied (the text of a document that repeats is mostly its first few thousand different runs), so the memory stays bounded.</summary>
+    /// <summary>
+    /// The most runs the cache of shaped text holds; when it is full it is emptied (the text of a document that repeats is mostly its first few thousand different runs), so the memory stays bounded.
+    /// Worst case, about 11 MB for each font (2,048 runs of 256 characters: the cached string, about 0.5 KB, and its glyphs, about 5 KB). The cache lives as long as the
+    /// <c>FontCollection</c> that owns the font and keeps the strings it holds alive. The length cap of 256 characters stays: table cells and labels are short, and a lower cap would save memory only on long texts.
+    /// </summary>
     private const int CacheCapacity = 2048;
 
     /// <summary>The longest run that is cached: a long paragraph is rarely repeated and costs more to hold.</summary>
@@ -375,7 +379,8 @@ internal static class TextShaper
     /// </summary>
     private static bool IsSimpleLeftToRight(string text, string? bidiText, int paragraphLevel)
     {
-        if (paragraphLevel == 1)
+        // Only level 0 and automatic can take the fast path; any other level goes to the general code, which refuses a level that is not 0, 1 or automatic.
+        if (paragraphLevel is not (0 or UnicodeBidi.AutoLevel))
         {
             return false;
         }
