@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-22
+
 ### Fixed
 
 - **A zero width joiner or non-joiner at the end of a line is no longer missing from the extracted text.** In a right-to-left paragraph a U+200D or U+200C that follows left-to-right text at the end of a line (before a line break or the end of the paragraph) was cut from the text before it, because the bidi rule for white space at the end of a line gives it the paragraph level while the shaper had merged it into the cluster of the letter before it; the piece that held only the joiner had no glyph and was dropped, and the letter lost it from its text. A cluster is no longer cut between its characters when a line is split into pieces, so the glyph of the letter carries the joiner as it does inside a line. The text that is drawn and every golden file are unchanged. The known limitation is removed, and the fuzz test of the text input no longer ignores the two joiners.
@@ -98,7 +100,8 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
 - A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/sinanoran/pdfwright/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/sinanoran/pdfwright/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sinanoran/pdfwright/releases/tag/v0.1.0
