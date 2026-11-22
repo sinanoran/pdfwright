@@ -403,4 +403,15 @@ public class ContentStreamWritingTests
         Assert.True(actual.Length > 4096 * 4);
         Assert.Equal(expected.ToArray(), actual.ToMemory().ToArray());
     }
+
+    [Fact]
+    public void A_text_position_too_large_to_track_is_written_absolute_and_the_next_one_starts_over()
+    {
+        // A canvas with a tiny scale can ask for text at 1e14; a running position in hundred-thousandths would overflow there.
+        ContentStreamBuilder content = new();
+
+        _ = content.BeginText().TextPlace(10, 20).TextPlace(1e14, -2e14).TextPlace(10.5, 20).TextPlace(11, 20).EndText();
+
+        Assert.Equal("BT\n1 0 0 1 10 20 Tm\n1 0 0 1 100000000000000 -200000000000000 Tm\n1 0 0 1 10.5 20 Tm\n0.5 0 Td\nET\n", Encoding.ASCII.GetString(content.ToMemory().Span));
+    }
 }
