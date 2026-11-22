@@ -107,7 +107,7 @@ Recorded on 22 November 2026, so that nobody reads the list above as a list of t
   250 ms, a warm p50 of 347 ms against 60 ms, 188 MB allocated against 20 MB, and a peak working set 30 MB over the runtime baseline against 25 MB; the ten-page report has a cold p50 of 770 ms and a warm p50 of 50 ms. The diagnosis and
   the fixes are a candidate for after 0.1.0.
 - **CJK is accepted, not tested.** A font with TrueType outlines is accepted (its characters are mapped, shaped, subset and line-broken between ideographs), but no CJK text is in the test corpus, so nothing about it is measured.
-  Fonts with CFF outlines (Noto Sans CJK, Source Han) are refused, and come in 0.2 (`docs/plan-0.2.md`).
+  Fonts with CFF outlines (Noto Sans CJK, Source Han) are refused; CFF support is not there yet.
 
 ## The first release
 
