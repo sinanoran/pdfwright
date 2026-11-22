@@ -96,7 +96,11 @@ internal sealed class PdfReal : PdfObject
             throw new ArgumentOutOfRangeException(nameof(value), value, "A PDF number is finite.");
         }
 
-        _ = value.TryFormat(destination, out int written, "0.#####", CultureInfo.InvariantCulture);
+        if (!value.TryFormat(destination, out int written, "0.#####", CultureInfo.InvariantCulture))
+        {
+            throw new ArgumentException("The destination is too small for the number.", nameof(destination));
+        }
+
         if (written == 2 && destination[0] == (byte)'-' && destination[1] == (byte)'0')
         {
             destination[0] = (byte)'0';
@@ -126,7 +130,11 @@ internal sealed class PdfReal : PdfObject
         }
 
         int decimals = Math.Clamp(9 - (int)Math.Floor(Math.Log10(Math.Abs(value))), 0, 20);
-        _ = value.TryFormat(destination, out int written, FixedFormats[decimals], CultureInfo.InvariantCulture);
+        if (!value.TryFormat(destination, out int written, FixedFormats[decimals], CultureInfo.InvariantCulture))
+        {
+            throw new ArgumentException("The destination is too small for the number.", nameof(destination));
+        }
+
         if (destination[..written].Contains((byte)'.'))
         {
             while (written > 0 && destination[written - 1] == (byte)'0')
