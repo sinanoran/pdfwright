@@ -182,6 +182,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
+- [Plan for 0.2](docs/plan-0.2.md): CJK (a CFF subsetter, a CJK corpus, Japanese line breaking), then tagged PDF.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 
