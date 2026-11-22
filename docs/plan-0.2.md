@@ -105,13 +105,12 @@ the writer and switches them on with `PdfDocumentOptions.Tagged`; roles follow f
 `Tagged = true`, and no PDF/UA claim is made until it passes everywhere. Lists (the `ItemList` block, added just before 0.1.0) are tagged as
 `L`, `LI`, `Lbl` and `LBody`.
 
-## 5. Towards a managed shaper (a later version, not 0.2)
+## 5. HarfBuzz stays, behind internal seams
 
-The long-term goal is Pdfwright's own managed shaper in place of HarfBuzz, so that no native dependency remains. 0.2 writes no shaper code;
-it keeps the native library behind internal seams so that replacing it later swaps an implementation without touching the writer, the
-layout or the public API.
+HarfBuzz stays as the shaper; an own shaper is not planned, and is revisited only if a user needs a build with no native code. Shaping and
+subsetting are still kept behind internal seams, which cost nothing and keep the writer, the layout and the public API independent of the
+native library:
 
-**The seams.**
 - **Shaping.** HarfBuzzSharp is used in exactly one file today, `src/Pdfwright/Text/TextShaper.cs`; everything above it (line breaking,
   layout, `GlyphRunWriter`, the document layer) sees only Pdfwright's own types, `ShapedParagraph`, `ShapedRun` and `ShapedGlyph` (glyph id,
   cluster, advance and offsets in font units). The input side is not yet neutral: `ShapingFont` holds the HarfBuzz blob, face and font and is
@@ -121,25 +120,6 @@ layout or the public API.
 - **Subsetting.** `PdfEmbeddedFont` calls the own `TrueTypeSubsetter` directly today. Slice C2 puts subsetting behind an internal
   `IFontSubsetter` (the font and the glyph ids to keep, returning the bytes to embed, their kind, TrueType or CFF, and the old-to-new glyph map),
   with the own TrueType subsetter as one implementation and `hb-subset` as the other, chosen by the font's outline format.
-
-**What HarfBuzz does for Pdfwright today**, and so what a managed shaper must do:
-- Reading and applying `GSUB` (substitutions: ligatures, contextual forms, Arabic joining forms, Indic conjuncts and reordering, `locl`) and
-  `GPOS` (positioning: kerning, mark-to-base, mark-to-mark, mark-to-ligature, cursive attachment), with the feature order of each script.
-- The script engines: Arabic (joining, and the Arabic fallback where a font lacks forms), Indic (Devanagari, Bengali, Tamil and the others:
-  syllable clusters, reordering of pre-base matras and reph), the Universal Shaping Engine for the scripts it covers, Thai and Lao (mark
-  ordering, the SARA AM decomposition), Hebrew (its own engine: composition of points with their bases), Hangul (jamo composition), and the
-  default engine for Latin, Greek, Cyrillic and CJK.
-- Normalisation and fallback mark positioning where a font has no `GPOS` for a mark.
-- Mirroring of characters in right-to-left runs (Pdfwright's bidi data leaves the mirrored glyphs to HarfBuzz) and variation sequences
-  (character map format 14).
-- Font subsetting for CFF and CFF2 (from 0.2), through `hb-subset`.
-
-**What a managed shaper must pass before it replaces HarfBuzz:** the whole Pdfwright corpus and its goldens unchanged (the byte goldens may
-change only where glyph positions are proven equal within rounding, and the render goldens must not change at all); the Unicode conformance
-suites already in the repository; and HarfBuzz's own shaping test files (`test/shape/data` in the HarfBuzz repository, which pair a font, a
-text and the expected glyphs and positions), run against the managed shaper as the reference, for every script Pdfwright claims. A managed
-`CFF`/`CFF2` subsetter has to match `hb-subset`'s output on the corpus fonts in what the readers see (read-back and renders). Until all of
-this passes, HarfBuzz stays; the swap is one implementation behind each seam.
 
 ## 6. Open points for the maintainer
 
