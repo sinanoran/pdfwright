@@ -539,7 +539,8 @@ PdfDocument document = new(new PdfDocumentOptions
 ```
 
 Or write it the way Arabic does, with a word between the numbers: `صفحة 1 من 3` ("page 1 of 3"). Each number is then a run of its own between two Arabic words, so the bidirectional algorithm
-keeps the numbers in the order an Arabic reader expects, from right to left, and no isolate is needed. Only a bare "1 / 3", two numbers joined by a slash, is ordered as one unit and swapped:
+keeps the numbers in the order an Arabic reader expects, from right to left, and no isolate is needed. A bare "1 / 3" is laid out the same way, each number in its own
+place from right to left, but readers take "1 / 3" as one left-to-right expression, so there it looks swapped:
 
 <!-- snippet: guide-rtl-footer-of -->
 ```csharp
