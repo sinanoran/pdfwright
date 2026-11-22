@@ -53,11 +53,22 @@ Output: 513,897 bytes, 21 pages. An earlier set of 30 cold runs the same day (fr
 | Warm, BenchmarkDotNet `--job short` (21 November, not re-run) | mean 78 ms (rough) | | |
 | Managed allocation per run | 24 MB | | |
 
-Output: 102,967 bytes, 10 pages. An earlier set of 30 cold runs (free memory 2.1 GB before): 1,011 ms p50, 1,436 ms p95.
+Output: 102,967 bytes, 10 pages (102,715 bytes since the report's text was changed by the language review of 22 November 2026). An earlier set of 30 cold runs (free memory 2.1 GB before): 1,011 ms p50, 1,436 ms p95.
 
 **The runtime baseline, to read the cold numbers as runtime start plus work.** A bare start of the same program (`Pdfwright.Benchmarks start`, which prints its own time and peak working set and does nothing else; `help` gives the same within noise) over 30 fresh processes: **149 ms wall p50** (p95 167 ms; the process's own time since its start 90 ms) and **22 MB peak working set**. An earlier set the same day gave 84 ms wall and 22 MB (`help`: 80 ms, 18 MB sampled by the parent); a reviewer measured 191 ms and 21 MB on another day. So of the table's 2,095 ms about 150 ms are the runtime starting, and the working set of 52 MB is **30 MB above the baseline of 22 MB, against the plan's target of 25 MB** for the increase (the ten-page report: 49 MB, 27 MB above).
 
 **ReadyToRun and tiered PGO, indicative only.** The numbers above are the default JIT setup. Runs of 10 of the table in a row, in conditions that were not the same from one set to the next (free memory between 0.6 and 7 GB), gave a cold p50 of 3,594 ms and later 1,821 ms with the default build, 1,491 ms with `DOTNET_TieredPGO=0`, and 1,581 ms for a build published with `-p:PublishReadyToRun=true`; a reviewer saw about 1.8 s (ReadyToRun) and 1.35 s (`DOTNET_TieredPGO=0`) against about 2.0 s by default, in the same noisy conditions. So both change the cold number, probably by 10 to 30 percent, but the noise on this machine is as large as the effect and this was not measured properly. They are settings for the application, not for the library.
+
+**After the allocation-free content writing (22 November 2026, same machine and build settings, `Release`, .NET 10 runtime).** The numbers, operators and glyph codes of a page's content are now written straight into its byte buffer, and the glyph order of a run no longer uses LINQ; the output is byte for byte the same (513,897 bytes for A, 102,715 for B). Warm, 100 runs after 10 warm-up, a full GC between runs, A and B each measured before and after in the same sitting:
+
+| | Before (re-measured in the same sitting) | After |
+|---|---|---|
+| A, managed allocation per run | 187.7 MB | **85.5 MB** |
+| B, managed allocation per run | 24.0 MB | **12.2 MB** |
+| A, warm p50 | 335 ms (412 and 358 ms in two later sets) | 319 to 365 ms (365 ms and 319 ms in two sets) |
+| B, warm p50 | 47 ms (66 and 100 ms in later sets) | 40 to 86 ms (86 ms and 40 ms) |
+
+**Free memory was low** (Available MBytes: 4.7 to 9.1 GB before the sets, 3.4 to 4.7 GB while waiting for 10 GB, which it never reached in 30 minutes), and the times moved by a factor of two from one set to the next with it: the allocation figures are exact, the times only say "not slower, probably 10 to 20 percent faster". Taken only in the quietest set (4.7 GB), A went from 412 to 319 ms and B from 66 to 40 ms.
 
 **Why the warm loop's 347 ms is not 473 ms (the first version) and not BenchmarkDotNet's 368 ms.** The first version of the warm loop did not collect between iterations, so the collections of the run's 188 MB of garbage fell inside the timed runs (473 ms against BenchmarkDotNet's ~368 ms, which collects between iterations). The loop now calls `GC.Collect()` between iterations, outside the timing. The warm figures are therefore without the collection cost a long-running server would pay now and then.
 

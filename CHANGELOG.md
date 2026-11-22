@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Writing the content of a page allocates far less; the output is unchanged.** Numbers, operators and glyph codes are now written straight into the content stream's byte buffer instead of through a string for each, and the glyphs of a run are ordered without LINQ. Every byte of every golden file is the same as before, and a test holds the new writer to the old one over random operators and over many doubles.
+
 ## [0.1.1] - 2026-11-22
 
 ### Fixed

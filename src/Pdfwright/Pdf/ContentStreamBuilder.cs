@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Text;
 
 namespace Pdfwright.Pdf;
@@ -9,9 +10,20 @@ namespace Pdfwright.Pdf;
 /// layout above decides what to draw. Coordinates are in the PDF's own space (origin bottom left, y up); the
 /// document layer turns the top-left, y-down space of its public canvas into this one once.
 /// </summary>
+/// <remarks>
+/// Everything is written straight into the byte buffer: numbers are formatted into its free space (see
+/// <see cref="PdfReal.Write"/> and <see cref="PdfReal.WriteRelative"/>, which produce the same text as
+/// <see cref="PdfReal.Format"/> and the relative format of the tests' reference), operators are ASCII literals, and a
+/// glyph code is four hexadecimal digits written without an array. Writing an operator allocates nothing.
+/// </remarks>
 internal sealed class ContentStreamBuilder
 {
-    private readonly ArrayBufferWriter<byte> _bytes = new();
+    /// <summary>Room for the longest number: 309 digits of a double, a sign, a point and 20 decimals, with some to spare.</summary>
+    private const int NumberRoom = 400;
+
+    private static ReadOnlySpan<byte> HexDigits => "0123456789ABCDEF"u8;
+
+    private readonly ArrayBufferWriter<byte> _bytes = new(4096);
 
     /// <summary>The font resource name and size the last <c>Tf</c> set, or <see langword="null"/> when none was written or a <c>Q</c> may have changed it.</summary>
     internal (string Name, double Size)? CurrentFont { get; private set; }
@@ -22,109 +34,147 @@ internal sealed class ContentStreamBuilder
 
     // ---- graphics state
 
-    internal ContentStreamBuilder SaveState() => Op("q");
+    internal ContentStreamBuilder SaveState() => Op("q\n"u8);
 
     internal ContentStreamBuilder RestoreState()
     {
         CurrentFont = null; // the restored state holds a font this builder has not tracked
-        return Op("Q");
+        return Op("Q\n"u8);
     }
 
     /// <summary>Concatenates a matrix to the current transformation: <c>a b c d e f cm</c>.</summary>
     /// <remarks>The operands are written with relative precision (ten significant digits), so that a tiny scale or a small rotation survives.</remarks>
     internal ContentStreamBuilder Transform(double a, double b, double c, double d, double e, double f)
     {
-        Raw(string.Join(' ', new[] { a, b, c, d, e, f }.Select(PdfReal.FormatRelative)) + " cm\n");
-        return this;
+        Relative(a);
+        Ascii(" "u8);
+        Relative(b);
+        Ascii(" "u8);
+        Relative(c);
+        Ascii(" "u8);
+        Relative(d);
+        Ascii(" "u8);
+        Relative(e);
+        Ascii(" "u8);
+        Relative(f);
+        return Ascii(" cm\n"u8);
     }
 
-    internal ContentStreamBuilder LineWidth(double width) => Op("w", width);
+    internal ContentStreamBuilder LineWidth(double width) => Op("w\n"u8, width);
 
-    internal ContentStreamBuilder LineCap(int style) => Op("J", style);
+    internal ContentStreamBuilder LineCap(int style) => Op("J\n"u8, style);
 
-    internal ContentStreamBuilder LineJoin(int style) => Op("j", style);
+    internal ContentStreamBuilder LineJoin(int style) => Op("j\n"u8, style);
 
-    internal ContentStreamBuilder MiterLimit(double limit) => Op("M", limit);
+    internal ContentStreamBuilder MiterLimit(double limit) => Op("M\n"u8, limit);
 
     internal ContentStreamBuilder Dash(double[] pattern, double phase)
     {
-        Raw("[");
+        Ascii("["u8);
         for (int i = 0; i < pattern.Length; i++)
         {
-            Raw((i > 0 ? " " : string.Empty) + PdfReal.Format(pattern[i]));
+            if (i > 0)
+            {
+                Ascii(" "u8);
+            }
+
+            Number(pattern[i]);
         }
 
-        Raw("] " + PdfReal.Format(phase) + " d\n");
-        return this;
+        Ascii("] "u8);
+        Number(phase);
+        return Ascii(" d\n"u8);
     }
 
     /// <summary>Selects an <c>ExtGState</c> of the page's resources by name (opacity is set through one).</summary>
-    internal ContentStreamBuilder ExtGState(string name) => NameOp("gs", name);
+    internal ContentStreamBuilder ExtGState(string name) => NameOp(name, " gs\n"u8);
 
     // ---- colour
 
-    internal ContentStreamBuilder FillGray(double gray) => Op("g", gray);
+    internal ContentStreamBuilder FillGray(double gray) => Op("g\n"u8, gray);
 
-    internal ContentStreamBuilder StrokeGray(double gray) => Op("G", gray);
+    internal ContentStreamBuilder StrokeGray(double gray) => Op("G\n"u8, gray);
 
-    internal ContentStreamBuilder FillRgb(double r, double g, double b) => Op("rg", r, g, b);
+    internal ContentStreamBuilder FillRgb(double r, double g, double b) => Op("rg\n"u8, r, g, b);
 
-    internal ContentStreamBuilder StrokeRgb(double r, double g, double b) => Op("RG", r, g, b);
+    internal ContentStreamBuilder StrokeRgb(double r, double g, double b) => Op("RG\n"u8, r, g, b);
 
     // ---- paths
 
-    internal ContentStreamBuilder MoveTo(double x, double y) => Op("m", x, y);
+    internal ContentStreamBuilder MoveTo(double x, double y) => Op("m\n"u8, x, y);
 
-    internal ContentStreamBuilder LineTo(double x, double y) => Op("l", x, y);
+    internal ContentStreamBuilder LineTo(double x, double y) => Op("l\n"u8, x, y);
 
     internal ContentStreamBuilder CurveTo(double x1, double y1, double x2, double y2, double x3, double y3) =>
-        Op("c", x1, y1, x2, y2, x3, y3);
+        Op("c\n"u8, x1, y1, x2, y2, x3, y3);
 
-    internal ContentStreamBuilder Rectangle(double x, double y, double width, double height) => Op("re", x, y, width, height);
+    internal ContentStreamBuilder Rectangle(double x, double y, double width, double height) => Op("re\n"u8, x, y, width, height);
 
-    internal ContentStreamBuilder ClosePath() => Op("h");
+    internal ContentStreamBuilder ClosePath() => Op("h\n"u8);
 
-    internal ContentStreamBuilder Fill(bool evenOdd = false) => Op(evenOdd ? "f*" : "f");
+    internal ContentStreamBuilder Fill(bool evenOdd = false) => Op(evenOdd ? "f*\n"u8 : "f\n"u8);
 
-    internal ContentStreamBuilder Stroke() => Op("S");
+    internal ContentStreamBuilder Stroke() => Op("S\n"u8);
 
-    internal ContentStreamBuilder FillAndStroke(bool evenOdd = false) => Op(evenOdd ? "B*" : "B");
+    internal ContentStreamBuilder FillAndStroke(bool evenOdd = false) => Op(evenOdd ? "B*\n"u8 : "B\n"u8);
 
     /// <summary>Intersects the clipping path with the current path; the path is then ended without painting.</summary>
-    internal ContentStreamBuilder Clip(bool evenOdd = false) => Op(evenOdd ? "W*" : "W").Op("n");
+    internal ContentStreamBuilder Clip(bool evenOdd = false) => Op(evenOdd ? "W*\n"u8 : "W\n"u8).Op("n\n"u8);
 
-    internal ContentStreamBuilder EndPath() => Op("n");
+    internal ContentStreamBuilder EndPath() => Op("n\n"u8);
 
     // ---- XObjects
 
-    internal ContentStreamBuilder DrawXObject(string name) => NameOp("Do", name);
+    internal ContentStreamBuilder DrawXObject(string name) => NameOp(name, " Do\n"u8);
 
     // ---- text
 
-    internal ContentStreamBuilder BeginText() => Op("BT");
+    internal ContentStreamBuilder BeginText() => Op("BT\n"u8);
 
-    internal ContentStreamBuilder EndText() => Op("ET");
+    internal ContentStreamBuilder EndText() => Op("ET\n"u8);
 
     internal ContentStreamBuilder Font(string name, double size)
     {
-        Raw("/" + Regular(name) + " " + PdfReal.Format(size) + " Tf\n");
+        Name(name);
+        Ascii(" "u8);
+        Number(size);
+        Ascii(" Tf\n"u8);
         CurrentFont = (name, size);
         return this;
     }
 
     /// <summary>Sets the text matrix, which also sets the line matrix: an absolute position for the next text.</summary>
     internal ContentStreamBuilder TextMatrix(double a, double b, double c, double d, double e, double f) =>
-        Op("Tm", a, b, c, d, e, f);
+        Op("Tm\n"u8, a, b, c, d, e, f);
 
     /// <summary>Moves to the start of the next line, offset from the start of the current one.</summary>
-    internal ContentStreamBuilder TextMove(double x, double y) => Op("Td", x, y);
+    internal ContentStreamBuilder TextMove(double x, double y) => Op("Td\n"u8, x, y);
 
-    internal ContentStreamBuilder TextRenderMode(int mode) => Op("Tr", mode);
+    internal ContentStreamBuilder TextRenderMode(int mode) => Op("Tr\n"u8, mode);
 
     /// <summary>Shows a string whose bytes are the codes of the current font, as hexadecimal.</summary>
     internal ContentStreamBuilder ShowHex(ReadOnlySpan<byte> codes)
     {
-        Raw("<" + Convert.ToHexString(codes) + "> Tj\n");
+        Ascii("<"u8);
+        Hex(codes);
+        return Ascii("> Tj\n"u8);
+    }
+
+    /// <summary>Shows one two-byte code of the current font (see <see cref="PdfEmbeddedFont.Code"/>) as four hexadecimal digits: the same bytes as <c>ShowHex(PdfEmbeddedFont.Code(code))</c>, without an array.</summary>
+    internal ContentStreamBuilder ShowCode(int code)
+    {
+        Span<byte> span = _bytes.GetSpan(11);
+        span[0] = (byte)'<';
+        span[1] = HexDigits[(code >> 12) & 0xF];
+        span[2] = HexDigits[(code >> 8) & 0xF];
+        span[3] = HexDigits[(code >> 4) & 0xF];
+        span[4] = HexDigits[code & 0xF];
+        span[5] = (byte)'>';
+        span[6] = (byte)' ';
+        span[7] = (byte)'T';
+        span[8] = (byte)'j';
+        span[9] = (byte)'\n';
+        _bytes.Advance(10);
         return this;
     }
 
@@ -134,18 +184,19 @@ internal sealed class ContentStreamBuilder
     /// </summary>
     internal ContentStreamBuilder ShowAdjusted(IEnumerable<(byte[] Codes, double? AdjustAfter)> parts)
     {
-        Raw("[");
+        Ascii("["u8);
         foreach ((byte[] codes, double? adjust) in parts)
         {
-            Raw("<" + Convert.ToHexString(codes) + ">");
+            Ascii("<"u8);
+            Hex(codes);
+            Ascii(">"u8);
             if (adjust is { } value)
             {
-                Raw(PdfReal.Format(value));
+                Number(value);
             }
         }
 
-        Raw("] TJ\n");
-        return this;
+        return Ascii("] TJ\n"u8);
     }
 
     // ---- marked content (the structure of a tagged PDF, added in 0.2, is built from these)
@@ -153,11 +204,15 @@ internal sealed class ContentStreamBuilder
     /// <summary>Begins a marked-content sequence with a property list that carries an <c>MCID</c>: <c>/Tag &lt;&lt;/MCID n&gt;&gt; BDC</c>.</summary>
     internal ContentStreamBuilder BeginMarkedContent(string tag, int mcid)
     {
-        Raw("/" + Regular(tag) + " <</MCID " + mcid.ToString(System.Globalization.CultureInfo.InvariantCulture) + ">> BDC\n");
-        return this;
+        Name(tag);
+        Ascii(" <</MCID "u8);
+        Span<byte> span = _bytes.GetSpan(16);
+        _ = mcid.TryFormat(span, out int written, default, CultureInfo.InvariantCulture);
+        _bytes.Advance(written);
+        return Ascii(">> BDC\n"u8);
     }
 
-    internal ContentStreamBuilder EndMarkedContent() => Op("EMC");
+    internal ContentStreamBuilder EndMarkedContent() => Op("EMC\n"u8);
 
     /// <summary>
     /// Begins a span whose <c>ActualText</c> is what a reader gives back when the marked glyphs are copied or searched, in
@@ -167,54 +222,132 @@ internal sealed class ContentStreamBuilder
     internal ContentStreamBuilder BeginActualText(string text)
     {
         byte[] utf16 = Encoding.BigEndianUnicode.GetBytes(text);
-        Raw("/Span <</ActualText <FEFF" + Convert.ToHexString(utf16) + ">>> BDC\n");
+        Ascii("/Span <</ActualText <FEFF"u8);
+        Hex(utf16);
+        return Ascii(">>> BDC\n"u8);
+    }
+
+    // ---- the places that write
+
+    /// <summary>An operator with no operand: <paramref name="op"/> is the operator and its line feed.</summary>
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op) => Ascii(op);
+
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op, double a)
+    {
+        Operand(a);
+        return Ascii(op);
+    }
+
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op, double a, double b)
+    {
+        Operand(a);
+        Operand(b);
+        return Ascii(op);
+    }
+
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op, double a, double b, double c)
+    {
+        Operand(a);
+        Operand(b);
+        Operand(c);
+        return Ascii(op);
+    }
+
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op, double a, double b, double c, double d)
+    {
+        Operand(a);
+        Operand(b);
+        Operand(c);
+        Operand(d);
+        return Ascii(op);
+    }
+
+    private ContentStreamBuilder Op(ReadOnlySpan<byte> op, double a, double b, double c, double d, double e, double f)
+    {
+        Operand(a);
+        Operand(b);
+        Operand(c);
+        Operand(d);
+        Operand(e);
+        Operand(f);
+        return Ascii(op);
+    }
+
+    /// <summary>A name operand and its operator (<paramref name="op"/> starts with its space and ends with the line feed).</summary>
+    private ContentStreamBuilder NameOp(string name, ReadOnlySpan<byte> op)
+    {
+        Name(name);
+        return Ascii(op);
+    }
+
+    /// <summary>A number and the space after it.</summary>
+    private void Operand(double value)
+    {
+        Number(value);
+        Ascii(" "u8);
+    }
+
+    private void Number(double value)
+    {
+        Span<byte> span = _bytes.GetSpan(NumberRoom);
+        _bytes.Advance(PdfReal.Write(value, span));
+    }
+
+    private void Relative(double value)
+    {
+        Span<byte> span = _bytes.GetSpan(NumberRoom);
+        _bytes.Advance(PdfReal.WriteRelative(value, span));
+    }
+
+    private ContentStreamBuilder Ascii(ReadOnlySpan<byte> bytes)
+    {
+        bytes.CopyTo(_bytes.GetSpan(bytes.Length));
+        _bytes.Advance(bytes.Length);
         return this;
     }
 
-    // ---- the one place that writes
-
-    private ContentStreamBuilder Op(string op, params double[] operands)
+    private void Hex(ReadOnlySpan<byte> bytes)
     {
-        StringBuilder line = new();
-        foreach (double operand in operands)
+        Span<byte> span = _bytes.GetSpan(bytes.Length * 2);
+        for (int i = 0; i < bytes.Length; i++)
         {
-            line.Append(PdfReal.Format(operand)).Append(' ');
+            span[2 * i] = HexDigits[bytes[i] >> 4];
+            span[(2 * i) + 1] = HexDigits[bytes[i] & 0xF];
         }
 
-        line.Append(op).Append('\n');
-        Raw(line.ToString());
-        return this;
-    }
-
-    private ContentStreamBuilder NameOp(string op, string name)
-    {
-        Raw("/" + Regular(name) + " " + op + "\n");
-        return this;
+        _bytes.Advance(bytes.Length * 2);
     }
 
     /// <summary>
-    /// A resource name or a marked-content tag as it is written: letters, digits, underscore, dot and hyphen only. The names
+    /// A resource name or a marked-content tag as it is written, with its solidus: letters, digits, underscore, dot and hyphen only. The names
     /// this library makes (<c>F1</c>, <c>X2</c>, <c>G3</c>) are such, and anything else is refused here rather than written as
     /// bytes that mean something else in a content stream.
     /// </summary>
-    private static string Regular(string name)
+    private void Name(string name)
     {
-        if (name.Length == 0 || !name.All(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_' or '.' or '-'))
+        if (name.Length == 0)
         {
-            throw new ArgumentException($"'{name}' is not a plain name: use letters, digits, underscore, dot and hyphen.", nameof(name));
+            throw NotPlain(name);
         }
 
-        return name;
-    }
-
-    private void Raw(string text)
-    {
-        Span<byte> span = _bytes.GetSpan(text.Length);
-        for (int i = 0; i < text.Length; i++)
+        foreach (char c in name)
         {
-            span[i] = (byte)text[i];
+            if (c is not ((>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_' or '.' or '-'))
+            {
+                throw NotPlain(name);
+            }
         }
 
-        _bytes.Advance(text.Length);
+        Span<byte> span = _bytes.GetSpan(name.Length + 1);
+        span[0] = (byte)'/';
+        for (int i = 0; i < name.Length; i++)
+        {
+            span[i + 1] = (byte)name[i];
+        }
+
+        _bytes.Advance(name.Length + 1);
     }
+
+    private static ArgumentException NotPlain(string name) =>
+        new($"'{name}' is not a plain name: use letters, digits, underscore, dot and hyphen.", nameof(name));
 }
