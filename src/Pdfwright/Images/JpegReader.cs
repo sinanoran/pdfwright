@@ -9,7 +9,7 @@ internal static class JpegReader
 {
     /// <summary>Reads a JPEG file.</summary>
     /// <exception cref="ImageFormatException">The data is not a JPEG, is cut short, uses arithmetic coding or more than 8 bits, or is too large.</exception>
-    internal static ImageSource Read(ReadOnlySpan<byte> file)
+    internal static ImageSource Read(ReadOnlySpan<byte> file, long maxPixels = ImageSource.DefaultMaxPixels)
     {
         if (file.Length < 4 || file[0] != 0xFF || file[1] != 0xD8)
         {
@@ -72,7 +72,7 @@ internal static class JpegReader
                         throw new ImageFormatException("The JPEG has two frame headers.");
                     }
 
-                    (width, height, components) = ReadFrame(payload);
+                    (width, height, components) = ReadFrame(payload, maxPixels);
                     frame = true;
                     break;
                 case 0xC9 or 0xCA or 0xCB or 0xCD or 0xCE or 0xCF or 0xCC:
@@ -114,7 +114,7 @@ internal static class JpegReader
         return new ImageSource(width, height, space, file[..end].ToArray(), isJpeg: true, decode: decode);
     }
 
-    private static (int Width, int Height, int Components) ReadFrame(ReadOnlySpan<byte> payload)
+    private static (int Width, int Height, int Components) ReadFrame(ReadOnlySpan<byte> payload, long maxPixels)
     {
         if (payload.Length < 6)
         {
@@ -135,10 +135,8 @@ internal static class JpegReader
             throw new ImageFormatException("The JPEG has no width or no height (a height set in a later segment is not supported).");
         }
 
-        if ((long)width * height > ImageSource.MaxPixels)
-        {
-            throw new ImageFormatException($"The JPEG is {width} by {height} pixels, more than the {ImageSource.MaxPixels:N0} that are allowed.");
-        }
+        // A JPEG goes into the file as it is, but a reader decodes it to a bitmap of 3 or 4 bytes a pixel, so the same limit applies as to a PNG.
+        ImageSource.CheckPixels("JPEG", width, height, maxPixels);
 
         if (components is not (1 or 3 or 4))
         {

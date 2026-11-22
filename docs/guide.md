@@ -450,7 +450,8 @@ such a picture to PNG (or to JPEG for a photograph) before you hand it over. A J
 samples (grey, RGB, YCbCr or CMYK); arithmetic-coded, lossless, hierarchical and 12-bit JPEGs are refused. A PNG is read in every colour type and bit
 depth, interlaced or not, with its transparency (`tRNS` or an alpha channel); 16-bit samples are reduced to 8 bits. A JPEG is passed through into the file undecoded; a PNG is decoded once by a small managed decoder, and its transparency is kept. The picture is held decoded for the life
 of the object and written once to each document that uses it, so make it once and share it. The colour management of a PNG (`iCCP`, `gAMA`, `sRGB`, `cHRM`) is ignored, and the orientation and colour profile of a JPEG
-are too; an image is limited to 65,535 pixels on a side and 100 million pixels in all, refused with an exception before memory is allocated.
+are too; an image is limited to 65,535 pixels on a side and, by default, 40 million pixels in all (a PNG with transparency is decoded to 4 bytes a pixel, so about 160 MB at that size), refused with an exception before memory is allocated.
+The pixel limit applies to a JPEG as well, which is not decoded here but is decoded by whoever opens the file.
 
 <!-- snippet: guide-images -->
 ```csharp
@@ -465,6 +466,15 @@ document.Add(new Drawing(Length.Mm(40), Length.Mm(20), canvas => canvas.DrawImag
 
 The `Image` block keeps the picture's proportions (set a width or a height, not both; setting both stretches it) and is scaled down to fit the width when it is wider than its place. It can be placed in the flow, in a cell, in a callout,
 in a header, and drawn on a canvas.
+
+A picture of more pixels than the limit is refused with an `ArgumentException` whose message gives its size, the limit and the option that changes it. `PdfImageOptions.MaxPixels` raises the limit for pictures you trust, up to 100,000,000 (about 400 MB decoded for a PNG
+with transparency), or lowers it to be stricter about pictures from users; a value below 1 or above 100,000,000 is refused where it is set.
+
+<!-- snippet: guide-images-limit -->
+```csharp
+// The limit is on width times height, for a JPEG as well as a PNG; the default is 40 million, and the most that can be set is 100 million.
+PdfImage photo = PdfImage.FromBytes(photoBytes, new PdfImageOptions { MaxPixels = 60_000_000 });
+```
 
 ## Headers and footers
 

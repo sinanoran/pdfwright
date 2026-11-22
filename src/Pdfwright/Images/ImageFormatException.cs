@@ -12,4 +12,14 @@ internal sealed class ImageFormatException : Exception
         : base(message, inner)
     {
     }
+
+    /// <summary>Makes the exception of an image that has more pixels than the limit allows.</summary>
+    internal ImageFormatException(string message, bool limitExceeded)
+        : base(message)
+    {
+        LimitExceeded = limitExceeded;
+    }
+
+    /// <summary>The image is too large for the pixel limit (its format is fine), and the message says how to raise the limit.</summary>
+    internal bool LimitExceeded { get; }
 }
