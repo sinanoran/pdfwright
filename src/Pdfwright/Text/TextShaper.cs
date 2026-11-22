@@ -76,79 +76,98 @@ internal sealed class ShapingFont : IDisposable
     /// <summary>Whether a run of simple left-to-right text in this font may be shaped word by word: the shaper's check of the font (made once, on the first ask), unless a test has overridden it.</summary>
     internal bool CanShapeWordByWord => WordShapingOverride ?? Handle.CanShapeWordByWord;
 
-    /// <summary>The most entries the word cache holds; when it is full it is emptied, as the cache of whole texts is, so the memory stays bounded: 4,096 words of at most 64 characters are about 1.5 MB for each font.</summary>
+    /// <summary>
+    /// The most entries the word cache holds; when it is full it is emptied, as the cache of whole texts is, so the memory stays bounded. A word of the full 64 characters costs about 1.6 KB (the string, about 150 bytes, its
+    /// 64 glyphs of 20 bytes, and the entry), so the worst case is about 7 MB for each font, on top of the cache of whole texts; the words of real text are much shorter (about 10 characters, 300 bytes: about 1.2 MB). The bound is worth it:
+    /// without it a program that shapes unending different words (identifiers, numbers) would grow without limit.
+    /// </summary>
     internal const int WordCacheCapacity = 4096;
 
     /// <summary>The longest word (or stretch of spaces) that is cached; a longer one is shaped every time, which is rare in running text, and costs more to hold than it saves.</summary>
     internal const int WordCacheLength = 64;
 
-    /// <summary>A word as it was shaped on its own: its glyphs (clusters from 0) and whether every one is a base glyph, the condition for using it in word-by-word shaping.</summary>
+    /// <summary>A word as it was shaped on its own: its glyphs (clusters from 0) and whether every one is a base glyph, the condition for using it in word-by-word shaping. Never changed after it is made.</summary>
     internal sealed record ShapedWord(ShapedGlyph[] Glyphs, bool AllBase);
 
-    // The words of one script and language, so that a lookup by the characters of a word needs no key that holds them with the script and the language: on .NET 9 and later the inner dictionary is read with a span of the text.
-    private readonly Dictionary<(string Script, string? Language), Dictionary<string, ShapedWord>> _words = [];
+    // One table of words for each script and language. The tables are found without a lock and never removed (a clear empties them), so a caller may keep the table it got for the whole run.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Script, string? Language), WordTable> _tables = new();
     private int _wordCount;
 
-    /// <summary>How many words the word cache holds now. For tests.</summary>
-    internal int WordCacheCount
+    /// <summary>How many words the word cache holds now (counted, not the approximate count that bounds it). For tests.</summary>
+    internal int WordCacheCount => _tables.Values.Sum(t => t.Count);
+
+    /// <summary>Empties the cache of whole texts, which is how a test makes a text reach the word cache again. For tests.</summary>
+    internal void ClearWholeTextCache()
     {
-        get
+        lock (_cache)
         {
-            lock (_words)
-            {
-                return _wordCount;
-            }
+            _cache.Clear();
         }
     }
 
-    /// <summary>The word shaped earlier for <c>text[start .. start + length]</c> (left to right, with no context), or <see langword="null"/>. Locked like <see cref="GetCached"/>; the arrays are never changed after they are made.</summary>
-    internal ShapedWord? GetWord(string text, int start, int length, string script, string? language)
+    /// <summary>The words of one script and language. A font is shared by every thread and document of its collection and a hit is the common case (one for each word of every cell), so a lookup takes no lock.</summary>
+    internal WordTable GetWordTable(string script, string? language)
     {
-        if (length > WordCacheLength)
+        (string, string?) key = (script, language);
+        return _tables.TryGetValue(key, out WordTable? table) ? table : _tables.GetOrAdd(key, _ => new WordTable(this));
+    }
+
+    /// <summary>
+    /// The words of one script and language in a font, read without a lock (a <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey, TValue}"/>, read with a span of the text on .NET 9 and later). Two threads that shape the same
+    /// new word both add it and one add wins; both made the same glyphs from the same text, and a word is never changed, so it does not matter which stays. The bound is kept by an approximate count of the words added by all the tables of the font:
+    /// when it passes the capacity every table is emptied, and threads racing with the clear may add a few words more or lose a few that were just added, which only costs a second shaping of them and keeps the memory within the capacity plus a few words for each thread.
+    /// </summary>
+    internal sealed class WordTable
+    {
+        private readonly ShapingFont _owner;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord> _words = new(StringComparer.Ordinal);
+#if NET9_0_OR_GREATER
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord>.AlternateLookup<ReadOnlySpan<char>> _lookup;
+#endif
+
+        internal WordTable(ShapingFont owner)
         {
-            return null;
+            _owner = owner;
+#if NET9_0_OR_GREATER
+            _lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
+#endif
         }
 
-        lock (_words)
+        internal int Count => _words.Count;
+
+        internal void Clear() => _words.Clear();
+
+        /// <summary>The word shaped earlier for <c>text[start .. start + length]</c> (left to right, with no context), or <see langword="null"/>.</summary>
+        internal ShapedWord? Get(string text, int start, int length)
         {
-            if (!_words.TryGetValue((script, language), out Dictionary<string, ShapedWord>? words))
+            if (length > WordCacheLength)
             {
                 return null;
             }
 
 #if NET9_0_OR_GREATER
-            return words.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out ShapedWord? word) ? word : null;
+            return _lookup.TryGetValue(text.AsSpan(start, length), out ShapedWord? word) ? word : null;
 #else
-            return words.TryGetValue(text.Substring(start, length), out ShapedWord? word) ? word : null;
+            return _words.TryGetValue(text.Substring(start, length), out ShapedWord? word) ? word : null;
 #endif
         }
-    }
 
-    /// <summary>Keeps a word for <see cref="GetWord"/>; one longer than <see cref="WordCacheLength"/> is not kept.</summary>
-    internal void CacheWord(string word, string script, string? language, ShapedWord shaped)
-    {
-        if (word.Length > WordCacheLength)
+        /// <summary>Keeps a word for <see cref="Get"/>; one longer than <see cref="WordCacheLength"/> is not kept.</summary>
+        internal void Add(string word, ShapedWord shaped)
         {
-            return;
-        }
-
-        lock (_words)
-        {
-            if (_wordCount >= WordCacheCapacity)
+            if (word.Length > WordCacheLength || !_words.TryAdd(word, shaped))
             {
-                _words.Clear();
-                _wordCount = 0;
+                return;
             }
 
-            if (!_words.TryGetValue((script, language), out Dictionary<string, ShapedWord>? words))
+            if (Interlocked.Increment(ref _owner._wordCount) > WordCacheCapacity)
             {
-                words = [];
-                _words[(script, language)] = words;
-            }
+                foreach (WordTable table in _owner._tables.Values)
+                {
+                    table.Clear();
+                }
 
-            if (words.TryAdd(word, shaped))
-            {
-                _wordCount++;
+                Interlocked.Exchange(ref _owner._wordCount, 0);
             }
         }
     }
@@ -215,7 +234,7 @@ internal sealed class ShapedParagraph
 
 /// <summary>
 /// Turns a paragraph of text into shaped runs: bidi levels (UAX #9), script runs (UAX #24), a font for every character from a fallback list,
-/// and HarfBuzz shaping of each run with the text around it as context. Drawing and line breaking are done by the layers above.
+/// and shaping of each run by the shaping engine with the text around it as context, except that a run of the simple left-to-right path in a font that passes the check for the space glyph is shaped word by word with no context, which for printable ASCII gives the same glyphs (the tests hold it to that). Drawing and line breaking are done by the layers above.
 /// </summary>
 internal static class TextShaper
 {
@@ -546,6 +565,7 @@ internal static class TextShaper
     private static ShapedGlyph[]? ShapeByWords(string text, int start, int length, string scriptTag, string? language, ShapingFont font)
     {
         // Latin text has about one glyph for each character; the array grows if a ligature font makes more and is cut to size at the end.
+        ShapingFont.WordTable table = font.GetWordTable(scriptTag, language);
         ShapedGlyph[] result = new ShapedGlyph[length];
         int count = 0;
         int end = start + length;
@@ -559,7 +579,7 @@ internal static class TextShaper
             }
 
             int segmentLength = segmentEnd - segment;
-            ShapingFont.ShapedWord? word = font.GetWord(text, segment, segmentLength, scriptTag, language);
+            ShapingFont.ShapedWord? word = table.Get(text, segment, segmentLength);
             if (word is null)
             {
                 string piece = text.Substring(segment, segmentLength);
@@ -575,7 +595,7 @@ internal static class TextShaper
                 }
 
                 word = new ShapingFont.ShapedWord(shaped, allBase);
-                font.CacheWord(piece, scriptTag, language, word);
+                table.Add(piece, word);
             }
 
             if (!word.AllBase)

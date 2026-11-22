@@ -106,7 +106,7 @@ internal sealed class HarfBuzzFont : ShaperFont
         _face = new Face(_blob, 0);
         _font = new HarfBuzzSharp.Font(_face);
         _font.SetScale(unitsPerEm, unitsPerEm);
-        _wordShapingRefusal = new Lazy<string?>(() => HarfBuzzSpaceCheck.Refusal(_face, _font), LazyThreadSafetyMode.ExecutionAndPublication);
+        _wordShapingRefusal = new Lazy<string?>(() => HarfBuzzSpaceCheck.Refusal(Face, Font), LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>The verdict of <see cref="HarfBuzzSpaceCheck"/>, computed on the first call and kept.</summary>

@@ -60,8 +60,9 @@ internal static class HarfBuzzSpaceCheck
         {
             for (int i = 0; i < sets.Length; i++)
             {
+                // hb_set_create never returns NULL: when it cannot allocate it returns the empty immutable set, which the allocation check below recognizes.
                 sets[i] = HarfBuzzLayoutNative.hb_set_create();
-                if (sets[i] == IntPtr.Zero)
+                if (HarfBuzzLayoutNative.hb_set_allocation_successful(sets[i]) == 0)
                 {
                     return "a glyph set could not be made";
                 }
@@ -76,11 +77,28 @@ internal static class HarfBuzzSpaceCheck
                     HarfBuzzLayoutNative.hb_ot_layout_lookup_collect_glyphs(face.Handle, tag, lookup, sets[0], sets[1], sets[2], sets[3]);
                     for (int i = 0; i < sets.Length; i++)
                     {
+                        // A set that ran out of memory while it was filled may lack the space glyph: its answer is worth nothing.
+                        if (HarfBuzzLayoutNative.hb_set_allocation_successful(sets[i]) == 0)
+                        {
+                            return $"a glyph set could not be filled for {table} lookup {lookup}";
+                        }
+
                         if (HarfBuzzLayoutNative.hb_set_has(sets[i], space) != 0)
                         {
                             return $"the space glyph {space} is in the {setNames[i]} set of {table} lookup {lookup}";
                         }
                     }
+                }
+            }
+
+            // The glyphs the engine reports leave out the glyphs that a class definition does not list (class 0), which is where the space glyph usually is: the tables are read here for the rules that use that class.
+            foreach (string table in new[] { "GSUB", "GPOS" })
+            {
+                using Blob blob = face.ReferenceTable(HarfBuzzSharp.Tag.Parse(table));
+                string? reason = OpenTypeSpaceCheck.Refusal(blob.AsSpan().ToArray(), table == "GPOS", (int)space);
+                if (reason is not null)
+                {
+                    return reason;
                 }
             }
         }

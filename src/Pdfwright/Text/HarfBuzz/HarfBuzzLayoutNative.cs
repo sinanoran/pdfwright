@@ -30,6 +30,10 @@ internal static class HarfBuzzLayoutNative
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern int hb_set_has(IntPtr set, uint codepoint);
 
+    /// <summary>Whether every allocation the set needed succeeded; <c>hb_set_create</c> itself returns an immutable empty set, not NULL, when it cannot allocate.</summary>
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int hb_set_allocation_successful(IntPtr set);
+
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern IntPtr hb_face_reference_table(IntPtr face, uint tag);
 
