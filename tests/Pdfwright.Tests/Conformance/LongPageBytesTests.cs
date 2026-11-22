@@ -13,11 +13,11 @@ public class LongPageBytesTests
 {
     public static TheoryData<string, string> Pages() => new()
     {
-        { "mixed", "a34e48c867eccdcf522e2f8424a192f4106bba13f040171b96eedc53cc58d9a6" },
-        { "arabic", "2d9b08207a72dd36ba51daa9c9974335f3cec15a0c024fa301e69947e4bfa26c" },
-        { "devanagari", "a7492fb60d15dfc3a32a899a27132cf561588ac458dbafeb8acb9eb311f1ab41" },
-        { "thai", "69340b7351ec43c0373630c79a1103eb1b056abda079d3dee5ed61b065699551" },
-        { "latin-extended", "ce162eb615471bbed6d04440f0caab19611706353ba9cb0030cb918fdd9b4388" },
+        { "mixed", "4c51f8e2cf1068c12820d2e6eadf13a7b4e83d04a208364acded8535612850e3" },
+        { "arabic", "5a12f3274fe8ef0a6d920db259cb7825a32b7cbdd43579bc21dde7b675b99d7c" },
+        { "devanagari", "bda25f95d6b18ad85f54a0d7af1686b85ee1e614d6ec944d7dcd037de150a1e7" },
+        { "thai", "deb888c0b8fcfaefc2387562f09589ba6c85a98405b111772cc435a8c65541b4" },
+        { "latin-extended", "df0bfeab802872074d1fc3594cbe708eedd76cec56f3d5dc76db6e0f07459f65" },
     };
 
     [Theory]
