@@ -19,8 +19,17 @@ internal enum ImageColorSpace
 /// </summary>
 internal sealed class ImageSource
 {
-    /// <summary>The most pixels an image may have (width times height), and so the most memory a decoder asks for.</summary>
-    internal const long MaxPixels = 100_000_000;
+    /// <summary>
+    /// The most pixels an image may have (width times height) unless the caller says otherwise with <see cref="PdfImageOptions.MaxPixels"/>: 40 million, which a PNG
+    /// with transparency decodes to about 160 MB (4 bytes a pixel).
+    /// </summary>
+    internal const long DefaultMaxPixels = 40_000_000;
+
+    /// <summary>
+    /// The most that <see cref="PdfImageOptions.MaxPixels"/> may be set to. A decoded PNG holds up to 3 bytes of colour for each pixel in one array, and an array has at most
+    /// 2,147,483,591 elements, so the hard bound is about 715 million pixels; 100 million (about 400 MB decoded, the limit of the first drafts of the library) is chosen well inside it.
+    /// </summary>
+    internal const long MaxPixelsCap = 100_000_000;
 
     /// <summary>The most pixels an image may have along one side (what a 16-bit size in a header can hold).</summary>
     internal const int MaxSide = 65_535;
@@ -71,26 +80,46 @@ internal sealed class ImageSource
 
     /// <summary>Reads a JPEG or a PNG, by what its first bytes say it is.</summary>
     /// <exception cref="ImageFormatException">It is neither, or it is damaged, cut short or too large.</exception>
-    internal static ImageSource FromBytes(ReadOnlySpan<byte> bytes)
+    internal static ImageSource FromBytes(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels)
     {
         if (PngDecoder.HasSignature(bytes))
         {
-            return PngDecoder.Decode(bytes);
+            return PngDecoder.Decode(bytes, maxPixels);
         }
 
         if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8)
         {
-            return JpegReader.Read(bytes);
+            return JpegReader.Read(bytes, maxPixels);
         }
 
         throw new ImageFormatException("The data is neither a PNG nor a JPEG.");
     }
 
     /// <summary>Reads a JPEG.</summary>
-    internal static ImageSource FromJpeg(ReadOnlySpan<byte> bytes) => JpegReader.Read(bytes);
+    internal static ImageSource FromJpeg(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels) => JpegReader.Read(bytes, maxPixels);
 
     /// <summary>Reads a PNG.</summary>
-    internal static ImageSource FromPng(ReadOnlySpan<byte> bytes) => PngDecoder.Decode(bytes);
+    internal static ImageSource FromPng(ReadOnlySpan<byte> bytes, long maxPixels = DefaultMaxPixels) => PngDecoder.Decode(bytes, maxPixels);
+
+    /// <summary>Refuses an image of more pixels than <paramref name="maxPixels"/>, naming its size, the limit and the option that changes it.</summary>
+    /// <exception cref="ImageFormatException">The image has too many pixels.</exception>
+    internal static void CheckPixels(string format, long width, long height, long maxPixels)
+    {
+        long pixels = width * height;
+        if (pixels <= maxPixels)
+        {
+            return;
+        }
+
+        // The numbers are written the same way whatever the current culture, so the message reads the same on every machine.
+        System.Globalization.CultureInfo invariant = System.Globalization.CultureInfo.InvariantCulture;
+        string how = maxPixels < MaxPixelsCap
+            ? string.Create(invariant, $"To read it, pass a PdfImageOptions with a larger MaxPixels (up to {MaxPixelsCap:N0}) to PdfImage.FromBytes.")
+            : "That is the largest limit that PdfImageOptions.MaxPixels allows.";
+        throw new ImageFormatException(
+            string.Create(invariant, $"The {format} is {width:N0} by {height:N0} pixels ({pixels:N0} in all), more than the limit of {maxPixels:N0} pixels (PdfImageOptions.MaxPixels, {DefaultMaxPixels:N0} by default; it applies to a JPEG as well as to a PNG). {how}"),
+            limitExceeded: true);
+    }
 
     /// <summary>
     /// The image XObject of this image in a document, written the first time it is asked for and found again after that: a picture

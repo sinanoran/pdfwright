@@ -102,9 +102,10 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 
 - **The colour management of a PNG is ignored.** The `gAMA`, `iCCP`, `sRGB` and `cHRM` chunks are skipped, and the samples are written as device RGB, device gray or an indexed device RGB palette, so a PNG that
   carries a profile or a gamma other than the display's is drawn with its raw numbers. A 16-bit sample is rounded to 8 bits, and a gray of 1, 2 or 4 bits is stretched to 8.
-- **Limits of an image: 65,535 pixels on a side and 100 million pixels in all.** Anything larger is refused with an exception before memory is allocated, and so is a header that promises more rows than its compressed data can hold.
-  A PNG is decoded whole: besides the file itself, the reader holds the compressed image data once (a copy of the IDAT chunks of exactly their size, up to about the size of the file) and the decoded samples
-  (4 bytes a pixel for an RGBA picture, so about 400 MB for one of 100 million pixels, and 300 MB for RGB), and one row at a time otherwise.
+- **Limits of an image: 65,535 pixels on a side and, by default, 40 million pixels in all.** Anything larger is refused with an `ArgumentException` (naming the picture's size, the limit and `PdfImageOptions.MaxPixels`) before memory is allocated, and so is a header that promises more rows than its compressed data can hold.
+  The pixel limit applies to a JPEG as well as to a PNG: a JPEG is passed through undecoded, so it costs little here, but a PDF reader decodes it to a bitmap of 3 or 4 bytes a pixel. `PdfImage.FromBytes(bytes, new PdfImageOptions { MaxPixels = n })` raises
+  or lowers the pixel limit, from 1 to 100,000,000 (the side limit stays). A PNG is decoded whole: besides the file itself, the reader holds the compressed image data once (a copy of the IDAT chunks of exactly their size, up to about the size of the file) and the decoded samples
+  (4 bytes a pixel for an RGBA picture, so about 160 MB at the default limit and 400 MB at the largest, and 3 bytes a pixel, 300 MB at the largest, for RGB), and one row at a time otherwise. The largest limit is chosen so that the arrays of the decoder (3 bytes a pixel in one array, at most 2,147,483,591 elements) stay far inside their size.
 - **A chunk of a PNG that the reader does not know and that is critical** (its type begins with a capital letter) is refused (`PdfImage.FromBytes` throws an `ArgumentException`), as the format says a
   decoder must; an unknown ancillary chunk is skipped.
 - **The canvas writes the operands of a transform (`cm`) with ten significant digits, and everything else it writes (path coordinates, line widths, dash lengths) with five decimals.** A transform that

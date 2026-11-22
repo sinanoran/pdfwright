@@ -27,20 +27,37 @@ public sealed class PdfImage
 
     /// <summary>
     /// Reads a JPEG or a PNG, by what its first bytes say it is. The data is checked completely now (every PNG chunk's checksum, the structure of a JPEG file), so a bad picture fails here and not when
-    /// the document is saved. A picture is limited to 65,535 pixels on a side and 100 million pixels in all; the colour profile of either format is ignored.
+    /// the document is saved. A picture is limited to 65,535 pixels on a side and to 40 million pixels in all (a PNG with transparency is decoded to about 160 MB at that size), a JPEG as well as a PNG;
+    /// <see cref="FromBytes(ReadOnlySpan{byte}, PdfImageOptions)"/> changes the pixel limit. The colour profile of either format is ignored.
     /// </summary>
     /// <param name="bytes">The bytes of a JPEG or PNG file.</param>
     /// <returns>The picture.</returns>
     /// <exception cref="ArgumentException">The data is neither a JPEG nor a PNG, is damaged or cut short, uses a feature that is not supported (arithmetic coding, 12-bit samples, an unknown critical PNG chunk), or is larger than the limits allow; the reason is in the message.</exception>
-    public static PdfImage FromBytes(ReadOnlySpan<byte> bytes)
+    public static PdfImage FromBytes(ReadOnlySpan<byte> bytes) => Read(bytes, ImageSource.DefaultMaxPixels);
+
+    /// <summary>
+    /// Reads a JPEG or a PNG as <see cref="FromBytes(ReadOnlySpan{byte})"/> does, with the pixel limit of <paramref name="options"/> in place of the default of 40 million.
+    /// </summary>
+    /// <param name="bytes">The bytes of a JPEG or PNG file.</param>
+    /// <param name="options">The limits to read with.</param>
+    /// <returns>The picture.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">As for <see cref="FromBytes(ReadOnlySpan{byte})"/>; a picture of more pixels than <see cref="PdfImageOptions.MaxPixels"/> is refused with a message that names its size and the limit, before any memory is allocated for it.</exception>
+    public static PdfImage FromBytes(ReadOnlySpan<byte> bytes, PdfImageOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return Read(bytes, options.MaxPixels);
+    }
+
+    private static PdfImage Read(ReadOnlySpan<byte> bytes, long maxPixels)
     {
         try
         {
-            return new PdfImage(ImageSource.FromBytes(bytes));
+            return new PdfImage(ImageSource.FromBytes(bytes, maxPixels));
         }
         catch (ImageFormatException error)
         {
-            throw new ArgumentException("The data is not a usable JPEG or PNG: " + error.Message, nameof(bytes));
+            throw new ArgumentException(error.LimitExceeded ? error.Message : "The data is not a usable JPEG or PNG: " + error.Message, nameof(bytes));
         }
     }
 }

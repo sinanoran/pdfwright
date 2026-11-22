@@ -25,7 +25,7 @@ internal static class PngDecoder
 
     /// <summary>Reads a PNG file.</summary>
     /// <exception cref="ImageFormatException">The data is not a PNG, is damaged or cut short, or is larger than the limits allow.</exception>
-    internal static ImageSource Decode(ReadOnlySpan<byte> file)
+    internal static ImageSource Decode(ReadOnlySpan<byte> file, long maxPixels = ImageSource.DefaultMaxPixels)
     {
         if (!HasSignature(file))
         {
@@ -72,7 +72,7 @@ internal static class PngDecoder
                     throw new ImageFormatException("The PNG has two IHDR chunks.");
                 }
 
-                header = ReadHeader(data);
+                header = ReadHeader(data, maxPixels);
             }
             else if (type.SequenceEqual("PLTE"u8))
             {
@@ -132,7 +132,7 @@ internal static class PngDecoder
         return Build(header!, palette, transparency, compressed);
     }
 
-    private static Header ReadHeader(ReadOnlySpan<byte> data)
+    private static Header ReadHeader(ReadOnlySpan<byte> data, long maxPixels)
     {
         if (data.Length != 13)
         {
@@ -150,13 +150,10 @@ internal static class PngDecoder
 
         if (width > ImageSource.MaxSide || height > ImageSource.MaxSide)
         {
-            throw new ImageFormatException($"The PNG is {width} by {height} pixels: a side may have at most {ImageSource.MaxSide:N0}.");
+            throw new ImageFormatException(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The PNG is {width} by {height} pixels: a side may have at most {ImageSource.MaxSide:N0}."));
         }
 
-        if ((long)width * height > ImageSource.MaxPixels)
-        {
-            throw new ImageFormatException($"The PNG is {width} by {height} pixels, more than the {ImageSource.MaxPixels:N0} that are allowed.");
-        }
+        ImageSource.CheckPixels("PNG", width, height, maxPixels);
 
         bool allowed = colorType switch
         {

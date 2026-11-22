@@ -427,9 +427,13 @@ sealed class PdfDocumentOptions
   property TextStyle? DefaultStyle { get; init; }
 sealed class PdfImage
   method static PdfImage FromBytes(ReadOnlySpan<Byte> bytes)
+  method static PdfImage FromBytes(ReadOnlySpan<Byte> bytes, PdfImageOptions options)
   property Boolean HasTransparency { get; }
   property Int32 PixelHeight { get; }
   property Int32 PixelWidth { get; }
+sealed class PdfImageOptions
+  ctor()
+  property Int64 MaxPixels { get; init; }
 sealed class PdfLimitExceededException : InvalidOperationException, System.Runtime.Serialization.ISerializable
   property DocumentLimit Limit { get; }
   property Int64 Maximum { get; }

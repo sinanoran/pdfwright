@@ -486,6 +486,21 @@ public class DocumentationSnippetTests
     }
 
     [Fact]
+    public void The_pixel_limit_of_a_picture_can_be_changed_with_an_option()
+    {
+        byte[] photoBytes = LogoBytes;
+
+        // <snippet guide-images-limit>
+        // The limit is on width times height, for a JPEG as well as a PNG; the default is 40 million, and the most that can be set is 100 million.
+        PdfImage photo = PdfImage.FromBytes(photoBytes, new PdfImageOptions { MaxPixels = 60_000_000 });
+        // </snippet>
+
+        Assert.Equal(24, photo.PixelWidth);
+        ArgumentException refused = Assert.Throws<ArgumentException>(() => PdfImage.FromBytes(photoBytes, new PdfImageOptions { MaxPixels = 100 }));
+        Assert.Contains("PdfImageOptions.MaxPixels", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_header_and_a_footer_are_built_for_each_page_from_its_context()
     {
         FontCollection fonts = DocumentTestKit.Fonts;

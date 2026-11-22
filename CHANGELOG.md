@@ -31,6 +31,8 @@ Version 0.1.0 is complete in this repository and is not released: nothing is pub
   `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
 - **Documentation and samples**: a user guide (`docs/guide.md`), the known limitations, the baselines of the alternatives that were measured, and a runnable sample report (`samples/Pdfwright.Samples.Report`). Every code block of the
   README and the guide is compiled and run by the tests, which fail when a block and its tested code differ.
+- **A pixel limit for pictures**: a JPEG or PNG of more than 40 million pixels (about 160 MB decoded for a PNG with transparency) is refused by `PdfImage.FromBytes` with an `ArgumentException` that names the picture's size, the limit and the option; the side limit of 65,535 is unchanged.
+  `PdfImage.FromBytes(bytes, new PdfImageOptions { MaxPixels = n })` raises or lowers it, from 1 to 100,000,000.
 - **A package** for `net8.0`, `net9.0`, `net10.0` and `net11.0` that depends only on `HarfBuzzSharp` and its native assets, ships no font, and carries the README, the LICENSE and the NOTICE.
 
 ### Not in this version

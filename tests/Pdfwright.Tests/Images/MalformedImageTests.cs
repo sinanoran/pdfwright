@@ -123,9 +123,9 @@ public class MalformedImageTests
     [Fact]
     public void A_header_that_promises_more_than_the_data_can_hold_is_rejected_without_the_memory()
     {
-        // 10,000 by 10,000 is exactly the limit, and 80 bytes of compressed data cannot be that many rows.
+        // 6,000 by 6,000 is inside the limit, and 80 bytes of compressed data cannot be that many rows.
         long before = GC.GetTotalAllocatedBytes(precise: false);
-        AssertRejected(WithHeader(10000, 10000), "too small");
+        AssertRejected(WithHeader(6000, 6000), "too small");
         Assert.True(GC.GetTotalAllocatedBytes(precise: false) - before < 50_000_000);
     }
 
