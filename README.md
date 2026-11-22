@@ -40,7 +40,7 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 - **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
 
-**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design carries it; it is planned for 0.2), links on text,
+**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design leaves room for it), links on text,
 hyphenation and justified text, table cell spans, floating images, pictures other than JPEG, PNG and WebP (no GIF, TIFF, SVG or animated WebP), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
@@ -151,7 +151,7 @@ pages with a repeated header. Where a cell says "not measured", nobody measured 
 | Dependency on disk | HarfBuzz: `libHarfBuzzSharp` 2.2 MB (win-x64) and 16.8 MB (Linux, every architecture in one package) | `libSkiaSharp` 13.2 MB and `libHarfBuzzSharp` 2.2 MB (win-x64; 16.8 MB for Linux, every architecture in one package); the Linux Skia package is a 63 MB `.nupkg` for every architecture | the browser: 288 MB (headless shell) or 453 MB (full Chromium) |
 | Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here |
 | Mixed-direction paragraph (Latin in Arabic) | itemized and ordered by UAX #9 | the stock shaper does no bidirectional itemization: a mixed line was drawn with the Arabic in isolated forms | not measured here |
-| Tagged (accessible) PDF | **not in 0.1** (planned for 0.2) | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
+| Tagged (accessible) PDF | **not yet** | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
 | 1,000-row table, cold process | 2,095 ms median (p95 2,270 ms) over 30 fresh processes, including about 150 ms of runtime start, 52 MB peak (30 MB over the 22 MB of a bare runtime start), 76 KB (75,661 bytes; 514 KB before the glyphs were positioned with a relative `Td`; the times and memory in this cell were measured before that change), 21 pages: slower than the plan's targets (section 7), on a machine low on free memory (0.6 to 7.5 GB free; the same build gave 1.5 to 2.1 s depending on the memory state, see baselines.md); 8 mm side margins and 3 pt cell padding against the browser's none and 1 px | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms from browser launch to the end of `page.pdf` (node start and browser close excluded), 495 MB peak over the process tree, 154 KB. The "cold" numbers are taken differently: Pdfwright's is process start to exit, runtime start included; the Skia spike's method is not documented; the layouts differ (margins, padding, fonts) |
 | Fonts | supplied by you, embedded as subsets | not assessed here | looked up by the browser on the machine, unless the page loads its own |
 | Byte-stable output (golden files) | yes (`Deterministic`, optionally `Compress = false`) | Skia writes a document id and dates; stability not assessed | not assessed here |
@@ -179,7 +179,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
-- [Plan for 0.2](docs/plan-0.2.md): CJK (a CFF subsetter, a CJK corpus, Japanese line breaking), then tagged PDF.
+- [Draft plan for 0.2](docs/plan-0.2.md): a draft, not a commitment.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 

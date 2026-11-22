@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-22
+
 ### Added
 
 - **WebP pictures.** `PdfImage.FromBytes` now reads a WebP, lossy (VP8), lossless (VP8L) or extended (VP8X, with an alpha plane of either method and any of the four filters), as 8-bit RGB with a separate alpha that is written as a soft mask, as for a PNG. The decoder is managed code with no new dependency: a C# port of the WebP decoder of golang.org/x/image v0.48.0 with the YUV to RGB conversion and the upsampling of libwebp v1.6.0, so that the lossy colours are libwebp's formulas (the BSD-3-Clause licences and the patent grants of both projects are in `NOTICE`; the decision and the rejected alternatives are in `docs/decisions/0001-webp-decoder.md`). An **animated WebP is refused** with a message that says so, and the colour profile is ignored. The pixel limit is checked right after each header and before any allocation, the number of Huffman groups (2,600) and the memory of the Huffman tables (64 MB) are capped, a picture must be the size its `VP8X` header gives, and every failure is an `ArgumentException` from `PdfImage.FromBytes`; the three 2026 advisories of the Go decoder (a canvas size of 32 bits, a canvas smaller than the picture, Huffman groups without a limit) each have a regression test. No public type or member changed.
@@ -86,6 +88,7 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
 - A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/sinanoran/pdfwright/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sinanoran/pdfwright/releases/tag/v0.1.0
