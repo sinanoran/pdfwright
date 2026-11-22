@@ -32,7 +32,7 @@ internal static class Warm
         return 0;
     }
 
-    /// <summary>Warm: the document is built and saved to memory <paramref name="runs"/> times in one process after <paramref name="warmup"/> unmeasured ones; the fonts are loaded once.</summary>
+    /// <summary>Warm (a full collection runs between the iterations, untimed): the document is built and saved to memory <paramref name="runs"/> times in one process after <paramref name="warmup"/> unmeasured ones; the fonts are loaded once.</summary>
     internal static int Loop(Func<FontCollection, PdfDocument> build, int runs, int warmup, TextWriter output)
     {
         using FontCollection fonts = ScenarioDocuments.LoadFonts();
@@ -43,6 +43,9 @@ internal static class Warm
         for (int i = 0; i < warmup + runs; i++)
         {
             stream.SetLength(0);
+            // A full collection between iterations, outside the timing, so that the garbage of one run is not collected inside the next one.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
             long before = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
             last = build(fonts);
@@ -63,10 +66,5 @@ internal static class Warm
         return 0;
     }
 
-    internal static double Percentile(double[] sorted, double p)
-    {
-        // Nearest rank: the p95 of 30 runs is the 29th value, and no value is made up.
-        int rank = (int)Math.Ceiling(p * sorted.Length);
-        return sorted[Math.Clamp(rank - 1, 0, sorted.Length - 1)];
-    }
+    internal static double Percentile(double[] sorted, double p) => ColdRun.Percentile(sorted, p);
 }

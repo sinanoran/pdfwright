@@ -8,6 +8,7 @@ using Pdfwright.Benchmarks.Scenarios;
 //   cold --runs N -- <command...>        a fresh process N times: wall time and peak working set (median, p95)
 //   once <table|report> <output.pdf>     one fresh-process run of a scenario; prints one JSON line (use it under "cold")
 //   warm <table|report> [--runs N] [--warmup W]   the scenario N times in one process, after W unmeasured runs
+//   start                                the runtime baseline: starts, prints its own time and peak working set, does nothing
 //   bench [BenchmarkDotNet args]         warm time and allocations of the scenarios (BenchmarkDotNet)
 string verb = args.Length > 0 ? args[0] : "help";
 switch (verb)
@@ -57,12 +58,21 @@ switch (verb)
         return Warm.Loop(build, runs, warmup, Console.Out);
     }
 
+    case "start":
+    {
+        // The runtime baseline: a process that starts, does nothing, and reports what "once" reports.
+        using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
+        double sinceStart = (DateTime.Now - self.StartTime).TotalMilliseconds;
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{{\"sinceProcessStartMs\":{sinceStart:F1},\"peakWorkingSetMb\":{self.PeakWorkingSet64 / 1048576.0:F1}}}"));
+        return 0;
+    }
+
     case "bench":
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args[1..]);
         return 0;
 
     default:
-        Console.WriteLine("verbs: cold --runs N -- <command...> | once <table|report> <output.pdf> | warm <table|report> [--runs N] [--warmup W] | bench [BenchmarkDotNet arguments]");
+        Console.WriteLine("verbs: cold --runs N -- <command...> | once <table|report> <output.pdf> | warm <table|report> [--runs N] [--warmup W] | start | bench [BenchmarkDotNet arguments]");
         return verb == "help" ? 0 : 2;
 }
 

@@ -255,14 +255,14 @@ as released differs from it, and tagging still needs no breaking change:
 - A `benchmarks/` project (BenchmarkDotNet, `MemoryDiagnoser`) for warm time and allocations of each scenario above, run in CI on the release
   runner as a **non-blocking** job that posts a table and fails only on a regression of 25 percent or more against the last tagged release.
 - A **process harness** for the cold numbers and the working-set increase (it starts a fresh process per run, reads `PeakWorkingSet64`
-  and wall time, runs 10 times, reports the median), the method of the spike in section 2, which also measures Playwright on the same
+  and wall time, runs 10 or 30 times, reports the median and the p95, and the bare runtime start as a baseline), the method of the spike in section 2, which also measures Playwright on the same
   machine for the comparison table in the README. The harness is a console project in the repository, so the comparison can be re-run by
   anyone.
 - **Allocation budgets as tests:** a unit test that renders the 1,000-row table and fails when `GC.GetAllocatedBytesForCurrentThread` exceeds
   the budget by 25 percent (allocation counts are stable across machines where times are not).
 - The numbers go in `docs/baselines.md` (linked from the README) with the machine described, as Sheetwright's README states its own limits.
 
-**Measured on 21 November 2026 (written afterwards; `docs/baselines.md` has the method, the machine and the caveat that free memory was low):** the targets above are **not met**. Table of 1,000 rows (21 pages): cold p50 1,504 ms against 250 ms; warm p50 473 ms against 60 ms; allocation 188 MB against 20 MB; output 514 KB against 150 KB; peak working set 54 MB (the increase over the runtime baseline was not measured separately). Ten-page report (half the size of the 20-page scenario; no 20-page scenario exists yet): cold p50 553 ms, warm p50 73 ms, allocation 24 MB, 103 KB, against 200 ms, 40 ms, 10 MB and 120 KB for twenty pages. The Arabic table, the 100-page stress document and the allocation-budget test are not measured yet.
+**Measured on 22 November 2026 (written afterwards; `docs/baselines.md` has the method, the machine and the caveat that free memory was low and moved between 0.6 and 7.5 GB, which moves the cold times between about 1.5 and 2.1 s):** the targets above are **not met**. Table of 1,000 rows (21 pages): cold p50 2,095 ms against 250 ms (the runtime's own start is about 150 ms of it); warm p50 347 ms against 60 ms (a full GC between runs); allocation 188 MB against 20 MB; output 514 KB against 150 KB; peak working set 52 MB, an increase of 30 MB over the 22 MB runtime baseline against the 25 MB target. Ten-page report (half the size of the 20-page scenario; no 20-page scenario exists yet): cold p50 770 ms, warm p50 50 ms, allocation 24 MB, 103 KB, working set 49 MB (27 MB over the baseline), against 200 ms, 40 ms, 10 MB and 120 KB for twenty pages. The Arabic table, the 100-page stress document and the allocation-budget test are not measured yet.
 
 ## 8. Test strategy
 
