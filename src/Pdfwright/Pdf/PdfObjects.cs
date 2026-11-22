@@ -84,6 +84,70 @@ internal sealed class PdfReal : PdfObject
 
         return text is "-0" or "" ? "0" : text;
     }
+
+    /// <summary>
+    /// Writes <see cref="Format"/> of <paramref name="value"/> as ASCII into <paramref name="destination"/> without allocating, and returns the number of
+    /// bytes written: the same text, byte for byte (a test compares the two over many doubles). The destination must hold at least 400 bytes.
+    /// </summary>
+    internal static int Write(double value, Span<byte> destination)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "A PDF number is finite.");
+        }
+
+        _ = value.TryFormat(destination, out int written, "0.#####", CultureInfo.InvariantCulture);
+        if (written == 2 && destination[0] == (byte)'-' && destination[1] == (byte)'0')
+        {
+            destination[0] = (byte)'0';
+            return 1;
+        }
+
+        return written;
+    }
+
+    private static readonly string[] FixedFormats = [.. Enumerable.Range(0, 21).Select(d => "F" + d.ToString(CultureInfo.InvariantCulture))];
+
+    /// <summary>
+    /// Writes <see cref="FormatRelative"/> of <paramref name="value"/> as ASCII into <paramref name="destination"/> without allocating, and returns the number of
+    /// bytes written: the same text, byte for byte. The destination must hold at least 400 bytes.
+    /// </summary>
+    internal static int WriteRelative(double value, Span<byte> destination)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "A PDF number is finite.");
+        }
+
+        if (value == 0)
+        {
+            destination[0] = (byte)'0';
+            return 1;
+        }
+
+        int decimals = Math.Clamp(9 - (int)Math.Floor(Math.Log10(Math.Abs(value))), 0, 20);
+        _ = value.TryFormat(destination, out int written, FixedFormats[decimals], CultureInfo.InvariantCulture);
+        if (destination[..written].Contains((byte)'.'))
+        {
+            while (written > 0 && destination[written - 1] == (byte)'0')
+            {
+                written--;
+            }
+
+            while (written > 0 && destination[written - 1] == (byte)'.')
+            {
+                written--;
+            }
+        }
+
+        if (written == 0 || (written == 2 && destination[0] == (byte)'-' && destination[1] == (byte)'0'))
+        {
+            destination[0] = (byte)'0';
+            return 1;
+        }
+
+        return written;
+    }
 }
 
 internal sealed class PdfName(string value) : PdfObject

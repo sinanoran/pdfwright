@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using Pdfwright.Pdf;
@@ -49,64 +50,95 @@ internal static class GlyphRunWriter
         }
 
         double scale = size / font.Font.UnitsPerEm;
-        double[] x = new double[glyphs.Length];
-        double pen = originX;
-        for (int i = 0; i < glyphs.Length; i++)
+        int count = glyphs.Length;
+        double[] x = ArrayPool<double>.Shared.Rent(count);
+        long[] keys = ArrayPool<long>.Shared.Rent(count);
+        try
         {
-            x[i] = pen + (glyphs[i].XOffset * scale);
-            pen += glyphs[i].XAdvance * scale;
-        }
-
-        // Logical order: clusters ascending (a right-to-left run lists them downwards), the glyphs of one cluster in the order the shaper lists them, which for a right-to-left run puts the base first (the glyph that carries the text).
-        int[] order = [.. Enumerable.Range(0, glyphs.Length)];
-        if (run.IsRightToLeft)
-        {
-            Array.Reverse(order);
-        }
-
-        order = [.. order.OrderBy(g => glyphs[g].Cluster)];
-
-        // The text of each cluster: from its value to the next greater one in the run, or the end of the run.
-        int[] values = [.. glyphs.Select(g => g.Cluster).Distinct().Order()];
-        Dictionary<int, int> indexOfValue = [];
-        for (int v = 0; v < values.Length; v++)
-        {
-            indexOfValue[values[v]] = v;
-        }
-
-        int runEnd = run.Utf16Start + run.Utf16Length;
-        int previousCluster = -1;
-        foreach (int g in order)
-        {
-            int cluster = glyphs[g].Cluster;
-            string? clusterText = null;
-            if (cluster != previousCluster)
+            double pen = originX;
+            for (int i = 0; i < count; i++)
             {
-                int next = indexOfValue[cluster] + 1;
-                clusterText = text[cluster..(next < values.Length ? values[next] : runEnd)];
-                if (EndsWithFormat(clusterText))
+                x[i] = pen + (glyphs[i].XOffset * scale);
+                pen += glyphs[i].XAdvance * scale;
+            }
+
+            // Logical order: clusters ascending (a right-to-left run lists them downwards), the glyphs of one cluster in the order the shaper lists them, which for a right-to-left run puts the base first (the glyph that carries the text).
+            // A stable sort by cluster of the run's glyphs, taken backwards when it is right to left: the key is the cluster over the position in that order, so a plain sort of the keys is stable.
+            bool rightToLeft = run.IsRightToLeft;
+            for (int g = 0; g < count; g++)
+            {
+                int position = rightToLeft ? count - 1 - g : g;
+                keys[g] = ((long)glyphs[g].Cluster << 32) | (uint)position;
+            }
+
+            Array.Sort(keys, 0, count);
+
+            // The text of each cluster: from its value to the next greater one in the run, or the end of the run.
+            int runEnd = run.Utf16Start + run.Utf16Length;
+            int next = 0;
+            int previousCluster = -1;
+            for (int i = 0; i < count; i++)
+            {
+                int position = (int)(keys[i] & 0xFFFFFFFF);
+                int g = rightToLeft ? count - 1 - position : position;
+                int cluster = glyphs[g].Cluster;
+                string? clusterText = null;
+                if (cluster != previousCluster)
                 {
-                    // pdf.js drops a glyph whose text ends with a format character (a zero width non-joiner): end the text with the joiner too.
-                    clusterText += PdfEmbeddedFont.ContinuationText;
+                    if (next <= i)
+                    {
+                        next = i + 1;
+                    }
+
+                    while (next < count && (int)(keys[next] >> 32) == cluster)
+                    {
+                        next++;
+                    }
+
+                    clusterText = ClusterText(text, cluster, next < count ? (int)(keys[next] >> 32) : runEnd);
+                    if (EndsWithFormat(clusterText))
+                    {
+                        // pdf.js drops a glyph whose text ends with a format character (a zero width non-joiner): end the text with the joiner too.
+                        clusterText += PdfEmbeddedFont.ContinuationText;
+                    }
+
+                    previousCluster = cluster;
                 }
 
-                previousCluster = cluster;
-            }
+                int code = font.UseGlyph(glyphs[g].Glyph, clusterText);
+                double y = baselineY + (glyphs[g].YOffset * scale);
+                if (NeedsItemOfItsOwn(clusterText ?? PdfEmbeddedFont.ContinuationText))
+                {
+                    // Size 1 and a scaled matrix draw the same as the real size; a second such glyph in a row alternates with size 2 so that it differs from the one before.
+                    double unit = content.CurrentFont is { } current && current.Name == fontName && current.Size == 1 ? 2 : 1;
+                    SetFont(content, fontName, unit);
+                    _ = content.TextMatrix(size / unit, 0, 0, size / unit, x[g], y).ShowCode(code);
+                    continue;
+                }
 
-            int code = font.UseGlyph(glyphs[g].Glyph, clusterText);
-            double y = baselineY + (glyphs[g].YOffset * scale);
-            if (NeedsItemOfItsOwn(clusterText ?? PdfEmbeddedFont.ContinuationText))
-            {
-                // Size 1 and a scaled matrix draw the same as the real size; a second such glyph in a row alternates with size 2 so that it differs from the one before.
-                double unit = content.CurrentFont is { } current && current.Name == fontName && current.Size == 1 ? 2 : 1;
-                SetFont(content, fontName, unit);
-                content.TextMatrix(size / unit, 0, 0, size / unit, x[g], y).ShowHex(PdfEmbeddedFont.Code(code));
-                continue;
+                SetFont(content, fontName, size);
+                _ = content.TextMatrix(1, 0, 0, 1, x[g], y).ShowCode(code);
             }
-
-            SetFont(content, fontName, size);
-            content.TextMatrix(1, 0, 0, 1, x[g], y).ShowHex(PdfEmbeddedFont.Code(code));
         }
+        finally
+        {
+            ArrayPool<double>.Shared.Return(x);
+            ArrayPool<long>.Shared.Return(keys);
+        }
+    }
+
+    private static readonly string[] SingleChars = new string[256];
+
+    /// <summary>The slice of the text from <paramref name="start"/> to <paramref name="end"/>; a single Latin-1 character is a string kept and shared, so that the common one-character cluster allocates nothing.</summary>
+    private static string ClusterText(string text, int start, int end)
+    {
+        if (end - start == 1 && end <= text.Length && text[start] < 256)
+        {
+            char c = text[start];
+            return SingleChars[c] ??= c.ToString();
+        }
+
+        return text[start..end];
     }
 
     private static void SetFont(ContentStreamBuilder content, string fontName, double size)
