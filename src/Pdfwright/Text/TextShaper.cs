@@ -70,6 +70,89 @@ internal sealed class ShapingFont : IDisposable
         }
     }
 
+    /// <summary>A hook for tests: when set, it replaces the verdict of the shaper on whether the font may be shaped word by word (to shape a font that passes as if it failed). It is for tests only and is read on every call.</summary>
+    internal bool? WordShapingOverride { get; set; }
+
+    /// <summary>Whether a run of simple left-to-right text in this font may be shaped word by word: the shaper's check of the font (made once, on the first ask), unless a test has overridden it.</summary>
+    internal bool CanShapeWordByWord => WordShapingOverride ?? Handle.CanShapeWordByWord;
+
+    /// <summary>The most entries the word cache holds; when it is full it is emptied, as the cache of whole texts is, so the memory stays bounded: 4,096 words of at most 64 characters are about 1.5 MB for each font.</summary>
+    internal const int WordCacheCapacity = 4096;
+
+    /// <summary>The longest word (or stretch of spaces) that is cached; a longer one is shaped every time, which is rare in running text, and costs more to hold than it saves.</summary>
+    internal const int WordCacheLength = 64;
+
+    /// <summary>A word as it was shaped on its own: its glyphs (clusters from 0) and whether every one is a base glyph, the condition for using it in word-by-word shaping.</summary>
+    internal sealed record ShapedWord(ShapedGlyph[] Glyphs, bool AllBase);
+
+    // The words of one script and language, so that a lookup by the characters of a word needs no key that holds them with the script and the language: on .NET 9 and later the inner dictionary is read with a span of the text.
+    private readonly Dictionary<(string Script, string? Language), Dictionary<string, ShapedWord>> _words = [];
+    private int _wordCount;
+
+    /// <summary>How many words the word cache holds now. For tests.</summary>
+    internal int WordCacheCount
+    {
+        get
+        {
+            lock (_words)
+            {
+                return _wordCount;
+            }
+        }
+    }
+
+    /// <summary>The word shaped earlier for <c>text[start .. start + length]</c> (left to right, with no context), or <see langword="null"/>. Locked like <see cref="GetCached"/>; the arrays are never changed after they are made.</summary>
+    internal ShapedWord? GetWord(string text, int start, int length, string script, string? language)
+    {
+        if (length > WordCacheLength)
+        {
+            return null;
+        }
+
+        lock (_words)
+        {
+            if (!_words.TryGetValue((script, language), out Dictionary<string, ShapedWord>? words))
+            {
+                return null;
+            }
+
+#if NET9_0_OR_GREATER
+            return words.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(text.AsSpan(start, length), out ShapedWord? word) ? word : null;
+#else
+            return words.TryGetValue(text.Substring(start, length), out ShapedWord? word) ? word : null;
+#endif
+        }
+    }
+
+    /// <summary>Keeps a word for <see cref="GetWord"/>; one longer than <see cref="WordCacheLength"/> is not kept.</summary>
+    internal void CacheWord(string word, string script, string? language, ShapedWord shaped)
+    {
+        if (word.Length > WordCacheLength)
+        {
+            return;
+        }
+
+        lock (_words)
+        {
+            if (_wordCount >= WordCacheCapacity)
+            {
+                _words.Clear();
+                _wordCount = 0;
+            }
+
+            if (!_words.TryGetValue((script, language), out Dictionary<string, ShapedWord>? words))
+            {
+                words = [];
+                _words[(script, language)] = words;
+            }
+
+            if (words.TryAdd(word, shaped))
+            {
+                _wordCount++;
+            }
+        }
+    }
+
     public void Dispose() => Handle.Dispose();
 }
 
@@ -201,7 +284,7 @@ internal static class TextShaper
             }
 
             string? runLanguage = styling is null ? language : styling.Languages[styleOf[runStart]];
-            runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], runLanguage, styleOf[runStart]));
+            runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], runLanguage, styleOf[runStart], simple));
             runStart = i;
         }
 
@@ -427,7 +510,7 @@ internal static class TextShaper
         return new BidiResult(0, new byte[source.Length], classes);
     }
 
-    private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style)
+    private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style, bool simple)
     {
         bool rightToLeft = (level & 1) == 1;
         string scriptTag = ScriptData.CodeOf(script);
@@ -437,7 +520,14 @@ internal static class TextShaper
         ShapedGlyph[]? glyphs = whole ? font.GetCached(text, rightToLeft, scriptTag, language) : null;
         if (glyphs is null)
         {
-            glyphs = font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, rightToLeft, scriptTag, language);
+            // Words are shaped one by one only for left-to-right text of the simple path (printable ASCII, one script) in a font whose rules never involve the space glyph; every other run is shaped as a whole.
+            // A whole text that is a single word gains nothing from it (the cache of whole texts already holds it), so it is shaped as it is.
+            if (FastPaths && simple && !rightToLeft && (!whole || text.AsSpan().IndexOf(' ') >= 0) && font.CanShapeWordByWord)
+            {
+                glyphs = ShapeByWords(text, utf16Start, utf16Length, scriptTag, language, font);
+            }
+
+            glyphs ??= font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, rightToLeft, scriptTag, language);
             if (whole)
             {
                 font.Cache(text, rightToLeft, scriptTag, language, glyphs);
@@ -445,6 +535,74 @@ internal static class TextShaper
         }
 
         return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Style = style, Glyphs = glyphs };
+    }
+
+    /// <summary>
+    /// Shapes a run word by word: the maximal stretches of characters other than the space and the maximal stretches of spaces are each shaped on their own (no context, the run's script and language) and kept in the font's word cache,
+    /// and their glyphs are joined with the clusters moved to where the segment lies in <paramref name="text"/>. For a font that passed the check for the space glyph (see <see cref="ShaperFont.WordShapingRefusal"/>) this gives the
+    /// glyphs of shaping the run whole, which is how Chromium shapes and caches words; the tests hold it to that. Returns <see langword="null"/>, so that the caller shapes the run whole, when a segment has a glyph that is
+    /// not a base glyph (a lookup that skips base glyphs could match across the space, which the check of the font cannot see).
+    /// </summary>
+    private static ShapedGlyph[]? ShapeByWords(string text, int start, int length, string scriptTag, string? language, ShapingFont font)
+    {
+        // Latin text has about one glyph for each character; the array grows if a ligature font makes more and is cut to size at the end.
+        ShapedGlyph[] result = new ShapedGlyph[length];
+        int count = 0;
+        int end = start + length;
+        for (int segment = start; segment < end;)
+        {
+            bool spaces = text[segment] == ' ';
+            int segmentEnd = segment + 1;
+            while (segmentEnd < end && (text[segmentEnd] == ' ') == spaces)
+            {
+                segmentEnd++;
+            }
+
+            int segmentLength = segmentEnd - segment;
+            ShapingFont.ShapedWord? word = font.GetWord(text, segment, segmentLength, scriptTag, language);
+            if (word is null)
+            {
+                string piece = text.Substring(segment, segmentLength);
+                ShapedGlyph[] shaped = font.Shaper.Shape(font.Handle, piece, 0, segmentLength, false, scriptTag, language);
+                bool allBase = true;
+                foreach (ShapedGlyph g in shaped)
+                {
+                    if (!font.Handle.IsBaseGlyph(g.Glyph))
+                    {
+                        allBase = false;
+                        break;
+                    }
+                }
+
+                word = new ShapingFont.ShapedWord(shaped, allBase);
+                font.CacheWord(piece, scriptTag, language, word);
+            }
+
+            if (!word.AllBase)
+            {
+                return null;
+            }
+
+            ShapedGlyph[] glyphs = word.Glyphs;
+            if (count + glyphs.Length > result.Length)
+            {
+                Array.Resize(ref result, Math.Max(count + glyphs.Length, result.Length * 2));
+            }
+
+            for (int i = 0; i < glyphs.Length; i++)
+            {
+                result[count++] = glyphs[i] with { Cluster = glyphs[i].Cluster + segment };
+            }
+
+            segment = segmentEnd;
+        }
+
+        if (count != result.Length)
+        {
+            Array.Resize(ref result, count);
+        }
+
+        return result;
     }
 }
 

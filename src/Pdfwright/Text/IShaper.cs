@@ -21,5 +21,20 @@ internal interface IShaper
 /// <summary>A font as a shaper holds it: opaque to everything outside the shaper that made it.</summary>
 internal abstract class ShaperFont : IDisposable
 {
+    /// <summary>
+    /// Why this font may not be shaped word by word, or <see langword="null"/> when it may. Words shaped one by one give the glyphs of the whole text only for a font whose rules never involve the space glyph
+    /// (and that has no table a shaper may apply outside them); the shaper reads the font once, on the first call, and the answer is the same for the life of the font and safe to ask from any thread.
+    /// </summary>
+    public abstract string? WordShapingRefusal { get; }
+
+    /// <summary>Whether the font may be shaped word by word (<see cref="WordShapingRefusal"/> is <see langword="null"/>).</summary>
+    public bool CanShapeWordByWord => WordShapingRefusal is null;
+
+    /// <summary>
+    /// Whether the glyph is a base glyph (or one the font does not classify), not a mark, ligature or component. A word whose glyphs are not all base glyphs is not taken from word-by-word shaping, because a rule that skips
+    /// base glyphs could match across the space next to it.
+    /// </summary>
+    public abstract bool IsBaseGlyph(int glyph);
+
     public abstract void Dispose();
 }
