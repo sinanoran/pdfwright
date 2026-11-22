@@ -157,6 +157,9 @@ internal sealed class ContentStreamBuilder
     /// <summary>One unit of the position the stream keeps: a hundred-thousandth, the precision a number is written with.</summary>
     private const double Unit = 100000;
 
+    /// <summary>The largest coordinate kept as a running position: far beyond any page, and far inside what a <see cref="long"/> of hundred-thousandths holds.</summary>
+    private const double MaxTracked = 1e13;
+
     private bool _lineKnown;
     private long _lineX;
     private long _lineY;
@@ -164,10 +167,18 @@ internal sealed class ContentStreamBuilder
     /// <summary>
     /// Puts the next text at (<paramref name="x"/>, <paramref name="y"/>) with the unit text matrix: a <c>Td</c> by the difference from the line matrix as
     /// written so far when that is a pure translation (the delta is taken from the rounded position the reader holds, so rounding never adds up),
-    /// otherwise (the start of a text object, or after <see cref="TextMatrix"/>) an absolute <c>Tm</c>.
+    /// otherwise (the start of a text object, or after <see cref="TextMatrix"/>) an absolute <c>Tm</c>. A coordinate too large for the position kept in
+    /// hundred-thousandths (beyond <see cref="MaxTracked"/>, which a page never reaches but a canvas with a tiny scale can) is written as an absolute <c>Tm</c>
+    /// as given, and the next text starts from an absolute position again.
     /// </summary>
     internal ContentStreamBuilder TextPlace(double x, double y)
     {
+        if (Math.Abs(x) >= MaxTracked || Math.Abs(y) >= MaxTracked)
+        {
+            _lineKnown = false;
+            return Op("Tm\n"u8, 1, 0, 0, 1, x, y);
+        }
+
         long targetX = (long)Math.Round(x * Unit, MidpointRounding.AwayFromZero);
         long targetY = (long)Math.Round(y * Unit, MidpointRounding.AwayFromZero);
         if (!_lineKnown)
