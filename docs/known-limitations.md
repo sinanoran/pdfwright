@@ -1,6 +1,6 @@
 # Known limitations
 
-What Pdfwright does not do, or does in a way that a reader of the output can notice. Each entry says why. (Version 0.1 is complete and not yet published.)
+What Pdfwright does not do, or does in a way that a reader of the output can notice. Each entry says why. (Version 0.1.0, 22 November 2026, is the first release.)
 
 ## Text extraction and copying
 

@@ -1,7 +1,8 @@
 # Releasing
 
-> **Status: version 0.1 is complete and nothing is published.** `Pdfwright` is not on nuget.org, there is no Trusted Publishing policy yet, and no `v*` tag exists. Everything under
-> "Before 0.1.0, by hand" and "The first release" is the maintainer's (not an agent's, not CI's). Do not push a `v*` tag until the policy and the `NUGET_USER` secret exist and the checks below are done.
+> **Status: version 0.1.0 (22 November 2026) is the first release.** Steps 2 and 3 of "The first release" (the CHANGELOG, the status paragraphs and the NuGet badge) are made in the release-preparation pull request. The Trusted Publishing policy,
+> the `NUGET_USER` secret, the tag and the publication are the maintainer's (not an agent's, not CI's): do not push a `v*` tag until the policy and the secret exist and CI is green on `main`. The checks of "Before 0.1.0, by hand" were
+> not all made as planned; what was done instead is recorded in "What was done instead of the checks for 0.1.0" below.
 
 A release is a tag. `.github/workflows/release.yml` reads the version from the
 tag name, so there is no version in a file to forget to bump and no way for the
@@ -94,12 +95,26 @@ These are the checks no test stands in for; the tests pass without them. Note wh
    the XML documentation, `README.md`, `LICENSE` and `NOTICE`, and no font; its dependencies are `HarfBuzzSharp` and `HarfBuzzSharp.NativeAssets.Linux`.
 6. **Decide that it is time.** Section 11 of the plan lists what was left open, and `docs/known-limitations.md` is what 0.1.0 will be judged by.
 
+## What was done instead of the checks for 0.1.0
+
+Recorded on 22 November 2026, so that nobody reads the list above as a list of things that were done. Everything here is also in the CHANGELOG (the 0.1.0 section, "Known limitations of this release").
+
+- **The native-speaker review was not made.** It was replaced by a language review by an AI agent on 22 November 2026; its corrections are applied (pull request #27). The agent was less confident about Tamil, Bengali, Thai and Marathi
+  (and about the Hebrew article point). **A native-speaker review of those languages, and of the others in the list, stays recommended**, and a correction is a diff of the data file.
+- **The viewer check was PDFium renders, not the four viewers.** The golden pages were rendered by PDFium (the engine of Chrome and Edge) and compared with stored pictures. **Adobe Acrobat Reader and macOS Preview were not checked.**
+  Opening the sample files in them stays recommended.
+- **The performance targets of section 7 of the plan are missed.** Measured on 22 November 2026 (`docs/baselines.md`, with the machine and the caveat about free memory): the 1,000-row table (21 pages) has a cold p50 of 2,095 ms against a target of
+  250 ms, a warm p50 of 347 ms against 60 ms, 188 MB allocated against 20 MB, and a peak working set 30 MB over the runtime baseline against 25 MB; the ten-page report has a cold p50 of 770 ms and a warm p50 of 50 ms. The diagnosis and
+  the fixes are a candidate for after 0.1.0.
+- **CJK is accepted, not tested.** A font with TrueType outlines is accepted (its characters are mapped, shaped, subset and line-broken between ideographs), but no CJK text is in the test corpus, so nothing about it is measured.
+  Fonts with CFF outlines (Noto Sans CJK, Source Han) are refused, and come in 0.2 (`docs/plan-0.2.md`).
+
 ## The first release
 
 1. Create the **Trusted Publishing policy** and the **`NUGET_USER` secret** above, and confirm on nuget.org that the id `Pdfwright` is still free (it was on 21 November 2026; nothing was reserved).
-2. Make `CHANGELOG.md` say what 0.1.0 is: rename `[Unreleased]` to `[0.1.0] - <date>` (keep an empty `[Unreleased]` above it) and fix the link definitions at the bottom. Put the same summary, shortened, in a
+2. (Done in the release-preparation pull request.) Make `CHANGELOG.md` say what 0.1.0 is: rename `[Unreleased]` to `[0.1.0] - <date>` (keep an empty `[Unreleased]` above it) and fix the link definitions at the bottom. Put the same summary, shortened, in a
    `PackageReleaseNotes` property of `src/Pdfwright/Pdfwright.csproj` if you want it beside the version on nuget.org (Sheetwright does).
-3. Update the **status paragraphs** that say nothing is published: the top of `README.md` and of this file, the first line of `docs/known-limitations.md`, and "Where it stands" in `docs/plan-0.1.md`. Add the NuGet badge to the README
+3. (Done in the same pull request.) Update the **status paragraphs** that say nothing is published: the top of `README.md` and of this file, the first line of `docs/known-limitations.md`, and "Where it stands" in `docs/plan-0.1.md`. Add the NuGet badge to the README
    (`https://img.shields.io/nuget/v/Pdfwright.svg`).
 4. Merge that, and check **CI is green on `main`** for the commit being tagged.
 5. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Watch the **Release** workflow.
