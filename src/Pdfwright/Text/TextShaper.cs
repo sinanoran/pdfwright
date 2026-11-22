@@ -1,41 +1,32 @@
-using System.Runtime.InteropServices;
-using HarfBuzzSharp;
 using Pdfwright.Fonts;
 using Pdfwright.Unicode;
 
 namespace Pdfwright.Text;
 
-/// <summary>A font ready for shaping: the TrueType reader's view of it and HarfBuzz's, over one copy of the font's bytes.</summary>
+/// <summary>A font ready for shaping: the TrueType reader's view of it and the shaper's, over one copy of the font's bytes. The shaper's handle is opaque here (<see cref="IShaper"/>).</summary>
 internal sealed class ShapingFont : IDisposable
 {
-    private readonly Blob _blob;
-    private readonly Face _face;
-
     internal ShapingFont(TrueTypeFont font)
+        : this(font, HarfBuzzShaper.Instance)
+    {
+    }
+
+    internal ShapingFont(TrueTypeFont font, IShaper shaper)
     {
         ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(shaper);
         Font = font;
-
-        // The bytes are copied to native memory that HarfBuzz owns until it releases the blob: a managed buffer it did not pin could move.
-        byte[] bytes = font.RawBytes;
-        IntPtr native = Marshal.AllocHGlobal(bytes.Length);
-        Marshal.Copy(bytes, 0, native, bytes.Length);
-        _blob = new Blob(native, bytes.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(native));
-        _face = new Face(_blob, 0);
-        Shaper = new HarfBuzzSharp.Font(_face);
-        Shaper.SetScale(font.UnitsPerEm, font.UnitsPerEm);
+        Shaper = shaper;
+        Handle = shaper.CreateFont(font.RawBytes, font.UnitsPerEm);
     }
 
     internal TrueTypeFont Font { get; }
 
-    internal HarfBuzzSharp.Font Shaper { get; }
+    internal IShaper Shaper { get; }
 
-    public void Dispose()
-    {
-        Shaper.Dispose();
-        _face.Dispose();
-        _blob.Dispose();
-    }
+    internal ShaperFont Handle { get; }
+
+    public void Dispose() => Handle.Dispose();
 }
 
 /// <summary>One glyph as the shaper placed it, in font units.</summary>
@@ -316,35 +307,7 @@ internal static class TextShaper
 
     private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style)
     {
-        using HarfBuzzSharp.Buffer buffer = new();
-
-        // The item offset and length make HarfBuzz see the text before and after the run as context (a joining letter, a tatweel).
-        buffer.AddUtf16(text, utf16Start, utf16Length);
-        buffer.Direction = (level & 1) == 1 ? Direction.RightToLeft : Direction.LeftToRight;
-        buffer.Script = HarfBuzzSharp.Script.Parse(ScriptData.CodeOf(script));
-        if ((level & 1) == 1)
-        {
-            // Cluster level 1 gives every mark of a right-to-left run a cluster, and so a text, of its own, which the writer needs to keep marks apart for pdf.js.
-            // Left-to-right runs stay at the default level: level 1 there made xpdf misread five Indic lines.
-            buffer.ClusterLevel = ClusterLevel.MonotoneCharacters;
-        }
-
-        if (language is not null)
-        {
-            buffer.Language = new HarfBuzzSharp.Language(language);
-        }
-
-        font.Shaper.Shape(buffer);
-        GlyphInfo[] infos = buffer.GlyphInfos;
-        GlyphPosition[] positions = buffer.GlyphPositions;
-        ShapedGlyph[] glyphs = new ShapedGlyph[infos.Length];
-        for (int i = 0; i < infos.Length; i++)
-        {
-            // A .notdef glyph stays on the baseline: when a mark has no glyph (a Hebrew point after a Latin digit, the font of the digit does not have it), HarfBuzz's
-            // fallback positioning of marks puts the .notdef box below the base by its own height, which on the last line of a page is outside it.
-            int yOffset = infos[i].Codepoint == 0 ? 0 : positions[i].YOffset;
-            glyphs[i] = new ShapedGlyph((int)infos[i].Codepoint, (int)infos[i].Cluster, positions[i].XAdvance, positions[i].XOffset, yOffset);
-        }
+        ShapedGlyph[] glyphs = font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, (level & 1) == 1, ScriptData.CodeOf(script), language);
 
         return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Style = style, Glyphs = glyphs };
     }

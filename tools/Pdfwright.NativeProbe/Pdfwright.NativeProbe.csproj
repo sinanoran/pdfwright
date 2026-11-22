@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Proves that the native HarfBuzz library that Pdfwright ships (the one HarfBuzzSharp loads) has the hb-subset entry points and that a subset runs: it subsets a
+    font of the test project to a few glyphs and checks the result. The CI job linux-runtime-images publishes it for each runtime identifier and runs it inside the
+    .NET runtime images (glibc and musl), where a missing export fails the job. It uses the library's internals (InternalsVisibleTo) and is not a package.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Pdfwright.NativeProbe</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pdfwright\Pdfwright.csproj" />
+    <PackageReference Include="HarfBuzzSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Regular.ttf" Link="NotoSans-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -121,6 +121,23 @@ native library:
   `IFontSubsetter` (the font and the glyph ids to keep, returning the bytes to embed, their kind, TrueType or CFF, and the old-to-new glyph map),
   with the own TrueType subsetter as one implementation and `hb-subset` as the other, chosen by the font's outline format.
 
+### C1 status
+
+Slice C1 is done: the shaping seam, the `hb-subset` binding, and the proof that its exports load. No behaviour changed (the corpus, the byte goldens and the render goldens are as they were, and the public API snapshot is unchanged).
+
+- **Shaping seam.** `IShaper` (`src/Pdfwright/Text/IShaper.cs`) has two members: `CreateFont(bytes, unitsPerEm)`, which returns an opaque `ShaperFont` handle owned by the shaper, and
+  `Shape(font, text, start, length, rightToLeft, scriptTag, language)`, which returns the `ShapedGlyph`s of one run with the text around it as context. `ShapingFont` keeps the `TrueTypeFont` (which answers glyph-for-code-point, so font choice
+  stays in `TextShaper`) and the shaper's handle; it has no HarfBuzz type. `HarfBuzzShaper` and `HarfBuzzFont` (blob, face and font) are the one implementation, in `src/Pdfwright/Text/HarfBuzz/`; the files of that folder are
+  the only ones of the library that name `HarfBuzzSharp`. The policy that was in `TextShaper` (monotone-character clusters for a right-to-left run, the baseline `.notdef`) moved into `HarfBuzzShaper` unchanged.
+- **hb-subset binding.** `HarfBuzzSubsetNative` declares the P/Invokes in the library name HarfBuzzSharp declares for its own calls, `libHarfBuzzSharp` (the runtime resolves it to `libHarfBuzzSharp.dll`, `libHarfBuzzSharp.so` and
+  `libHarfBuzzSharp.dylib`), so the same native file serves shaping and subsetting. `EnsureAvailable` checks every export with `NativeLibrary.TryGetExport` before the first call and throws `PlatformNotSupportedException` naming the
+  library, the runtime identifier, the operating system and the missing exports; a `EntryPointNotFoundException` during a call is wrapped the same way. `HarfBuzzSubsetter` (`Subset(face or bytes, glyph ids, flags, pinAxesToDefault)`) owns the input, plan and result
+  handles as `SafeHandle`s and returns the font bytes and the old-to-new glyph map (read from `hb_subset_plan_old_to_new_glyph_mapping`). It is not used by the writer.
+- **`IFontSubsetter` is left to C2.** `PdfEmbeddedFont` takes bytes from `TrueTypeSubsetter` and nothing else; the seam's result (bytes, kind, old-to-new map) is C2's design, so it is not guessed at here.
+- **Proof the exports load.** `HarfBuzzSubsetterTests` (not skipped anywhere) checks that every export is present and that a subset of Noto Sans has the glyphs asked for, their advances and outlines, and the right map; it runs in the `build` job on
+  Windows, Linux and macOS and on every target framework. The job `linux-runtime-images` publishes `tools/Pdfwright.NativeProbe` and runs the same call inside `aspnet:10.0` (glibc) and `aspnet:10.0-alpine` (musl); the probe exits with 2 when an export is missing.
+  CI result: RESULT_PLACEHOLDER
+
 ## 6. Open points for the maintainer
 
 1. **Which CJK fonts go into the test project** (Noto Sans CJK SC, TC, JP and KR in their OTF form are about 16 MB each; a repository subset

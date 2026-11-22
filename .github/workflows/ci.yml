@@ -134,3 +134,13 @@ jobs:
             dotnet Pdfwright.Samples.Report.dll /out/report.pdf
           test -s "${{ runner.temp }}/out/report.pdf"
           head -c 8 "${{ runner.temp }}/out/report.pdf" | grep -q '%PDF-' || { echo "not a PDF file"; exit 1; }
+
+      # Slice C1 of 0.2: the hb-subset entry points (the subsetter of HarfBuzz, for CFF fonts) must be in the same native library, in both images.
+      # The probe subsets a font to three glyphs through them and exits with 2 when an export is missing and with 1 when the result is wrong.
+      - name: Publish the hb-subset probe for ${{ matrix.rid }}
+        run: dotnet publish tools/Pdfwright.NativeProbe/Pdfwright.NativeProbe.csproj --configuration Release --runtime ${{ matrix.rid }} --self-contained false --output "${{ runner.temp }}/probe"
+
+      - name: Run the hb-subset probe in ${{ matrix.image }}
+        shell: bash
+        run: |
+          docker run --rm -v "${{ runner.temp }}/probe:/app:ro" -w /app "${{ matrix.image }}" dotnet Pdfwright.NativeProbe.dll
