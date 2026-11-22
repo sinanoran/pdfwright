@@ -14,6 +14,8 @@ All notable changes to this project are recorded here. The format follows
 
 - **Faster layout; output unchanged.** Text shaping reuses one HarfBuzz buffer per thread, text that is only printable ASCII skips the bidi, script and grapheme steps, code points are read without lists, and the glyphs of a whole-text run are cached per font (bounded, thread-safe). Every byte of every golden file is the same, and a test compares the shaped glyphs and positions of the whole corpus and of random mixed-script texts with the paths on and off. On the warm 1,000-row table the allocation falls from 82 MB to 59 MB per run and the ten-page report from 11.3 MB to 8.1 MB. A text longer than 4,096 UTF-16 units is shaped in a temporary buffer, so no thread keeps native memory for its longest text.
 
+- **The sample report's months and percentages, in the docs and the samples only.** The report is dated October 2026 and its bar chart now shows the five months ending in it (Jun to Oct, where it said Jan to May), the benchmark chart the eight months Mar to Oct, and an English percentage is written "12%" and "2.1%" without a space. The README quick start, the guide, the sample and the tests that check them say the same; the output of the library is unchanged, and only the byte golden of the README report and its renders were regenerated.
+
 ## [0.1.2] - 2026-11-22
 
 ### Added

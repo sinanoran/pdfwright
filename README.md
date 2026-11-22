@@ -74,7 +74,7 @@ document.Add(new Heading(1, "Monthly report"));
 document.Add(new Paragraph(
 [
     new TextRun("Sales rose "),
-    new TextRun("12 %", new TextStyle { Weight = 700, Color = Color.Green }),
+    new TextRun("12%", new TextStyle { Weight = 700, Color = Color.Green }),
     new TextRun(" over the quarter."),
 ]));
 document.Add(new Paragraph("تقرير المبيعات الشهري"));

@@ -175,7 +175,7 @@ internal sealed partial class Vp8Decoder
             }
 
             // As libwebp does at the end of every row: a frame whose data ends early is refused here, not decoded to the end from zero bits.
-            CheckEof();
+            CheckEof(mby);
         }
 
         // Even if there are per-segment levels, section 15 says that "loop filtering must be skipped entirely if loop_filter_level at either the frame header level or macroblock override level is 0".
@@ -192,23 +192,23 @@ internal sealed partial class Vp8Decoder
         }
     }
 
-    private void CheckEof()
+    private void CheckEof(int row)
     {
         if (_fp.UnexpectedEof)
         {
-            throw Truncated();
+            throw Truncated(row);
         }
 
         for (int i = 0; i < _nOP; i++)
         {
             if (_op[i].UnexpectedEof)
             {
-                throw Truncated();
+                throw Truncated(row);
             }
         }
     }
 
-    private static ImageFormatException Truncated() => new("The WebP's VP8 data is cut short: it ends before the last macroblock.");
+    private static ImageFormatException Truncated(int row = -1) => new(row < 0 ? "The WebP's VP8 data is cut short: it ends before the last macroblock." : $"The WebP's VP8 data is cut short: it ends before the last macroblock, in macroblock row {row}.");
 
     private void ParseOtherHeaders()
     {

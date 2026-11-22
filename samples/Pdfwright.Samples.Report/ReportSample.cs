@@ -57,13 +57,13 @@ public static class ReportSample
         document.Add(new Paragraph(
         [
             new TextRun("October 2026. Sales rose "),
-            new TextRun("12 %", new TextStyle { Weight = 700, Color = Color.Green }),
+            new TextRun("12%", new TextStyle { Weight = 700, Color = Color.Green }),
             new TextRun(" over the quarter, led by the northern region. The figures below are made up for this sample."),
         ]));
 
         document.Add(Kpis());
         document.Add(new Heading(2, "Sales by month"));
-        document.Add(SalesChart([4, 7, 5, 9, 6], ["Jan", "Feb", "Mar", "Apr", "May"]));
+        document.Add(SalesChart([4, 7, 5, 9, 6], ["Jun", "Jul", "Aug", "Sep", "Oct"]));
         document.Add(new Heading(2, "Invoices"));
         document.Add(Invoices(rowCount: 90));
         document.Add(new Heading(2, "ملخص بالعربية") { Direction = TextDirection.RightToLeft });
@@ -80,7 +80,7 @@ public static class ReportSample
         [
             Kpi("Revenue", "1.2 M", Color.Black),
             Kpi("Orders", "8,430", Color.Black),
-            Kpi("Returns", "2.1 %", Color.Red),
+            Kpi("Returns", "2.1%", Color.Red),
         ]))
         {
             Fill = Color.FromHex("#E8F0FE"),
