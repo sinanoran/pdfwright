@@ -55,10 +55,13 @@ internal sealed class HarfBuzzShaper : IShaper
     }
 }
 
-/// <summary>A font for HarfBuzz: the blob, face and font over one copy of the font's bytes in native memory.</summary>
+/// <summary>A font for HarfBuzz: the blob, face and font over one copy of the font's bytes in native memory. After <see cref="Dispose"/> (which may be called again) every use throws <see cref="ObjectDisposedException"/>.</summary>
 internal sealed class HarfBuzzFont : ShaperFont
 {
     private readonly Blob _blob;
+    private readonly Face _face;
+    private readonly HarfBuzzSharp.Font _font;
+    private volatile bool _disposed;
 
     internal HarfBuzzFont(byte[] bytes, int unitsPerEm)
     {
@@ -66,19 +69,39 @@ internal sealed class HarfBuzzFont : ShaperFont
         IntPtr native = Marshal.AllocHGlobal(bytes.Length);
         Marshal.Copy(bytes, 0, native, bytes.Length);
         _blob = new Blob(native, bytes.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(native));
-        Face = new Face(_blob, 0);
-        Font = new HarfBuzzSharp.Font(Face);
-        Font.SetScale(unitsPerEm, unitsPerEm);
+        _face = new Face(_blob, 0);
+        _font = new HarfBuzzSharp.Font(_face);
+        _font.SetScale(unitsPerEm, unitsPerEm);
     }
 
-    internal Face Face { get; }
+    internal Face Face
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _face;
+        }
+    }
 
-    internal HarfBuzzSharp.Font Font { get; }
+    internal HarfBuzzSharp.Font Font
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _font;
+        }
+    }
 
     public override void Dispose()
     {
-        Font.Dispose();
-        Face.Dispose();
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _font.Dispose();
+        _face.Dispose();
         _blob.Dispose();
     }
 }

@@ -98,18 +98,74 @@ public class HarfBuzzSubsetterTests
     [Fact]
     public void Bytes_that_are_not_a_font_are_refused_with_the_documented_exception()
     {
-        Assert.ThrowsAny<Exception>(() => HarfBuzzSubsetter.Subset(new byte[100], [0]));
+        Assert.Throws<InvalidDataException>(() => HarfBuzzSubsetter.Subset(new byte[100], [0]));
+        Assert.Throws<InvalidDataException>(() => HarfBuzzSubsetter.Subset(new byte[100], []));
+        Assert.Throws<InvalidDataException>(() => HarfBuzzSubsetter.Subset([], []));
     }
 
     [Fact]
     public void A_missing_export_is_reported_with_the_platform_and_not_as_a_crash()
     {
-        PlatformNotSupportedException e = HarfBuzzSubsetNative.Unavailable("it does not export hb_subset_or_fail", new EntryPointNotFoundException());
+        PlatformNotSupportedException e = HarfBuzzSubsetNative.Unavailable("it does not export hb_map_next", new EntryPointNotFoundException());
 
         Assert.Contains(HarfBuzzSubsetNative.Library, e.Message);
         Assert.Contains(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(), e.Message);
-        Assert.Contains("hb_subset_or_fail", e.Message);
+        Assert.Contains("hb_map_next", e.Message);
         Assert.IsType<EntryPointNotFoundException>(e.InnerException);
+    }
+
+    [Fact]
+    public void A_disposed_font_throws_ObjectDisposedException_and_does_not_reach_freed_memory()
+    {
+        ShapingFont shaping = new(TrueTypeFont.Parse(NotoSans));
+        HarfBuzzFont handle = Assert.IsType<HarfBuzzFont>(shaping.Handle);
+        int a = shaping.Font.GlyphForCodePoint('A');
+        shaping.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => HarfBuzzSubsetter.Subset(handle, [a]));
+        Assert.Throws<ObjectDisposedException>(() => HarfBuzzSubsetter.Subset(handle, []));
+        Assert.Throws<ObjectDisposedException>(() => shaping.Shaper.Shape(handle, "A", 0, 1, false, "Latn", "en"));
+        Assert.Throws<ObjectDisposedException>(() => handle.Face);
+        Assert.Throws<ObjectDisposedException>(() => handle.Font);
+    }
+
+    [Fact]
+    public void A_font_can_be_disposed_twice()
+    {
+        ShapingFont shaping = new(TrueTypeFont.Parse(NotoSans));
+        shaping.Dispose();
+        shaping.Dispose();
+        HarfBuzzFont handle = new(NotoSans, 1000);
+        handle.Dispose();
+        handle.Dispose();
+    }
+
+    [Fact]
+    public void Pinning_the_axes_of_a_static_font_succeeds_because_there_is_nothing_to_pin()
+    {
+        TrueTypeFont font = TrueTypeFont.Parse(NotoSans);
+        int a = font.GlyphForCodePoint('A');
+
+        HarfBuzzSubset pinned = HarfBuzzSubsetter.Subset(NotoSans, [a], pinAxesToDefault: true);
+        HarfBuzzSubset plain = HarfBuzzSubsetter.Subset(NotoSans, [a]);
+
+        Assert.Equal(2, pinned.OldToNew.Count);
+        Assert.Equal(plain.Font, pinned.Font);
+    }
+
+    [Fact]
+    public void The_map_holds_what_the_closure_added_to_the_glyphs_asked_for()
+    {
+        TrueTypeFont font = TrueTypeFont.Parse(NotoSans);
+        int f = font.GlyphForCodePoint('f');
+        int i = font.GlyphForCodePoint('i');
+
+        HarfBuzzSubset subset = HarfBuzzSubsetter.Subset(NotoSans, [f, i]);
+
+        Assert.Contains(f, subset.OldToNew.Keys);
+        Assert.Contains(i, subset.OldToNew.Keys);
+        Assert.True(subset.OldToNew.Count > 3, "hb-subset runs the GSUB closure, so ligature glyphs of f and i are kept too");
+        Assert.Equal(subset.OldToNew.Count, NumGlyphs(subset.Font));
     }
 
     private static int NumGlyphs(byte[] font)

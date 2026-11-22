@@ -48,6 +48,11 @@ internal static class HarfBuzzSubsetter
         ArgumentNullException.ThrowIfNull(face);
         ArgumentNullException.ThrowIfNull(glyphs);
         int glyphCount = face.GlyphCount;
+        if (glyphCount == 0)
+        {
+            throw new InvalidDataException("The bytes are not a font that hb-subset can read: the face has no glyphs.");
+        }
+
         foreach (int glyph in glyphs)
         {
             if (glyph < 0 || glyph >= glyphCount)
@@ -59,7 +64,7 @@ internal static class HarfBuzzSubsetter
         HarfBuzzSubsetNative.EnsureAvailable(pinAxesToDefault);
         try
         {
-            return Run(face, glyphs, flags, pinAxesToDefault, glyphCount);
+            return Run(face, glyphs, flags, pinAxesToDefault);
         }
         catch (EntryPointNotFoundException e)
         {
@@ -67,7 +72,7 @@ internal static class HarfBuzzSubsetter
         }
     }
 
-    private static HarfBuzzSubset Run(Face face, IReadOnlyCollection<int> glyphs, HarfBuzzSubsetFlags flags, bool pinAxesToDefault, int glyphCount)
+    private static HarfBuzzSubset Run(Face face, IReadOnlyCollection<int> glyphs, HarfBuzzSubsetFlags flags, bool pinAxesToDefault)
     {
         using NativeHandle input = new(HarfBuzzSubsetNative.hb_subset_input_create_or_fail(), HarfBuzzSubsetNative.hb_subset_input_destroy);
         if (input.IsInvalid)
@@ -82,7 +87,8 @@ internal static class HarfBuzzSubsetter
         }
 
         HarfBuzzSubsetNative.hb_subset_input_set_flags(input.DangerousGetHandle(), (uint)flags);
-        if (pinAxesToDefault && HarfBuzzSubsetNative.hb_subset_input_pin_all_axes_to_default(input.DangerousGetHandle(), face.Handle) == 0)
+        // A static font has no fvar table and nothing to pin (hb-subset reports false for it); only a face with variation axes is pinned, and for it false is a failure.
+        if (pinAxesToDefault && HasVariationAxes(face) && HarfBuzzSubsetNative.hb_subset_input_pin_all_axes_to_default(input.DangerousGetHandle(), face.Handle) == 0)
         {
             throw new InvalidDataException("hb-subset could not pin the font's variation axes to their defaults.");
         }
@@ -101,19 +107,23 @@ internal static class HarfBuzzSubsetter
 
         byte[] bytes = BytesOf(result.DangerousGetHandle());
 
-        // The map belongs to the plan, which is still alive here. Every old glyph is asked: the glyphs that were kept include those the glyphs asked for need.
+        // The map belongs to the plan, which is still alive here. It is walked entry by entry (hb_map_next), not asked for every glyph of the font: it holds the glyphs asked for and what hb-subset added
+        // (the parts of a composite glyph and, because it runs the GSUB closure, the glyphs the layout tables reach, such as a ligature of f and i).
         IntPtr map = HarfBuzzSubsetNative.hb_subset_plan_old_to_new_glyph_mapping(plan.DangerousGetHandle());
         Dictionary<int, int> oldToNew = [];
-        for (int old = 0; old < glyphCount; old++)
+        int index = -1;
+        while (HarfBuzzSubsetNative.hb_map_next(map, ref index, out uint key, out uint value) != 0)
         {
-            uint mapped = HarfBuzzSubsetNative.hb_map_get(map, (uint)old);
-            if (mapped != HarfBuzzSubsetNative.MapValueInvalid)
-            {
-                oldToNew[old] = (int)mapped;
-            }
+            oldToNew[(int)key] = (int)value;
         }
 
         return new HarfBuzzSubset(bytes, oldToNew);
+    }
+
+    private static bool HasVariationAxes(Face face)
+    {
+        using Blob fvar = face.ReferenceTable(new Tag('f', 'v', 'a', 'r'));
+        return fvar.Length > 0;
     }
 
     private static byte[] BytesOf(IntPtr face)

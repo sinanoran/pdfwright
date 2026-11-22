@@ -26,8 +26,7 @@ internal static class HarfBuzzSubsetNative
         "hb_subset_plan_old_to_new_glyph_mapping",
         "hb_subset_plan_execute_or_fail",
         "hb_subset_plan_destroy",
-        "hb_subset_or_fail",
-        "hb_map_get",
+        "hb_map_next",
         "hb_face_reference_blob",
         "hb_face_destroy",
         "hb_blob_get_data",
@@ -39,8 +38,12 @@ internal static class HarfBuzzSubsetNative
 
     private static readonly Lazy<(IntPtr Handle, string? LoadError)> Loaded = new(Load);
 
-    /// <summary>The exports (of <see cref="RequiredExports"/> and <see cref="PinAllAxesExport"/>) that the loaded library does not have; empty when all are there. Throws if the library cannot be loaded.</summary>
-    internal static IReadOnlyList<string> MissingExports()
+    /// <summary>The exports (of <see cref="RequiredExports"/> and <see cref="PinAllAxesExport"/>) that the loaded library does not have; empty when all are there. Throws if the library cannot be loaded. Looked up once: the answer does not change while the process runs.</summary>
+    internal static IReadOnlyList<string> MissingExports() => Missing.Value;
+
+    private static readonly Lazy<IReadOnlyList<string>> Missing = new(FindMissing);
+
+    private static IReadOnlyList<string> FindMissing()
     {
         (IntPtr handle, string? error) = Loaded.Value;
         if (handle == IntPtr.Zero)
@@ -125,14 +128,9 @@ internal static class HarfBuzzSubsetNative
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void hb_subset_plan_destroy(IntPtr plan);
 
+    /// <summary>The next entry of the map after <paramref name="index"/> (start with -1): true and the key and value, or false at the end.</summary>
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern IntPtr hb_subset_or_fail(IntPtr face, IntPtr input);
-
-    /// <summary>The value for a key, or <see cref="MapValueInvalid"/> when the key is not in the map.</summary>
-    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern uint hb_map_get(IntPtr map, uint key);
-
-    internal const uint MapValueInvalid = 0xFFFFFFFF;
+    internal static extern int hb_map_next(IntPtr map, ref int index, out uint key, out uint value);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern IntPtr hb_face_reference_blob(IntPtr face);
