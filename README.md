@@ -104,7 +104,7 @@ There is also a runnable sample, a multi-page report with a heading, a row of KP
 
 - **Fonts are supplied, never discovered.** A `FontCollection` is made once from TrueType bytes, parsed once, shared by every document and thread, and `IDisposable` (it holds native copies for the shaping engine). A font that forbids
   embedding is refused with `FontNotEmbeddableException`. A character no font has is drawn as the font's empty box and reported in the diagnostics; it is never an exception.
-- **Blocks flow.** You add `Heading`, `Paragraph`, `Table`, `Columns`, `Callout`, `Drawing`, `Image`, `Spacer` and `PageBreak` to a `PdfDocument`; they flow from the top of the first page and break onto new pages as they fill.
+- **Blocks flow.** You add `Heading`, `Paragraph`, `Table`, `ItemList` (bulleted, numbered and nested lists with a hanging indent), `Columns`, `Callout`, `Drawing`, `Image`, `Spacer` and `PageBreak` to a `PdfDocument`; they flow from the top of the first page and break onto new pages as they fill.
   There are no coordinates, except on the drawing canvas.
 - **Styles inherit.** A `TextStyle` has `Family`, `Size`, `Weight`, `Italic`, `Color` and `Language`, all optional; an unset property comes from the style around it: library defaults, the document's default style, the table or cell,
   the paragraph, the run.

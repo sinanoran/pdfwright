@@ -47,6 +47,9 @@ internal sealed class StyledLayout
 
     internal required IReadOnlyList<StyledSpan> Spans { get; init; }
 
+    /// <summary>Where the paragraph stands in a list (the room its marker takes, and the marker), or <see langword="null"/> for a paragraph that is not in one.</summary>
+    internal ListPlacement? List { get; init; }
+
     /// <summary>The language of the character at a UTF-16 index of the paragraph's text.</summary>
     internal string? LanguageAt(int index)
     {
@@ -60,6 +63,25 @@ internal sealed class StyledLayout
 
         return Styles[0].Language;
     }
+}
+
+/// <summary>A paragraph of a list item: how far its text is from the start edge, and the marker set before its first line.</summary>
+internal sealed class ListPlacement
+{
+    /// <summary>The width of the space the paragraph is placed in (the paragraph is laid out in that less <see cref="Inset"/>).</summary>
+    internal required double ContainerWidth { get; init; }
+
+    /// <summary>The distance in points from the start edge to the start of the text.</summary>
+    internal required double Inset { get; init; }
+
+    /// <summary>The distance in points from the start edge to the start of the marker.</summary>
+    internal required double MarkerInset { get; init; }
+
+    /// <summary>The start edge is the right one: the paragraph reads from right to left.</summary>
+    internal required bool RightToLeft { get; init; }
+
+    /// <summary>The marker laid out without a width limit, or <see langword="null"/> for a paragraph that follows the first of its item.</summary>
+    internal StyledLayout? Marker { get; init; }
 }
 
 /// <summary>Turns the runs of a block into one laid out paragraph, the way the flow and the public text measurer both do it.</summary>

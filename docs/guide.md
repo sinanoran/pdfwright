@@ -23,19 +23,20 @@ Two type names are also names in `System.Drawing`: `Drawing` and `Image`. Where 
 5. [Tables](#tables)
 6. [Tables of many rows](#tables-of-many-rows)
 7. [Columns and callouts](#columns-and-callouts)
-8. [Drawing: charts and figures](#drawing-charts-and-figures)
-9. [Measuring text](#measuring-text)
-10. [Images](#images)
-11. [Headers and footers](#headers-and-footers)
-12. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
-13. [Metadata and deterministic output](#metadata-and-deterministic-output)
-14. [Diagnostics and limits](#diagnostics-and-limits)
-15. [Threads and lifetimes](#threads-and-lifetimes)
+8. [Lists](#lists)
+9. [Drawing: charts and figures](#drawing-charts-and-figures)
+10. [Measuring text](#measuring-text)
+11. [Images](#images)
+12. [Headers and footers](#headers-and-footers)
+13. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
+14. [Metadata and deterministic output](#metadata-and-deterministic-output)
+15. [Diagnostics and limits](#diagnostics-and-limits)
+16. [Threads and lifetimes](#threads-and-lifetimes)
 
 ## How a document is made
 
 A `PdfDocument` is made from `PdfDocumentOptions`, given blocks with `Add`, and saved. The blocks flow from the top of the first page down and break onto new pages as they fill:
-`Heading`, `Paragraph`, `Spacer`, `PageBreak`, `Table`, `Columns`, `Callout`, `Drawing` and `Image`. There is no page object to manage and no coordinate to compute.
+`Heading`, `Paragraph`, `Spacer`, `PageBreak`, `Table`, `ItemList`, `Columns`, `Callout`, `Drawing` and `Image`. There is no page object to manage and no coordinate to compute.
 
 Lengths are `Length` values (`Length.Pt`, `Mm`, `Cm`, `In`), and there is no implicit conversion from a number, so a unit is never guessed. Page sizes are `PageSize.A4`, `A5`, `Letter` and `Legal`
 (and `Landscape()` turns one on its side), margins are `Margins` (20 mm at the top and bottom and 15 mm at the sides by default), and colours are `Color` values (`Color.FromHex("#3366CC")`,
@@ -307,6 +308,45 @@ document.Add(new Callout([new Heading(3, "Note"), new Paragraph("A note is a few
 Columns are one level deep: no columns inside columns (also through a callout), and no table or page break in a cell or a callout. A callout inside a column cell or another callout is not split, and one taller than a
 page fails the save with an `InvalidOperationException`. `Direction` on `Columns` and `Callout` sets the order of cells and the direction of the paragraphs inside.
 
+## Lists
+
+`ItemList` is a list of items, each after a marker. It is not called `List`, which would clash with `System.Collections.Generic.List<T>` in nearly every file. An item is a `ListItem`: a paragraph (the marker stands before it), and, if you want,
+more paragraphs under it and nested lists. A list of plain texts takes the strings directly. The markers are `ListMarker.Bullet` (the default), `Decimal`, `LowerAlpha`, `UpperAlpha` and `ArabicIndicDecimal`, and `Start` is the number of the first item.
+
+<!-- snippet: guide-lists -->
+```csharp
+// A bulleted list of texts, and a numbered one that starts at 3.
+document.Add(new ItemList(["Revenue grew in every region.", "Returns fell to 2.1 %."]));
+document.Add(new ItemList(["Check the totals", "Send the report", "File the copy"]) { Marker = ListMarker.Decimal, Start = 3 });
+
+// An item may hold more paragraphs and a list of its own, one level deep.
+document.Add(new ItemList(
+[
+    new ListItem([new Paragraph("Regions"), new ItemList(["North", "South"]) { Marker = ListMarker.LowerAlpha }]),
+    new ListItem("Products"),
+])
+{
+    Indent = Length.Pt(14),                 // from the start edge to the marker
+    MarkerGap = Length.Pt(6),               // from the widest marker to the text
+    ItemSpacing = Length.Pt(3),             // between two items
+    MarkerStyle = new TextStyle { Weight = 700 },
+});
+
+// In a right-to-left list the marker is at the right edge and the text hangs to its left.
+document.Add(new ItemList(["البند الأول", "البند الثاني"]) { Direction = TextDirection.RightToLeft, Marker = ListMarker.ArabicIndicDecimal });
+```
+
+- **Hanging indent.** The lines of an item that wrap are aligned with the text of its first line, not with the marker. The text of every item starts at the same place, whatever the width of its marker (`9.` and `10.`).
+- **Direction.** The marker is on the start edge of its item: the right one when the item's paragraph is right to left. The direction is the paragraph's own `Direction`, else the list's, else the enclosing `Columns` or `Callout`'s, else the document's;
+  with `TextDirection.Auto` each item's text decides. A marker is set in the direction of its item, so in a right-to-left item `1.` shows the full stop to the left of the digit, where readers of Arabic and Hebrew expect it.
+  `ArabicIndicDecimal` writes the digits U+0660 to U+0669; the font has to have them, and a marker that no font can draw is reported in `DocumentDiagnostics.MissingGlyphs` with its page like any other character.
+- **Pages.** A list flows like paragraphs: items are split between pages by their lines, and a marker is drawn with the first line of its item, so it never stands alone at the bottom of a page. A heading before a list stays with its first line.
+- **Bullet.** The bullet is U+2022. A font may lack it (Noto Sans Arabic and Noto Sans Hebrew do): when no font of the collection has it for the item's style, the first of U+25CF, U+2219, U+00B7 and the hyphen-minus that a font has takes its place, so a collection of only such fonts still draws a bullet (both Noto Sans Arabic and Noto Sans Hebrew get the hyphen-minus).
+- **Where.** A list may be in the flow, in a `Callout`, in a cell of `Columns`, and as a header or a footer (or inside columns or a callout there). Nesting is one level deep: a nested list may not hold a list, and trying to makes an `ArgumentException`.
+- **Spacing.** `ItemSpacing` is the space below each paragraph of an item (0.3 of the font size by default); `SpaceBefore` and `SpaceAfter` are the space around the whole list (0.6 of the list's font size below, by default: the `Style` over the document's). A paragraph's own `SpaceBefore` on the first paragraph and `SpaceAfter` on the last count too: the larger of the two is used.
+  `Style` is the style of the paragraphs and the markers, and `MarkerStyle` is laid over it for the markers only. A `MarkerStyle` size larger than the text makes the first line of the item taller, so the marker never reaches into the line above.
+  A paragraph of an item with `KeepTogether` is kept whole, with its marker, and moves to the next page when it does not fit.
+
 ## Drawing: charts and figures
 
 Pdfwright has a drawing canvas and a text measurer, not a chart library: you draw the bars, lines, areas and gauges of your own charts from your data and your colours, and they are vectors in the file.
@@ -430,7 +470,7 @@ in a header, and drawn on a canvas.
 
 `Header` and `Footer` are functions from a `PageContext` (the number of the page, the page count, whether it is the first or the last, and the page size) to a block, or to `null` for a page with none. They are called
 once for each page, in order, **after the whole body has been laid out**, so `PageContext.Count` is the final count and "page x of y" costs nothing: a table of any length is still enumerated once. The block is laid out
-at the content width and drawn **inside the margin**, so the body's area does not change; it may be a paragraph, a heading, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, but
+at the content width and drawn **inside the margin**, so the body's area does not change; it may be a paragraph, a heading, a list, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, but
 not a table or a page break. A block taller than the room the margin leaves (the margin minus the offset) fails the save with an `InvalidOperationException` that names the page and says whether it was the header or the footer.
 The callback should be a pure function of its argument.
 

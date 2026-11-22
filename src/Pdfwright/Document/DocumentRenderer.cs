@@ -142,6 +142,9 @@ internal sealed partial class DocumentRenderer
                 case Paragraph or Heading:
                     PlaceText(current, ahead);
                     break;
+                case ItemList:
+                    PlaceList(current, ahead);
+                    break;
                 case Table table:
                     PlaceTable(table, i);
                     break;
@@ -200,6 +203,9 @@ internal sealed partial class DocumentRenderer
 
         internal CalloutPlan? Callout { get; init; }
 
+        /// <summary>The paragraphs of a list, one after the other, each with its marker when it is the first of an item; <see cref="Text"/> is the first of them.</summary>
+        internal List<TextItem>? ListItems { get; init; }
+
         /// <summary>The height of what a block needs to start (its first line, a whole picture), when it is not a text block.</summary>
         internal double? FirstUnit { get; init; }
 
@@ -218,22 +224,33 @@ internal sealed partial class DocumentRenderer
         {
             case Paragraph or Heading:
             {
-                TextItem item = BuildTextItem(block, _contentWidth, _options.Direction);
-                double whole = item.Height;
-                return new Prepared
-                {
-                    Text = item.Styled,
-                    Before = item.Before,
-                    After = item.After,
-                    KeepWithNext = item.KeepWithNext,
-                    KeepTogether = item.KeepTogether,
-                    WholeHeight = item.KeepTogether && whole <= _contentHeight ? whole : null,
-                };
+                return PreparedOf(BuildTextItem(block, _contentWidth, _options.Direction));
+            }
+
+            case ItemList list:
+            {
+                List<TextItem> items = BuildList(list, _contentWidth, _options.Direction, 0, _base.Apply(list.Style).Size * 0.6);
+                Prepared first = PreparedOf(items[0]);
+                return new Prepared { Text = first.Text, Before = first.Before, After = first.After, ListItems = items };
             }
 
             default:
                 return PrepareFlowBlock(block);
         }
+    }
+
+    private Prepared PreparedOf(TextItem item)
+    {
+        double whole = item.Height;
+        return new Prepared
+        {
+            Text = item.Styled,
+            Before = item.Before,
+            After = item.After,
+            KeepWithNext = item.KeepWithNext,
+            KeepTogether = item.KeepTogether,
+            WholeHeight = item.KeepTogether && whole <= _contentHeight ? whole : null,
+        };
     }
 
     private static double Space(Length? length, double fallback) => length is { } value ? value.Points : fallback;
@@ -351,6 +368,21 @@ internal sealed partial class DocumentRenderer
     private void Draw(StyledLayout styled, int firstLine, int count, double x, double y)
     {
         ParagraphLayout layout = styled.Layout;
+        if (styled.List is { } placement)
+        {
+            // A paragraph of a list item: the text is inset from the start edge, and the marker is drawn with the first line, so that the two are never apart.
+            if (firstLine == 0 && placement.Marker is { } marker)
+            {
+                LaidOutLine markerLine = marker.Layout.Lines[0];
+                double markerLeft = placement.RightToLeft
+                    ? x + placement.ContainerWidth - placement.MarkerInset - markerLine.Width
+                    : x + placement.MarkerInset;
+                Draw(marker, 0, 1, markerLeft - markerLine.X, y + layout.Lines[0].Ascent - markerLine.Ascent);
+            }
+
+            x += placement.RightToLeft ? 0 : placement.Inset;
+        }
+
         PdfPageWriter page = _page!;
         PdfEmbeddedFont?[] embedded = new PdfEmbeddedFont?[_fonts.Entries.Length];
         string?[] names = new string?[_fonts.Entries.Length];

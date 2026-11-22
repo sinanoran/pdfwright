@@ -140,7 +140,11 @@ internal sealed partial class DocumentRenderer
     }
 
     private Stack BuildStack(IReadOnlyList<Block> blocks, double width, double maxHeight, TextDirection direction) =>
-        new([.. blocks.Select(block => BuildItem(block, width, maxHeight, direction))]);
+        new([.. blocks.SelectMany(block => BuildItems(block, width, maxHeight, direction))]);
+
+    /// <summary>The items of a block inside a stack: one, except for a list, which is one paragraph after another.</summary>
+    private IEnumerable<Item> BuildItems(Block block, double width, double maxHeight, TextDirection direction) =>
+        block is ItemList list ? BuildList(list, width, direction, 0, _base.Apply(list.Style).Size * 0.6) : [BuildItem(block, width, maxHeight, direction)];
 
     /// <summary>Lays a block out at a width: <paramref name="maxHeight"/> is the most height a picture may take, what a page can hold at the place the block is.</summary>
     private Item BuildItem(Block block, double width, double maxHeight, TextDirection direction)
@@ -175,8 +179,22 @@ internal sealed partial class DocumentRenderer
                 };
             }
 
+            case ItemList list:
+            {
+                // A list as one block (in a header or a footer): its paragraphs are a stack, drawn one under the other.
+                Stack stack = new([.. BuildList(list, width, direction, 0, _base.Apply(list.Style).Size * 0.6)]);
+                return new FixedItem
+                {
+                    Kind = "list",
+                    Height = stack.Height,
+                    Before = Space(list.SpaceBefore, 0),
+                    After = AfterDefault(list.SpaceAfter),
+                    Draw = (x, y) => DrawStack(stack, x, y),
+                };
+            }
+
             default:
-                throw new InvalidOperationException($"A {block.GetType().Name} cannot be placed here (a header or a footer holds a paragraph, heading, columns, callout, drawing, image or spacer).");
+                throw new InvalidOperationException($"A block of type {block.GetType().Name} cannot be placed here (a header or a footer holds a paragraph, heading, list, columns, callout, drawing, image or spacer).");
         }
     }
 
