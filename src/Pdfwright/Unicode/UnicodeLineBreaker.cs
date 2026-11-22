@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Pdfwright.Unicode;
 
 /// <summary>What the line breaking algorithm says about the boundary before a character.</summary>
@@ -25,21 +27,55 @@ internal static class UnicodeLineBreaker
     /// </summary>
     internal static LineBreakKind[] Breaks(ReadOnlySpan<int> text)
     {
+        LineBreakKind[] breaks = new LineBreakKind[text.Length + 1];
+        Breaks(text, breaks);
+        return breaks;
+    }
+
+    /// <summary>The same, written into the first <c>text.Length + 1</c> entries of <paramref name="breaks"/>, which may be longer and hold anything (every one of those entries is set).</summary>
+    internal static void Breaks(ReadOnlySpan<int> text, LineBreakKind[] breaks)
+    {
         int count = text.Length;
-        LineBreakKind[] breaks = new LineBreakKind[count + 1];
+        if (breaks.Length < count + 1)
+        {
+            throw new ArgumentException("The array must have room for one entry more than the text has code points.", nameof(breaks));
+        }
+
+        Array.Clear(breaks, 0, count + 1);
         if (count == 0)
         {
-            return breaks;
+            return;
         }
 
         // LB1 and, with LB9 and LB10, the units: a base character with the combining marks and joiners that attach to it.
-        int[] unitStart = new int[count];
-        LineBreakClass[] cls = new LineBreakClass[count];
-        CharacterInfo[] info = new CharacterInfo[count];
-        bool[] endsInJoiner = new bool[count];
-        bool[] dottedCircle = new bool[count];
-        int[] runOfRegionalIndicators = new int[count];
-        LineBreakClass[] baseClass = new LineBreakClass[count];
+        // The working arrays are rented from the shared pool, which keeps a bounded number of them whatever the number of threads, and given back: they hold the units of this call and nothing after it.
+        // An entry is written when its unit is made, before anything reads it, so the contents a rented array arrives with do not matter.
+        int[] unitStart = ArrayPool<int>.Shared.Rent(count);
+        LineBreakClass[] cls = ArrayPool<LineBreakClass>.Shared.Rent(count);
+        CharacterInfo[] info = ArrayPool<CharacterInfo>.Shared.Rent(count);
+        bool[] endsInJoiner = ArrayPool<bool>.Shared.Rent(count);
+        bool[] dottedCircle = ArrayPool<bool>.Shared.Rent(count);
+        int[] runOfRegionalIndicators = ArrayPool<int>.Shared.Rent(count);
+        LineBreakClass[] baseClass = ArrayPool<LineBreakClass>.Shared.Rent(count);
+        try
+        {
+            FindBreaks(text, breaks, unitStart, cls, info, endsInJoiner, dottedCircle, runOfRegionalIndicators, baseClass);
+        }
+        finally
+        {
+            ArrayPool<int>.Shared.Return(unitStart);
+            ArrayPool<LineBreakClass>.Shared.Return(cls);
+            ArrayPool<CharacterInfo>.Shared.Return(info);
+            ArrayPool<bool>.Shared.Return(endsInJoiner);
+            ArrayPool<bool>.Shared.Return(dottedCircle);
+            ArrayPool<int>.Shared.Return(runOfRegionalIndicators);
+            ArrayPool<LineBreakClass>.Shared.Return(baseClass);
+        }
+    }
+
+    private static void FindBreaks(ReadOnlySpan<int> text, LineBreakKind[] breaks, int[] unitStart, LineBreakClass[] cls, CharacterInfo[] info, bool[] endsInJoiner, bool[] dottedCircle, int[] runOfRegionalIndicators, LineBreakClass[] baseClass)
+    {
+        int count = text.Length;
         int units = 0;
         for (int i = 0; i < count; i++)
         {
@@ -74,7 +110,6 @@ internal static class UnicodeLineBreaker
         }
 
         breaks[count] = LineBreakKind.Mandatory;
-        return breaks;
     }
 
     private static LineBreakClass Resolve(CharacterInfo character) => character.LineBreak switch

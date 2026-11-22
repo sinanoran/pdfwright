@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Pdfwright.Unicode;
 
 /// <summary>
@@ -12,31 +14,50 @@ internal static class UnicodeGraphemeBreaker
     /// </summary>
     internal static bool[] Boundaries(ReadOnlySpan<int> text)
     {
+        bool[] boundaries = new bool[text.Length + 1];
+        Boundaries(text, boundaries);
+        return boundaries;
+    }
+
+    /// <summary>The same, written into the first <c>text.Length + 1</c> entries of <paramref name="boundaries"/>, which may be longer and hold anything (every one of those entries is set).</summary>
+    internal static void Boundaries(ReadOnlySpan<int> text, bool[] boundaries)
+    {
         int count = text.Length;
-        bool[] boundaries = new bool[count + 1];
+        if (boundaries.Length < count + 1)
+        {
+            throw new ArgumentException("The array must have room for one entry more than the text has code points.", nameof(boundaries));
+        }
+
+        Array.Clear(boundaries, 0, count + 1);
         if (count == 0)
         {
-            return boundaries;
+            return;
         }
 
-        CharacterInfo[] info = new CharacterInfo[count];
-        for (int i = 0; i < count; i++)
+        // Rented from the shared pool and given back (every entry up to count is written before it is read).
+        CharacterInfo[] info = ArrayPool<CharacterInfo>.Shared.Rent(count);
+        try
         {
-            info[i] = CharacterProperties.Of(text[i]);
-        }
+            for (int i = 0; i < count; i++)
+            {
+                info[i] = CharacterProperties.Of(text[i]);
+            }
 
-        boundaries[0] = true;
-        boundaries[count] = true;
-        int regionalRun = 0;
-        for (int i = 1; i < count; i++)
+            boundaries[0] = true;
+            boundaries[count] = true;
+            int regionalRun = 0;
+            for (int i = 1; i < count; i++)
+            {
+                GraphemeBreakClass l = info[i - 1].GraphemeBreak;
+                GraphemeBreakClass r = info[i].GraphemeBreak;
+                regionalRun = l == GraphemeBreakClass.RegionalIndicator ? regionalRun + 1 : 0;
+                boundaries[i] = IsBoundary(info, i, l, r, regionalRun);
+            }
+        }
+        finally
         {
-            GraphemeBreakClass l = info[i - 1].GraphemeBreak;
-            GraphemeBreakClass r = info[i].GraphemeBreak;
-            regionalRun = l == GraphemeBreakClass.RegionalIndicator ? regionalRun + 1 : 0;
-            boundaries[i] = IsBoundary(info, i, l, r, regionalRun);
+            ArrayPool<CharacterInfo>.Shared.Return(info);
         }
-
-        return boundaries;
     }
 
     private static bool IsBoundary(CharacterInfo[] info, int i, GraphemeBreakClass l, GraphemeBreakClass r, int regionalRun)

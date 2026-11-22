@@ -1,3 +1,4 @@
+using System.Buffers;
 using Pdfwright.Fonts;
 using Pdfwright.Unicode;
 
@@ -55,13 +56,13 @@ internal static class ParagraphLayouter
         // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab, and the bidi algorithm reads the tab itself (a segment separator, rule L1).
         (IReadOnlyList<RunStyle> styles, ShapeStyling? styling) = Styling(text, fonts, options);
         ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text, styling);
-        State state = new(text, paragraph, fonts, options, styles);
+        using State state = new(text, paragraph, fonts, options, styles);
         List<Raw> raws = [];
         int start = 0;
         int candidate = 0;
         do
         {
-            while (candidate < state.CandidateIndex.Count && state.CandidateIndex[candidate] <= start)
+            while (candidate < state.CandidateCount && state.CandidateIndex(candidate) <= start)
             {
                 candidate++;
             }
@@ -158,6 +159,12 @@ internal static class ParagraphLayouter
             return ([new RunStyle { FontOrder = [.. Enumerable.Range(0, fonts.Count)], Size = options.Size, Language = options.Language }], null);
         }
 
+        if (styles.Count == 1 && options.Spans is { Count: 1 } oneSpan && oneSpan[0] is var onlySpan && onlySpan.Start == 0 && onlySpan.Length == text.Length && onlySpan.Style == 0 && IsValid(styles[0], fonts.Count))
+        {
+            // The usual cell: one style over the whole text. The same styling as the general code below makes (one shaping group), without its lists and its table of groups.
+            return (styles, new ShapeStyling { Spans = options.Spans, FontOrders = [styles[0].FontOrder], Languages = [styles[0].Language], ShapeKeys = [0] });
+        }
+
         if (styles.Count == 0)
         {
             throw new ArgumentException("Styles must not be empty.", nameof(options));
@@ -176,7 +183,7 @@ internal static class ParagraphLayouter
                 throw new ArgumentOutOfRangeException(nameof(options), style.Size, "The size of a style must be a positive number.");
             }
 
-            if (style.FontOrder.Length == 0 || style.FontOrder.Any(i => (uint)i >= (uint)fonts.Count))
+            if (!FontOrderIsValid(style.FontOrder, fonts.Count))
             {
                 throw new ArgumentException("The font order of a style is not empty and names fonts of the list.", nameof(options));
             }
@@ -200,6 +207,26 @@ internal static class ParagraphLayouter
 
         return (styles, new ShapeStyling { Spans = spans, FontOrders = [.. styles.Select(s => s.FontOrder)], Languages = [.. styles.Select(s => s.Language)], ShapeKeys = ShapeKeysOf(styles) });
     }
+
+    private static bool FontOrderIsValid(int[] order, int fontCount)
+    {
+        if (order.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (int i in order)
+        {
+            if ((uint)i >= (uint)fontCount)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValid(RunStyle style, int fontCount) => style.Size > 0 && !double.IsInfinity(style.Size) && FontOrderIsValid(style.FontOrder, fontCount);
 
     /// <summary>The shaping group of each style: what shaping depends on is the font order, the size (the run's scale) and the language, and not the colour.</summary>
     private static int[] ShapeKeysOf(IReadOnlyList<RunStyle> styles)
@@ -264,7 +291,7 @@ internal static class ParagraphLayouter
     }
 
     /// <summary>What the line breaker and the line builder share for one paragraph.</summary>
-    private sealed class State
+    private sealed class State : IDisposable
     {
         private readonly ShapedParagraph _paragraph;
         private readonly IReadOnlyList<ShapingFont> _fonts;
@@ -273,9 +300,11 @@ internal static class ParagraphLayouter
         private readonly double[] _prefix;
         private readonly bool[] _boundary;
         private readonly int[] _codePointOf;
-        private readonly List<bool> _mandatory = [];
+        private readonly bool[] _mandatory;
+        private readonly int[] _candidateIndex;
         private readonly GlyphOrder[] _glyphOrder;
         private readonly bool[] _anywhere;
+        private bool _disposed;
 
         internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles)
         {
@@ -288,8 +317,12 @@ internal static class ParagraphLayouter
 
             // The width of everything left of each UTF-16 index: a glyph's advance sits at its cluster, so the width of a text range is
             // the difference of two prefix sums, and a range that does not start and end on cluster boundaries is never asked for.
-            double[] advanceAt = new double[Count + 1];
-            _boundary = new bool[Count + 1];
+            // The arrays are rented from the shared pool and given back by Dispose, which Layout calls once the lines are built: a State lives for one layout, and the pool keeps a bounded number
+            // of arrays for all threads, so no thread holds memory in proportion to its longest text. A rented array may be longer than asked for and holds what it was left with: what is read is cleared or written first.
+            double[] advanceAt = ArrayPool<double>.Shared.Rent(Count + 1);
+            Array.Clear(advanceAt, 0, Count + 1);
+            _boundary = ArrayPool<bool>.Shared.Rent(Count + 1);
+            Array.Clear(_boundary, 0, Count + 1);
             _boundary[0] = true;
             _boundary[Count] = true;
             _glyphOrder = new GlyphOrder[paragraph.Runs.Count];
@@ -315,15 +348,18 @@ internal static class ParagraphLayouter
                 _glyphOrder[r] = ascending ? GlyphOrder.Ascending : descending ? GlyphOrder.Descending : GlyphOrder.Unordered;
             }
 
-            _prefix = new double[Count + 1];
+            _prefix = ArrayPool<double>.Shared.Rent(Count + 1);
+            _prefix[0] = 0;
             for (int i = 0; i < Count; i++)
             {
                 _prefix[i + 1] = _prefix[i] + advanceAt[i];
             }
 
+            ArrayPool<double>.Shared.Return(advanceAt);
+
             // Only a position that starts a code point can be a boundary (a cluster value is one by construction; this is a guard).
-            _codePointOf = new int[Count + 1];
-            Array.Fill(_codePointOf, -1);
+            _codePointOf = ArrayPool<int>.Shared.Rent(Count + 1);
+            Array.Fill(_codePointOf, -1, 0, Count + 1);
             for (int i = 0; i < paragraph.CodePoints.Length; i++)
             {
                 _codePointOf[utf16[i]] = i;
@@ -336,31 +372,66 @@ internal static class ParagraphLayouter
             }
 
             // Where a unit wider than the width may be cut: between grapheme clusters (UAX #29) that are also glyph clusters.
-            bool[] graphemeBoundary = UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints);
-            _anywhere = new bool[Count + 1];
-            for (int i = 1; i < paragraph.CodePoints.Length; i++)
+            int codePointCount = paragraph.CodePoints.Length;
+            bool[] graphemeBoundary = ArrayPool<bool>.Shared.Rent(codePointCount + 1);
+            LineBreakKind[] breaks = ArrayPool<LineBreakKind>.Shared.Rent(codePointCount + 1);
+            _anywhere = ArrayPool<bool>.Shared.Rent(Count + 1);
+            _candidateIndex = ArrayPool<int>.Shared.Rent(codePointCount + 1);
+            _mandatory = ArrayPool<bool>.Shared.Rent(codePointCount + 1);
+            try
             {
-                _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]] && !IsSoftHyphenEdge(paragraph.CodePoints, i);
-            }
-
-            // The places where a line may end: a break opportunity of UAX #14 that is also a grapheme and a glyph cluster boundary, so that no cluster is split
-            // (a right-to-left run has a cluster for a mark of its own, so the glyph clusters alone no longer keep a mark with its base).
-            LineBreakKind[] breaks = UnicodeLineBreaker.Breaks(paragraph.CodePoints);
-            for (int i = 1; i < breaks.Length; i++)
-            {
-                if (breaks[i] != LineBreakKind.None && graphemeBoundary[i] && _boundary[utf16[i]] && (i == paragraph.CodePoints.Length || paragraph.CodePoints[i - 1] != SoftHyphen))
+                UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints, graphemeBoundary);
+                Array.Clear(_anywhere, 0, Count + 1);
+                for (int i = 1; i < codePointCount; i++)
                 {
-                    CandidateIndex.Add(utf16[i]);
-                    _mandatory.Add(breaks[i] == LineBreakKind.Mandatory);
+                    _anywhere[utf16[i]] = graphemeBoundary[i] && _boundary[utf16[i]] && !IsSoftHyphenEdge(paragraph.CodePoints, i);
+                }
+
+                // The places where a line may end: a break opportunity of UAX #14 that is also a grapheme and a glyph cluster boundary, so that no cluster is split
+                // (a right-to-left run has a cluster for a mark of its own, so the glyph clusters alone no longer keep a mark with its base).
+                UnicodeLineBreaker.Breaks(paragraph.CodePoints, breaks);
+                for (int i = 1; i <= codePointCount; i++)
+                {
+                    if (breaks[i] != LineBreakKind.None && graphemeBoundary[i] && _boundary[utf16[i]] && (i == codePointCount || paragraph.CodePoints[i - 1] != SoftHyphen))
+                    {
+                        _candidateIndex[CandidateCount] = utf16[i];
+                        _mandatory[CandidateCount] = breaks[i] == LineBreakKind.Mandatory;
+                        CandidateCount++;
+                    }
                 }
             }
+            finally
+            {
+                ArrayPool<bool>.Shared.Return(graphemeBoundary);
+                ArrayPool<LineBreakKind>.Shared.Return(breaks);
+            }
+        }
+
+        /// <summary>Gives the arrays back to the pool. The State must not be used afterwards; calling it twice does no harm.</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            ArrayPool<double>.Shared.Return(_prefix);
+            ArrayPool<bool>.Shared.Return(_boundary);
+            ArrayPool<int>.Shared.Return(_codePointOf);
+            ArrayPool<bool>.Shared.Return(_anywhere);
+            ArrayPool<int>.Shared.Return(_candidateIndex);
+            ArrayPool<bool>.Shared.Return(_mandatory);
         }
 
         /// <summary>The length of the text in UTF-16 units.</summary>
         internal int Count { get; }
 
-        /// <summary>The UTF-16 index of each place a line may end, ascending.</summary>
-        internal List<int> CandidateIndex { get; } = [];
+        /// <summary>The number of places a line may end.</summary>
+        internal int CandidateCount { get; private set; }
+
+        /// <summary>The UTF-16 index of the place a line may end that is number <paramref name="index"/> (ascending), for an index below <see cref="CandidateCount"/>.</summary>
+        internal int CandidateIndex(int index) => _candidateIndex[index];
 
         /// <summary>
         /// Where the line that starts at <paramref name="start"/> ends: at the last break opportunity before the content outgrows the width
@@ -370,9 +441,9 @@ internal static class ParagraphLayouter
         internal int FindLineEnd(int start, int firstCandidate)
         {
             int lastFit = -1;
-            for (int j = firstCandidate; j < CandidateIndex.Count; j++)
+            for (int j = firstCandidate; j < CandidateCount; j++)
             {
-                int end = CandidateIndex[j];
+                int end = _candidateIndex[j];
                 bool fits = _options.MaxWidth is not { } limit || _prefix[ContentEnd(start, end)] - _prefix[start] <= limit + Tolerance;
                 if (!fits)
                 {
@@ -513,13 +584,20 @@ internal static class ParagraphLayouter
             }
 
             // Left to right: rule L2 over the pieces, which are stretches of one level, so reversing whole pieces is reversing their characters.
-            byte[] pieceLevels = [.. pieces.Select(p => p.Run.Level)];
-            int[] visual = UnicodeBidi.VisualOrder(pieceLevels, 0, pieceLevels.Length);
-            double x = 0;
-            foreach (int index in visual)
+            if (pieces.Count == 1)
             {
-                pieces[index].X = x;
-                x += pieces[index].Width;
+                pieces[0].X = 0; // one piece is in its own order, at the start
+            }
+            else
+            {
+                byte[] pieceLevels = [.. pieces.Select(p => p.Run.Level)];
+                int[] visual = UnicodeBidi.VisualOrder(pieceLevels, 0, pieceLevels.Length);
+                double x = 0;
+                foreach (int index in visual)
+                {
+                    pieces[index].X = x;
+                    x += pieces[index].Width;
+                }
             }
 
             double width = 0;

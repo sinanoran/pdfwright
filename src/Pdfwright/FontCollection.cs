@@ -117,6 +117,7 @@ public sealed class FontCollection : IDisposable
     internal sealed class Snapshot(FontEntry[] entries)
     {
         private readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), int[]> _orders = new();
+        private readonly ConcurrentDictionary<(string Family, int Weight, bool Italic), int[]> _ordersBySpelling = new();
 
         internal FontEntry[] Entries { get; } = entries;
 
@@ -127,13 +128,27 @@ public sealed class FontCollection : IDisposable
         /// ordered by the style (an upright font for upright text, an italic one for italic), then by the distance of its weight from the weight asked for, then by
         /// the order they were added in.
         /// </summary>
-        internal int[] Order(string family, int weight, bool italic) =>
-            _orders.GetOrAdd((family.ToUpperInvariant(), weight, italic), key =>
+        internal int[] Order(string family, int weight, bool italic)
+        {
+            // The family as it was spelled is looked up first, which costs nothing: the upper-case key of the second table is a new string for every call.
+            if (_ordersBySpelling.TryGetValue((family, weight, italic), out int[]? known))
+            {
+                return known;
+            }
+
+            int[] order = _orders.GetOrAdd((family.ToUpperInvariant(), weight, italic), key =>
                 [.. Enumerable.Range(0, Entries.Length)
                     .OrderBy(i => string.Equals(Entries[i].Family, family, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ThenBy(i => Entries[i].Italic == italic ? 0 : 1)
                     .ThenBy(i => Math.Abs(Entries[i].Weight - weight))
                     .ThenBy(i => i)]);
+            if (_ordersBySpelling.Count < 256)
+            {
+                _ordersBySpelling.TryAdd((family, weight, italic), order);
+            }
+
+            return order;
+        }
     }
 }
 
