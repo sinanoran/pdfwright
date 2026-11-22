@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-22
+
 ### Fixed
 
 - **A line break or another special character in a string no longer makes a save throw.** `DrawingCanvas.DrawText` threw an `ArgumentException` ("A paragraph separator ... is not the last character") for a string with a line feed, carriage return, U+0085, U+2029 or U+001C to U+001E in it, which is how a multi-line label drawn in a `Drawing` failed. All text is now read by one rule wherever it is laid out (paragraphs, headings, table and header cells, list items, headers and footers, canvas text, `TextMeasurer`): every line break (`\n`, `\r\n`, `\r`, U+0085, U+000B, U+000C, U+001C to U+001E, U+2028, U+2029) is a hard line break inside the same block, never a new paragraph; other control characters (U+0000 to U+001B, U+001F, U+007F, U+0080 to U+009F, except the line breaks above) are removed instead of being drawn as an empty glyph box; a surrogate without its pair is replaced by U+FFFD. The caller's strings are not changed. What changed for U+001C, U+001D and U+001E (the information separators): in 0.1.0 they were treated as paragraph separators (Unicode bidirectional class B) and broke the line inside a paragraph, and in a canvas string, a measured string or a cell they threw or were drawn as a box; now they are line breaks everywhere, so text that worked in 0.1.0 is laid out as before. U+000B (vertical tab) and U+000C (form feed) were not line breaks in 0.1.0 and are now. A break at the very end of a text adds no empty line, and a `\r\n` is one break. In the metadata (title, subject, author, creator, language) a line break or tab becomes a space, controls are left out, a lone surrogate becomes U+FFFD, white space at the ends is trimmed, and an entry that is empty after that (a title of only control characters) is left out of both the Info dictionary and the XMP packet (before, a line break was kept and a lone surrogate dropped). `TextStyle.Family` and `TextStyle.Language` are read by the metadata rule too before they are used or reported (`MissingGlyph.Language`, `DocumentDiagnostics.MissingFamilies`, the language handed to the shaper), so `"en-US\n"` is `"en-US"`; a value that is empty only after that counts as not given. A long run of empty lines (100,000 line feeds) is laid out in linear time (it took minutes). Text without these characters is laid out and written as before. `docs/guide.md` and `docs/known-limitations.md` state the rule.
@@ -74,5 +76,6 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
 - A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sinanoran/pdfwright/releases/tag/v0.1.0
