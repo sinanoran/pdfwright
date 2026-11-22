@@ -17,8 +17,9 @@
    Pdfwright already ships. The rule is to reuse permissive open source before writing from scratch: `hb-subset` handles CFF, CFF2 and
    TrueType, is the subsetter of Chrome and Google Fonts, and is under HarfBuzz's MIT licence. Its entry points (`hb_subset_input_create_or_fail`,
    `hb_subset_input_glyph_set`, `hb_subset_or_fail`, `hb_subset_input_set_flags`, the `hb_subset_axis_range_*` family for pinning a variable
-   font at its default) were found exported by `libHarfBuzzSharp` in `harfbuzzsharp.nativeassets.win32` 14.4.0.200 (win-x64); HarfBuzzSharp has
-   no managed binding for them, so Pdfwright declares its own P/Invokes. The work left is the binding, extracting the CFF from the font it
+   font at its default, `hb_subset_plan_create_or_fail` and `hb_subset_plan_old_to_new_glyph_mapping`) were found, by a search of the binaries'
+   bytes, in every native asset of HarfBuzzSharp 14.4.0.200 (Windows x64, x86 and arm64; Linux glibc and musl on x64, arm64 and arm; macOS, a
+   universal binary); a byte search is not a load test, which slice C1 makes. HarfBuzzSharp has no managed binding for them, so Pdfwright declares its own P/Invokes. The work left is the binding, extracting the CFF from the font it
    returns, and embedding it as `CIDFontType0` with a `FontFile3` (`/Subtype /CIDFontType0C`). The 0.1 plan's estimate of about 10 days for a
    hand-written CFF subsetter falls away. The TrueType subsetter Pdfwright wrote for 0.1 stays unless `hb-subset` is clearly better for
    TrueType too, which slice C2 measures (subset size, time, and the read-back results) before anything is switched.
@@ -30,17 +31,29 @@
 ## 1. Scope of 0.2
 
 **In:**
-- CFF (OpenType `OTTO`) fonts, both name-keyed and CID-keyed, and CFF2 fonts at their default instance; embedding as `CIDFontType0` with a
-  `FontFile3`; widths from `hmtx`; `ToUnicode` with one text per code as in 0.1.
+- CFF (OpenType `OTTO`) fonts, both name-keyed and CID-keyed, and CFF2 fonts at their default instance if `hb-subset` returns them as CFF
+  (otherwise CFF2 fonts are refused in 0.2: PDF names no CFF2 font file subtype and the readers are not known to read one); embedding as
+  `CIDFontType0` with a `FontFile3`; widths from `hmtx`; `ToUnicode` with one text per code as in 0.1.
+- **Dense codes for large fonts.** A subset is made without retained glyph ids (`hb-subset` would otherwise fill the CharStrings up to the
+  highest id kept, about 60,000 entries for a CJK font) and the old ids are mapped to the new through `hb_subset_plan_old_to_new_glyph_mapping`,
+  so the codes written are dense. This also removes 0.1's limit for fonts near 65,535 glyphs (Noto Sans CJK has 65,535), where a glyph drawn
+  for a second text, or two different missing characters, fails the save; the TrueType path gets the same once it goes through the seam.
 - Font collections (`.ttc` and `.otc`): a font is chosen by index or by name (`FontCollection.Add(bytes, index)` or similar, additive).
 - CJK text in horizontal layout: Simplified Chinese, Traditional Chinese, Japanese (kanji, hiragana, katakana, including the small kana and the
   prolonged sound mark) and Korean (Hangul syllables and jamo); full-width punctuation; mixed CJK and Latin in one line; numbers.
 - **Japanese line-breaking rules (kinsoku shori):** no line starts with a closing bracket, a small kana, the prolonged sound mark, an iteration
-  mark or a full stop or comma, and no line ends with an opening bracket; UAX #14 already gives most of this (classes CL, CP, NS, OP and CJ,
-  with CJ resolved as NS as in 0.1); what UAX #14 leaves to the application is decided and tested here (strict versus normal for CJ, and
-  whether to hang or push the punctuation).
+  mark, a full stop or comma, an exclamation or question mark or an ellipsis, and no line ends with an opening bracket; and a two-em dash is
+  not split. UAX #14 already gives most of this (classes CL, CP, NS, EX, IN, B2, OP and CJ). 0.1 already behaves as the strict rule, because CJ
+  is resolved as NS; what is left to decide and test is whether a "normal" mode (CJ as ID, a small kana may start a line) is offered, and
+  whether punctuation is pushed or hung.
+- **Korean line breaking:** UAX #14 breaks between Hangul syllables; Korean text is usually broken at spaces (CSS's `keep-all`). 0.2 decides
+  which is the default for `ko` and tests it.
 - Language-dependent glyphs: the same code point drawn with the Simplified Chinese, Traditional Chinese, Japanese or Korean form, chosen by
-  `TextStyle.Language` (`zh-Hans`, `zh-Hant`, `ja`, `ko`) through the OpenType `locl` feature, which HarfBuzz applies when the language is set.
+  `TextStyle.Language` (and `PdfDocumentOptions.Language`, which already flows to the runs) through the OpenType `locl` feature, which HarfBuzz
+  applies when the language is set. The tags tested: `zh-Hans` (ZHS), `zh-Hant` (ZHT), `zh`, `zh-TW`, `zh-HK` (ZHH), `ja` (JAN), `ko` (KOR).
+- Variation sequences (character map format 14, for ideographic variants), which HarfBuzz already applies when the font has them.
+- Line height in a line that mixes a Latin font and a CJK font (the line takes the larger ascent and descent, as for any mixed run in 0.1; the
+  corpus checks it).
 - **Tagged PDF**, after CJK (section 4).
 
 **Out of 0.2, named so nobody assumes them:** vertical text (`vert`/`vrt2`, vertical metrics, rotated Latin); ruby (furigana); emphasis marks;
@@ -54,14 +67,14 @@ and green CI on the three operating systems and both Linux runtime images.
 
 | Slice | What | Days (the estimate) |
 |---|---|---|
-| **C1** | **`hb-subset` available everywhere:** prove that the `hb_subset_*` exports exist in every native asset of HarfBuzzSharp 14.4.0.200 that Pdfwright ships (Windows x64, x86 and arm64; Linux glibc and musl on x64 and arm64; macOS), by a test that calls them on each CI runner and inside the two .NET runtime images of the CI job `linux-runtime-images`; the P/Invoke declarations (`hb_subset_input_create_or_fail`, `hb_subset_input_glyph_set`, `hb_set_add`, `hb_subset_input_set_flags` with retained glyph ids, `hb_subset_or_fail`, the face and blob release calls), a managed wrapper that owns the native handles, and a refusal with a clear message if an export is missing on some platform. If an asset lacks the exports, stop and decide before C2 (a newer HarfBuzzSharp, or the platform listed as unsupported for CFF). Also the shaping seam of section 5: an internal `IShaper` with HarfBuzz as its one implementation and a font handle without HarfBuzz types, with no change in behaviour (corpus and goldens unchanged) | 2 |
-| **C2** | **CFF embedding through `hb-subset`**, behind the internal `IFontSubsetter` seam of section 5 (the own TrueType subsetter as one implementation, `hb-subset` as the other): subset with the glyph ids kept (so the shaper's ids and the `ToUnicode` of 0.1 still hold; a `CIDFontType0` has no `CIDToGIDMap`, so the code written for a glyph is its CID: the glyph id for a name-keyed CFF, and for a CID-keyed CFF the CID its charset gives that glyph), take the `CFF ` table from the result (a CFF2 font pinned at its default instance and checked to come back as CFF, or, if `hb-subset` keeps CFF2, embedded as `FontFile3` with `/Subtype /OpenType`, which PDF 2.0 allows; decided by what the readers accept), write `CIDFontType0` with `FontFile3` and `/Subtype /CIDFontType0C`, widths from `hmtx`; the CFF reader needed for the font's metrics and for validation at `Add` (not for subsetting); `qpdf --check`, PdfPig and pdf.js read-back on a CFF Latin font against the Latin corpus before any CJK; and the measurement of `hb-subset` against the own TrueType subsetter (size, time, read-back) that decides whether TrueType moves too. fontTools (MIT) may be used as a test-time reference, never shipped | 3 |
-| **C3** | **Font collections** (`.ttc`, `.otc`): choose a font by index or by name; the public addition and its tests | 1 |
-| **C4** | **CJK corpus and read-back:** Simplified Chinese, Traditional Chinese, Japanese and Korean, a short page and a long page with a table each (as the 0.1 corpus), with fonts under an open licence in the test project (Noto Sans CJK in its OpenType CFF form, subset for the repository if the full fonts are too large; their licence and source recorded as for the 0.1 fonts); PdfPig and pdf.js read-back with the same strict matcher and position check as 0.1; byte goldens and PDFium render goldens | 4 |
-| **C5** | **Japanese line breaking and language forms:** the kinsoku rules of section 1 decided and tested on the corpus; `locl` forms by language checked by render goldens (one code point in four languages) | 2 |
-| **T1** | **Tagged PDF:** structure tree, marked content with MCIDs, role map, parent tree, `/Alt` from `AltText`, `/Lang` on spans, header and footer as artifacts, table header cells with scope, `OutputIntent`; a `Tagged` option; veraPDF (a test-time process) for PDF/UA-1 on the whole corpus, no conformance claimed until it passes | 6 |
+| **C1** | **`hb-subset` available everywhere:** prove that the `hb_subset_*` exports exist in every native asset of HarfBuzzSharp 14.4.0.200 that Pdfwright ships (Windows x64, x86 and arm64; Linux glibc and musl on x64 and arm64; macOS), by a test that calls them on each CI runner and inside the two .NET runtime images of the CI job `linux-runtime-images`; the P/Invoke declarations (`hb_subset_input_create_or_fail`, `hb_subset_input_glyph_set`, `hb_set_add`, `hb_subset_input_set_flags`, `hb_subset_plan_create_or_fail`, `hb_subset_plan_old_to_new_glyph_mapping`, `hb_subset_or_fail`, the face and blob release calls), a managed wrapper that owns the native handles, and a refusal with a clear message if an export is missing on some platform. If an asset lacks the exports, stop and decide before C2 (a newer HarfBuzzSharp, or the platform listed as unsupported for CFF). Also the shaping seam of section 5: an internal `IShaper` with HarfBuzz as its one implementation and a font handle without HarfBuzz types, with no change in behaviour (corpus and goldens unchanged) | 2 |
+| **C2** | **CFF embedding through `hb-subset`**, behind the internal `IFontSubsetter` seam of section 5 (the own TrueType subsetter as one implementation, `hb-subset` as the other): the `TrueTypeFont` reader (and `ShapingFont`, which require `glyf` and `loca`) generalised to an sfnt font with `glyf` or CFF outlines; subset without retained glyph ids and remapped through `hb_subset_plan_old_to_new_glyph_mapping` (section 1, dense codes); a `CIDFontType0` has no `CIDToGIDMap`, so the code written for a glyph is its CID (the new glyph id for a name-keyed CFF, and for a CID-keyed CFF the CID its charset gives that glyph, per ISO 32000-1 9.7.4.2), and a glyph drawn for a second text, which 0.1 gives an extra code mapped back to the glyph by `CIDToGIDMap`, gets a code of its own mapped to the same CID by an embedded CMap stream instead of `Identity-H`, with a second `ToUnicode` entry; take the `CFF ` table from the result (a CFF2 font pinned at its default instance and checked to come back as CFF; if it stays CFF2, CFF2 fonts are refused in 0.2), write `CIDFontType0` with `FontFile3` and `/Subtype /CIDFontType0C`, widths from `hmtx`; the CFF reading needed for the font's metrics and for validation at `Add` (not for subsetting); `qpdf --check`, PdfPig and pdf.js read-back on a CFF Latin font against the Latin corpus before any CJK; and the measurement of `hb-subset` against the own TrueType subsetter (size, time, read-back) that decides whether TrueType moves too. fontTools (MIT) may be used as a test-time reference, never shipped | 4 |
+| **C3** | **Font collections** (`.ttc`, `.otc`): choose a font by index or by name; the face index passed to `new Face(blob, index)` (today always 0, `TextShaper.cs`) and to `hb-subset`; the public addition and its tests | 1 |
+| **C4** | **CJK corpus and read-back:** Simplified Chinese, Traditional Chinese, Japanese and Korean, a short page and a long page with a table each (as the 0.1 corpus), with fonts under an open licence in the test project (Noto Sans CJK in its OpenType CFF form, subset for the repository if the full fonts are too large; their licence and source recorded as for the 0.1 fonts; a repository subset must keep every layout feature, `locl` alternates included, or the language-form goldens of C5 cannot pass); PdfPig and pdf.js read-back with the same strict matcher and position check as 0.1; byte goldens and PDFium render goldens | 4 |
+| **C5** | **Japanese and Korean line breaking and language forms:** the kinsoku rules and the Korean default of section 1 decided and tested on the corpus; `locl` forms by language checked by render goldens (one code point in four languages) | 2 |
+| **T1** | **Tagged PDF:** structure tree, marked content with MCIDs, role map, parent tree, `/Alt` from `AltText`, `/Lang` on spans, header and footer as artifacts, table header cells with scope, `OutputIntent`; a `Tagged` option; veraPDF (a test-time process that needs Java on the CI runners) for PDF/UA-1 on the whole corpus, no conformance claimed until it passes; a missing glyph drawn as `.notdef` fails PDF/UA-1 (Matterhorn 7.21.8), so a tagged document with missing glyphs is reported, not claimed | 8 |
 | **T2** | Documentation, the comparison table and the release checklist updated; **0.2.0** (tagged by the maintainer) | 2 |
-| | **Total to 0.2.0** | **20 days** |
+| | **Total to 0.2.0** | **23 days** |
 
 **Order:** C1, C2 (the critical path), then C3, C4 and C5 (C4 needs C2; C3 and C5 can run beside C4), then T1 and T2. CJK is usable after C4;
 a 0.2 preview package is the maintainer's choice.
@@ -89,7 +102,8 @@ render goldens with the absolute one-pixel rule, `qpdf --check`, the seeded prop
 Section 6 of the 0.1 plan, with its note on the room the 0.1 API leaves, is the design. T1 adds the structure tree and the marked content in
 the writer and switches them on with `PdfDocumentOptions.Tagged`; roles follow from the block types, the header and footer are artifacts,
 `Image.AltText` and `Drawing.AltText` become `/Alt`, `TextStyle.Language` becomes the spans' `/Lang`. veraPDF runs in CI on the corpus with
-`Tagged = true`, and no PDF/UA claim is made until it passes everywhere. Lists (`ItemList`) are tagged as `L`, `LI`, `Lbl` and `LBody`.
+`Tagged = true`, and no PDF/UA claim is made until it passes everywhere. Lists (the `ItemList` block, added just before 0.1.0) are tagged as
+`L`, `LI`, `Lbl` and `LBody`.
 
 ## 5. Towards a managed shaper (a later version, not 0.2)
 
@@ -99,13 +113,13 @@ layout or the public API.
 
 **The seams.**
 - **Shaping.** HarfBuzzSharp is used in exactly one file today, `src/Pdfwright/Text/TextShaper.cs`; everything above it (line breaking,
-  layout, `GlyphRunWriter`, the document layer) sees only Pdfwright's own types, `ShapedRun` and `ShapedGlyph` (glyph id, cluster, advance and
-  offsets in font units). The input side is not yet neutral: `ShapingFont` holds the HarfBuzz blob, face and font, and `TextShaper` is a static
-  class. Slice C1 turns this into an internal seam: an `IShaper` (shape one run of text with a font, a script, a direction and a language into
+  layout, `GlyphRunWriter`, the document layer) sees only Pdfwright's own types, `ShapedParagraph`, `ShapedRun` and `ShapedGlyph` (glyph id,
+  cluster, advance and offsets in font units). The input side is not yet neutral: `ShapingFont` holds the HarfBuzz blob, face and font and is
+  passed through `FontCollection`, the canvas and `ParagraphLayout`, and `TextShaper` is a static class. (The tests use HarfBuzzSharp too.) Slice C1 turns this into an internal seam: an `IShaper` (shape one run of text with a font, a script, a direction and a language into
   `ShapedGlyph`s) with the HarfBuzz implementation as the only one, and a font handle that does not expose HarfBuzz types. No behaviour changes,
   and the corpus and goldens prove it.
 - **Subsetting.** `PdfEmbeddedFont` calls the own `TrueTypeSubsetter` directly today. Slice C2 puts subsetting behind an internal
-  `IFontSubsetter` (the font, the glyph ids to keep, whether ids are retained, returning the bytes to embed and their kind: TrueType or CFF),
+  `IFontSubsetter` (the font and the glyph ids to keep, returning the bytes to embed, their kind, TrueType or CFF, and the old-to-new glyph map),
   with the own TrueType subsetter as one implementation and `hb-subset` as the other, chosen by the font's outline format.
 
 **What HarfBuzz does for Pdfwright today**, and so what a managed shaper must do:
@@ -113,8 +127,11 @@ layout or the public API.
   `GPOS` (positioning: kerning, mark-to-base, mark-to-mark, mark-to-ligature, cursive attachment), with the feature order of each script.
 - The script engines: Arabic (joining, and the Arabic fallback where a font lacks forms), Indic (Devanagari, Bengali, Tamil and the others:
   syllable clusters, reordering of pre-base matras and reph), the Universal Shaping Engine for the scripts it covers, Thai and Lao (mark
-  ordering, the SARA AM decomposition), Hangul (jamo composition), and the default engine for Latin, Greek, Cyrillic, Hebrew and CJK.
+  ordering, the SARA AM decomposition), Hebrew (its own engine: composition of points with their bases), Hangul (jamo composition), and the
+  default engine for Latin, Greek, Cyrillic and CJK.
 - Normalisation and fallback mark positioning where a font has no `GPOS` for a mark.
+- Mirroring of characters in right-to-left runs (Pdfwright's bidi data leaves the mirrored glyphs to HarfBuzz) and variation sequences
+  (character map format 14).
 - Font subsetting for CFF and CFF2 (from 0.2), through `hb-subset`.
 
 **What a managed shaper must pass before it replaces HarfBuzz:** the whole Pdfwright corpus and its goldens unchanged (the byte goldens may
@@ -128,7 +145,8 @@ this passes, HarfBuzz stays; the swap is one implementation behind each seam.
 
 1. **Which CJK fonts go into the test project** (Noto Sans CJK SC, TC, JP and KR in their OTF form are about 16 MB each; a repository subset
    of the corpus's characters is the recommendation, with the full-font test run only locally).
-2. **Kinsoku: strict or normal** for Japanese (whether a small kana may start a line). *Recommended: strict by default, an option later if
-   asked.*
-3. **Performance.** The 0.1.0 measurements (`docs/baselines.md`) miss the 0.1 plan's section 7 targets; whether a performance slice comes
+2. **Kinsoku: strict or normal** for Japanese (whether a small kana may start a line). *Recommended: strict by default, as 0.1 already
+   behaves, and an option later if asked.*
+3. **Korean: break at spaces or between syllables** by default. *Recommended: at spaces (`keep-all`), as Korean text is usually set.*
+4. **Performance.** The 0.1.0 measurements (`docs/baselines.md`) miss the 0.1 plan's section 7 targets; whether a performance slice comes
    before, beside or after CJK is the maintainer's choice (a CJK document has more glyphs per page, so the cost per glyph matters more).
