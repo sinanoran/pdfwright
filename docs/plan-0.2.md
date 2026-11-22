@@ -121,6 +121,25 @@ native library:
   `IFontSubsetter` (the font and the glyph ids to keep, returning the bytes to embed, their kind, TrueType or CFF, and the old-to-new glyph map),
   with the own TrueType subsetter as one implementation and `hb-subset` as the other, chosen by the font's outline format.
 
+### C1 status
+
+Slice C1 is done: the shaping seam, the `hb-subset` binding, and the proof that its exports load. No behaviour changed (the corpus, the byte goldens and the render goldens are as they were, and the public API snapshot is unchanged).
+
+- **Shaping seam.** `IShaper` (`src/Pdfwright/Text/IShaper.cs`) has two members: `CreateFont(bytes, unitsPerEm)`, which returns an opaque `ShaperFont` handle owned by the shaper, and
+  `Shape(font, text, start, length, rightToLeft, scriptTag, language)`, which returns the `ShapedGlyph`s of one run with the text around it as context. `ShapingFont` keeps the `TrueTypeFont` (which answers glyph-for-code-point, so font choice
+  stays in `TextShaper`) and the shaper's handle; it has no HarfBuzz type. `HarfBuzzShaper` and `HarfBuzzFont` (blob, face and font) are the one implementation, in `src/Pdfwright/Text/HarfBuzz/`; the files of that folder are
+  the only ones of the library that name `HarfBuzzSharp`. The policy that was in `TextShaper` (monotone-character clusters for a right-to-left run, the baseline `.notdef`) moved into `HarfBuzzShaper` unchanged.
+- **hb-subset binding.** `HarfBuzzSubsetNative` declares the P/Invokes in the library name HarfBuzzSharp declares for its own calls, `libHarfBuzzSharp` (the runtime resolves it to `libHarfBuzzSharp.dll`, `libHarfBuzzSharp.so` and
+  `libHarfBuzzSharp.dylib`), so the same native file serves shaping and subsetting. `EnsureAvailable` checks every export with `NativeLibrary.TryGetExport` before the first call and throws `PlatformNotSupportedException` naming the
+  library, the runtime identifier, the operating system and the missing exports; an `EntryPointNotFoundException` during a call is wrapped the same way. `HarfBuzzSubsetter` (`Subset(face or bytes, glyph ids, flags, pinAxesToDefault)`) owns the input, plan and result
+  handles as `SafeHandle`s and returns the font bytes and the old-to-new glyph map (walked with `hb_map_next` over `hb_subset_plan_old_to_new_glyph_mapping`, not asked once per glyph of the font). It is not used by the writer.
+- **What the map holds.** The old-to-new map holds more than the glyphs asked for: `hb-subset` runs the GSUB closure, so asking for `f` and `i` of Noto Sans keeps the ligature glyphs they form as well (and the parts of composite glyphs). C2 decides whether to keep the closure or to set `HB_SUBSET_FLAGS_NO_LAYOUT_CLOSURE` (0x200), which the writer may want since it places glyphs itself after shaping.
+- **Review fixes.** A disposed `HarfBuzzFont` throws `ObjectDisposedException` (disposal is idempotent) instead of reaching freed native memory; `pinAxesToDefault` pins only a face that has an `fvar` table, so it works on a static font (no variable font is in the test project, so pinning a real variable font is not tested); bytes that are not a font (a face with no glyphs) give `InvalidDataException`; the export check runs once; `hb_subset_or_fail` (declared but not used, the binding runs the plan itself) and `hb_map_get` (replaced by `hb_map_next`) are no longer declared or required.
+- **`IFontSubsetter` is left to C2.** `PdfEmbeddedFont` takes bytes from `TrueTypeSubsetter` and nothing else; the seam's result (bytes, kind, old-to-new map) is C2's design, so it is not guessed at here.
+- **Proof the exports load.** `HarfBuzzSubsetterTests` (not skipped anywhere) checks that every export is present and that a subset of Noto Sans has the glyphs asked for, their advances and outlines, and the right map; it runs in the `build` job on
+  Windows, Linux and macOS and on every target framework. The job `linux-runtime-images` publishes `tools/Pdfwright.NativeProbe` and runs the same call inside `aspnet:10.0` (glibc) and `aspnet:10.0-alpine` (musl); the probe exits with 2 when an export is missing.
+  CI result (PR 29): the tests passed on windows-latest, ubuntu-latest and macos-latest (all four target frameworks run in the one job), and the probe passed in `aspnet:10.0` (linux-x64, glibc) and `aspnet:10.0-alpine` (linux-musl-x64): every export, including `hb_subset_input_pin_all_axes_to_default`, is present in the native library on all five. The other native assets (x86, arm64, arm) are not run by CI.
+
 ## 6. Open points for the maintainer
 
 1. **Which CJK fonts go into the test project** (Noto Sans CJK SC, TC, JP and KR in their OTF form are about 16 MB each; a repository subset

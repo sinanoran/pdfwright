@@ -52,6 +52,7 @@ Full notes: https://github.com/sinanoran/pdfwright/blob/main/CHANGELOG.md
   <ItemGroup>
     <InternalsVisibleTo Include="Pdfwright.Tests" />
     <InternalsVisibleTo Include="Pdfwright.Benchmarks" />
+    <InternalsVisibleTo Include="Pdfwright.NativeProbe" />
   </ItemGroup>
 
 </Project>

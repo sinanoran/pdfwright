@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+Nothing user-visible yet. Internal groundwork for 0.2: an internal shaping seam (`IShaper`) with HarfBuzz as its one implementation, and a binding to the `hb-subset` entry points of the native HarfBuzz library, not used by the writer yet (`docs/plan-0.2.md`, section 5 and "C1 status").
+
 ## [0.1.0] - 2026-11-22
 
 The first release of Pdfwright: a PDF writer for reports, with a layout engine, tables that paginate, vector drawing, embedded font subsets and right-to-left, mixed-direction and complex-script text that reads back in logical order. Everything below is the 0.1.0 surface.
