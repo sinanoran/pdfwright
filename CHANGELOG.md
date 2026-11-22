@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A zero width joiner or non-joiner at the end of a line is no longer missing from the extracted text.** In a right-to-left paragraph a U+200D or U+200C that follows left-to-right text at the end of a line (before a line break or the end of the paragraph) was cut from the text before it, because the bidi rule for white space at the end of a line gives it the paragraph level while the shaper had merged it into the cluster of the letter before it; the piece that held only the joiner had no glyph and was dropped, and the letter lost it from its text. A cluster is no longer cut between its characters when a line is split into pieces, so the glyph of the letter carries the joiner as it does inside a line. The text that is drawn and every golden file are unchanged. The known limitation is removed, and the fuzz test of the text input no longer ignores the two joiners.
+
 ### Changed
 
 - **Faster layout; output unchanged.** Text shaping reuses one HarfBuzz buffer per thread, text that is only printable ASCII skips the bidi, script and grapheme steps, code points are read without lists, and the glyphs of a whole-text run are cached per font (bounded, thread-safe). Every byte of every golden file is the same, and a test compares the shaped glyphs and positions of the whole corpus and of random mixed-script texts with the paths on and off. On the warm 1,000-row table the allocation falls from 82 MB to 59 MB per run and the ten-page report from 11.3 MB to 8.1 MB. A text longer than 4,096 UTF-16 units is shaped in a temporary buffer, so no thread keeps native memory for its longest text.

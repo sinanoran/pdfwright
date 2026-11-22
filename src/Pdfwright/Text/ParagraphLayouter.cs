@@ -497,7 +497,9 @@ internal static class ParagraphLayouter
                     byte level = levels[cp - firstCp];
                     bool trailing = utf16[cp] >= contentEnd;
                     cp++;
-                    while (cp < toCp && levels[cp - firstCp] == level && (utf16[cp] >= contentEnd) == trailing)
+                    // A cluster is never cut: a character that has no cluster of its own (a joiner that the shaper merged into the cluster before it) goes with that cluster whatever its level
+                    // (rule L1 gives the joiner at the end of a line the paragraph level), because a piece that held only it would have no glyph and its text would be lost.
+                    while (cp < toCp && ((levels[cp - firstCp] == level && (utf16[cp] >= contentEnd) == trailing) || !_boundary[utf16[cp]]))
                     {
                         cp++;
                     }
