@@ -62,8 +62,8 @@ public static class ReportSample
         ]));
 
         document.Add(Kpis());
-        document.Add(new Heading(2, "Sales by quarter"));
-        document.Add(SalesChart([4, 7, 5, 9, 6], ["Q1", "Q2", "Q3", "Q4", "Q5"]));
+        document.Add(new Heading(2, "Sales by month"));
+        document.Add(SalesChart([4, 7, 5, 9, 6], ["Jan", "Feb", "Mar", "Apr", "May"]));
         document.Add(new Heading(2, "Invoices"));
         document.Add(Invoices(rowCount: 90));
         document.Add(new Heading(2, "ملخص بالعربية") { Direction = TextDirection.RightToLeft });
@@ -110,7 +110,7 @@ public static class ReportSample
                 canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by quarter" };
+        { AltText = "Bar chart of sales by month" };
     }
 
     private static Table Invoices(int rowCount) =>
@@ -127,7 +127,7 @@ public static class ReportSample
     private static IEnumerable<Block> Arabic()
     {
         TextStyle arabic = new() { Family = "Noto Sans Arabic", Size = Length.Pt(11), Language = "ar" };
-        yield return new Paragraph("ارتفعت المبيعات بنسبة 12 % خلال الربع، وكان أداء المنطقة الشمالية الأفضل. تظهر الأرقام الإنجليزية مثل Q3 و INV-2026-0042 في مكانها الصحيح داخل السطر.")
+        yield return new Paragraph("ارتفعت المبيعات بنسبة 12% خلال الربع، وكان أداء المنطقة الشمالية الأفضل. تظهر الرموز اللاتينية مثل Q3 وINV-2026-0042 في مكانها الصحيح داخل السطر.")
         {
             Style = arabic,
             Direction = TextDirection.RightToLeft,

@@ -80,8 +80,8 @@ internal static class ScenarioDocuments
 
             if (section == 1)
             {
-                document.Add(new Heading(3, "Sales by quarter"));
-                document.Add(BarChart([4, 7, 5, 9, 6, 8, 3, 7], ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8"]));
+                document.Add(new Heading(3, "Sales by month"));
+                document.Add(BarChart([4, 7, 5, 9, 6, 8, 3, 7], ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"]));
             }
             else if (section == 2)
             {
@@ -98,7 +98,7 @@ internal static class ScenarioDocuments
         TextStyle arabic = new() { Family = "Noto Sans Arabic", Size = Length.Pt(11), Language = "ar" };
         for (int p = 0; p < 3; p++)
         {
-            document.Add(new Paragraph("ارتفعت المبيعات بنسبة 12 % خلال الربع، وكان أداء المنطقة الشمالية الأفضل. تظهر الأرقام الإنجليزية مثل Q3 و INV-2026-0042 في مكانها الصحيح داخل السطر.")
+            document.Add(new Paragraph("ارتفعت المبيعات بنسبة 12% خلال الربع، وكان أداء المنطقة الشمالية الأفضل. تظهر الرموز اللاتينية مثل Q3 وINV-2026-0042 في مكانها الصحيح داخل السطر.")
             {
                 Style = arabic,
                 Direction = TextDirection.RightToLeft,
@@ -132,7 +132,7 @@ internal static class ScenarioDocuments
                 canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by quarter" };
+        { AltText = "Bar chart of sales by month" };
     }
 
     private static Drawing LineChart(double[] values, string[] labels)

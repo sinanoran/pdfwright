@@ -66,8 +66,8 @@ These are the checks no test stands in for; the tests pass without them. Note wh
 1. **Native-speaker review of the corpus text.** `tests/Pdfwright.Tests/Corpus/pages/*.txt` and the single lines in `Corpus/*.txt` are original, ordinary phrases, but a test cannot tell whether a sentence is
    natural or a word is spelled the way a reader expects. The sample report and the user guide also carry a few Arabic sentences (`samples/Pdfwright.Samples.Report/ReportSample.cs`, `docs/guide.md`). Have a speaker of each
    language read its lines in a viewer, not in the source (a few minutes each): **Arabic, Hebrew, Hindi (Devanagari), Bengali, Tamil and Thai**, and for the pages in Latin and Cyrillic script
-   **Turkish, German, Polish, Vietnamese, Greek and Russian**. Two items of the Arabic reviewer's list were flagged and left as written: `ReportSample.cs` calls Latin codes (Q3 and INV-2026-0042) "الأرقام الإنجليزية"
-   (the English numbers), which may not be the usual way to say it, and `docs/guide.md` shows the footer "⁦1 / 3⁩ صفحة" where the usual form may be "صفحة 1 من 3".
+   **Turkish, German, Polish, Vietnamese, Greek and Russian**. An independent language review (22 Nov 2026) corrected the corpus, the report sample and the guide: `ReportSample.cs` now says "الرموز اللاتينية" (the Latin codes) for Q3 and INV-2026-0042, and `docs/guide.md` shows the
+   footer "صفحة 1 من 3". It was not a native-speaker review, which is still the check that counts.
 2. **Open the sample files in the viewers people use:** Chrome, Edge, Adobe Acrobat Reader and macOS Preview. Make the files:
 
    ```bash

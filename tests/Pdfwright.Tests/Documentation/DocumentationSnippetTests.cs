@@ -392,7 +392,7 @@ public class DocumentationSnippetTests
         // <snippet guide-drawing>
         // using System.Globalization;
         double[] values = [4, 7, 5, 9, 6];
-        string[] labels = ["Q1", "Q2", "Q3", "Q4", "Q5"];
+        string[] labels = ["Jan", "Feb", "Mar", "Apr", "May"];
         TextStyle small = new() { Size = Length.Pt(8) };
         TextMeasurer measurer = new(fonts, new TextStyle { Family = "Noto Sans" });
 
@@ -421,11 +421,11 @@ public class DocumentationSnippetTests
                 canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by quarter" });
+        { AltText = "Bar chart of sales by month" });
         // </snippet>
 
         string[] pages = await SaveAndReadAsync(document, cancellationToken);
-        Assert.Contains("Q5", pages[0]);
+        Assert.Contains("May", pages[0]);
         DocumentTestKit.AssertValid(_pdf!, "documentation");
     }
 
@@ -582,12 +582,34 @@ public class DocumentationSnippetTests
             Fonts = fonts,
             DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
             Direction = TextDirection.RightToLeft,
-            // The numbers sit inside a left-to-right isolate (U+2066 ... U+2069), and the footer stays a right-to-left line.
-            Footer = page => new Paragraph($"⁦{page.Number} / {page.Count}⁩ صفحة"),
+            // "Page" and the numbers: the numbers sit inside a left-to-right isolate (U+2066 ... U+2069), so "1 / 3" keeps its order, and the footer stays a right-to-left line.
+            Footer = page => new Paragraph($"صفحة ⁦{page.Number} / {page.Count}⁩"),
         });
         // </snippet>
 
         Assert.Equal("13", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
+        AssertFooterFileValid();
+    }
+
+    [Fact]
+    public async Task A_word_between_the_page_numbers_keeps_them_in_the_order_an_arabic_reader_expects()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+
+        // <snippet guide-rtl-footer-of>
+        PdfDocument document = new(new PdfDocumentOptions
+        {
+            Fonts = fonts,
+            DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Language = "ar" },
+            Direction = TextDirection.RightToLeft,
+            // "Page 1 of 3" in Arabic: the word "من" (of) separates the numbers, so each keeps its own place and the line reads from right to left.
+            Footer = page => new Paragraph($"صفحة {page.Number} من {page.Count}"),
+        });
+        // </snippet>
+
+        // From left to right the page count stands first and the page number last: read from the right, as Arabic is, that is "page 1 of 3".
+        Assert.Equal("31", await FooterDigitsOfFirstPageAsync(document, cancellationToken));
         AssertFooterFileValid();
     }
 
