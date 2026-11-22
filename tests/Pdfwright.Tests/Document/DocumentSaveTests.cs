@@ -198,6 +198,38 @@ public class DocumentSaveTests
     }
 
     [Fact]
+    public async Task A_save_cancelled_while_a_long_table_is_paginated_stops_within_a_row_and_writes_nothing()
+    {
+        // The rows are streamed; the enumerator cancels the token when it hands out row 500, which is pages into the table and before any byte reaches the
+        // destination (SaveAsync copies only when the layout is finished). The layout must notice within a row or two, not at the end of the table.
+        using CancellationTokenSource source = new();
+        int pulled = 0;
+        IEnumerable<TableRow> Rows()
+        {
+            for (int i = 0; i < 100_000; i++)
+            {
+                pulled++;
+                if (i == 500)
+                {
+                    source.Cancel();
+                }
+
+                yield return new TableRow($"row {i}", $"value {i}");
+            }
+        }
+
+        PdfDocument document = new(DocumentTestKit.Options());
+        document.Add(new Table([new(ColumnWidth.Fixed(Length.Pt(120))), new(ColumnWidth.Fixed(Length.Pt(200)))], new TableRow("Name", "Value"), Rows()));
+        AsyncOnlyStream destination = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => document.SaveAsync(destination, source.Token));
+
+        Assert.InRange(pulled, 501, 503);
+        Assert.Equal(0, destination.AsyncWrites);
+        Assert.Empty(destination.Bytes);
+    }
+
+    [Fact]
     public async Task A_render_cancelled_in_the_middle_of_the_layout_stops_with_an_OperationCanceledException()
     {
         // The destination cancels the token when the first block of the file reaches it, which is after several pages have been laid out and written.

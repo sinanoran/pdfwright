@@ -104,7 +104,7 @@ There is also a runnable sample, a multi-page report with a heading, a row of KP
 
 - **Fonts are supplied, never discovered.** A `FontCollection` is made once from TrueType bytes, parsed once, shared by every document and thread, and `IDisposable` (it holds native copies for the shaping engine). A font that forbids
   embedding is refused with `FontNotEmbeddableException`. A character no font has is drawn as the font's empty box and reported in the diagnostics; it is never an exception.
-- **Blocks flow.** You add `Heading`, `Paragraph`, `Table`, `Columns`, `Callout`, `Drawing`, `Image`, `Spacer` and `PageBreak` to a `PdfDocument`; they flow from the top of the first page and break onto new pages as they fill.
+- **Blocks flow.** You add `Heading`, `Paragraph`, `Table`, `ItemList` (bulleted, numbered and nested lists with a hanging indent), `Columns`, `Callout`, `Drawing`, `Image`, `Spacer` and `PageBreak` to a `PdfDocument`; they flow from the top of the first page and break onto new pages as they fill.
   There are no coordinates, except on the drawing canvas.
 - **Styles inherit.** A `TextStyle` has `Family`, `Size`, `Weight`, `Italic`, `Color` and `Language`, all optional; an unset property comes from the style around it: library defaults, the document's default style, the table or cell,
   the paragraph, the run.
@@ -182,6 +182,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
+- [Plan for 0.2](docs/plan-0.2.md): CJK (a CFF subsetter, a CJK corpus, Japanese line breaking), then tagged PDF.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 

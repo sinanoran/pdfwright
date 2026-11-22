@@ -90,6 +90,48 @@ internal sealed class ParagraphLayout
         Height = lines.Sum(l => l.Pitch);
     }
 
+    private ParagraphLayout(ParagraphLayout other, IReadOnlyList<LaidOutLine> lines)
+    {
+        ParagraphLevel = other.ParagraphLevel;
+        Text = other.Text;
+        Styles = other.Styles;
+        Lines = lines;
+        Missing = other.Missing;
+        _fonts = other._fonts;
+        _spans = other._spans;
+        _mixedColours = other._mixedColours;
+        Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
+        Height = lines.Sum(l => l.Pitch);
+    }
+
+    /// <summary>
+    /// The same paragraph with its first line made taller: its baseline <paramref name="extraAscent"/> lower and its pitch <paramref name="extraAscent"/> plus <paramref name="extraDescent"/> more.
+    /// A list item uses it to make room for a marker that is larger than the text.
+    /// </summary>
+    internal ParagraphLayout WithFirstLineGrown(double extraAscent, double extraDescent)
+    {
+        extraAscent = Math.Max(0, extraAscent);
+        extraDescent = Math.Max(0, extraDescent);
+        if (Lines.Count == 0 || (extraAscent <= 0 && extraDescent <= 0))
+        {
+            return this;
+        }
+
+        LaidOutLine first = Lines[0];
+        LaidOutLine grown = new()
+        {
+            Start = first.Start,
+            Length = first.Length,
+            Width = first.Width,
+            X = first.X,
+            Ascent = first.Ascent + extraAscent,
+            Descent = first.Descent + extraDescent,
+            Pitch = first.Pitch + extraAscent + extraDescent,
+            Runs = first.Runs,
+        };
+        return new ParagraphLayout(this, [grown, .. Lines.Skip(1)]);
+    }
+
     /// <summary>The text that was laid out; the <see cref="LaidOutLine.Start"/> of each line indexes into it.</summary>
     internal string Text { get; }
 

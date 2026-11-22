@@ -60,6 +60,14 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **Each page's part of a table gets its own outer top and bottom line**, not an open edge; a row split between pages has them where it is cut.
 - **A cell's padding is physical** (`Margins`), unlike its alignment, which is logical.
 
+## Lists
+
+- **The marker kinds are a bullet, decimal numbers, Arabic-Indic decimal numbers and lower and upper case letters.** No Roman numerals, no other digit sets (Persian, Devanagari, Thai and so on), no marker text of your own and no suffix other than the full stop (a bullet has none). Letters run a to z, then aa, ab and so on.
+- **Lists nest one level deep**: an item holds paragraphs and one or more lists, and a nested list's items may not hold a list; deeper is an `ArgumentException`. An item holds paragraphs and nested lists only: no heading, table, image or drawing.
+- **A list may be in a header or a footer** (alone, or in columns or a callout there), in a callout and in a column cell. There is no `KeepTogether` on a list as a whole; a paragraph of an item with `KeepTogether` is kept whole (it moves to the next page when it fits one, marker included), and any other item splits between pages by its lines like a paragraph, with no widow or orphan control beyond the marker being drawn with the first line of its item.
+- **A bullet is U+2022, or a fallback when no font has it**: the Arabic and Hebrew fonts have no U+2022, so a list in a collection of such fonts uses the first of U+25CF, U+2219, U+00B7 and the hyphen-minus that a font has (Noto Sans Arabic and Noto Sans Hebrew get the hyphen-minus). A marker larger than the text makes the first line of its item taller; the first paragraph's space before and the last one's space after are the larger of the list's and the paragraph's own.
+- **A marker starts at the start edge of its column and is not aligned to its last digit**: in a long list `9.` and `10.` start at the same edge, and the text of both starts after the widest marker. The marker is one text laid out on its own, in the style of the item's first paragraph (and `MarkerStyle`); a character no font has is reported in the diagnostics like any other.
+
 ## Columns, callouts, drawings, images, headers and footers
 
 - **There are no links yet.** The writer can write an external URI and an internal destination, but no block exposes them: a link on a run needs the rectangle of its characters on each line it wraps to, with bidirectional runs and runs shaped in parts. Not in 0.1.
