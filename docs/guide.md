@@ -339,9 +339,11 @@ document.Add(new ItemList(["البند الأول", "البند الثاني"]) 
   with `TextDirection.Auto` each item's text decides. A marker is set in the direction of its item, so in a right-to-left item `1.` shows the full stop to the left of the digit, where readers of Arabic and Hebrew expect it.
   `ArabicIndicDecimal` writes the digits U+0660 to U+0669; the font has to have them, and a marker that no font can draw is reported in `DocumentDiagnostics.MissingGlyphs` with its page like any other character.
 - **Pages.** A list flows like paragraphs: items are split between pages by their lines, and a marker is drawn with the first line of its item, so it never stands alone at the bottom of a page. A heading before a list stays with its first line.
-- **Where.** A list may be in the flow, in a `Callout` and in a cell of `Columns`. It cannot be in a header or a footer. Nesting is one level deep: a nested list may not hold a list, and trying to makes an `ArgumentException`.
-- **Spacing.** `ItemSpacing` is the space below each paragraph of an item (0.3 of the font size by default); `SpaceBefore` and `SpaceAfter` are the space around the whole list (0.6 of the font size below, by default).
-  `Style` is the style of the paragraphs and the markers, and `MarkerStyle` is laid over it for the markers only.
+- **Bullet.** The bullet is U+2022. A font may lack it (Noto Sans Arabic and Noto Sans Hebrew do): when no font of the collection has it for the item's style, the first of U+25CF, U+2219, U+00B7 and the hyphen-minus that a font has takes its place, so a collection of only such fonts still draws a bullet (both Noto Sans Arabic and Noto Sans Hebrew get the hyphen-minus).
+- **Where.** A list may be in the flow, in a `Callout`, in a cell of `Columns`, and as a header or a footer (or inside columns or a callout there). Nesting is one level deep: a nested list may not hold a list, and trying to makes an `ArgumentException`.
+- **Spacing.** `ItemSpacing` is the space below each paragraph of an item (0.3 of the font size by default); `SpaceBefore` and `SpaceAfter` are the space around the whole list (0.6 of the list's font size below, by default: the `Style` over the document's). A paragraph's own `SpaceBefore` on the first paragraph and `SpaceAfter` on the last count too: the larger of the two is used.
+  `Style` is the style of the paragraphs and the markers, and `MarkerStyle` is laid over it for the markers only. A `MarkerStyle` size larger than the text makes the first line of the item taller, so the marker never reaches into the line above.
+  A paragraph of an item with `KeepTogether` is kept whole, with its marker, and moves to the next page when it does not fit.
 
 ## Drawing: charts and figures
 
@@ -463,7 +465,7 @@ in a header, and drawn on a canvas.
 
 `Header` and `Footer` are functions from a `PageContext` (the number of the page, the page count, whether it is the first or the last, and the page size) to a block, or to `null` for a page with none. They are called
 once for each page, in order, **after the whole body has been laid out**, so `PageContext.Count` is the final count and "page x of y" costs nothing: a table of any length is still enumerated once. The block is laid out
-at the content width and drawn **inside the margin**, so the body's area does not change; it may be a paragraph, a heading, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, but
+at the content width and drawn **inside the margin**, so the body's area does not change; it may be a paragraph, a heading, a list, columns (a logo on one side and a date on the other), a callout, a drawing, an image or a spacer, but
 not a table or a page break. A block taller than the room the margin leaves (the margin minus the offset) fails the save with an `InvalidOperationException` that names the page and says whether it was the header or the footer.
 The callback should be a pure function of its argument.
 

@@ -1,4 +1,5 @@
 using System.Text;
+using Pdfwright.Text;
 
 namespace Pdfwright.Document;
 
@@ -12,12 +13,12 @@ internal sealed partial class DocumentRenderer
     private const int ArabicIndicZero = 0x0660;
 
     /// <summary>The text of the marker of the item with the number <paramref name="number"/> (from 1).</summary>
-    internal static string MarkerText(ListMarker marker, int number)
+    internal static string MarkerText(ListMarker marker, int number, char bullet = BulletCharacter)
     {
         switch (marker)
         {
             case ListMarker.Bullet:
-                return BulletCharacter.ToString();
+                return bullet.ToString();
             case ListMarker.Decimal:
                 return number.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".";
             case ListMarker.ArabicIndicDecimal:
@@ -34,6 +35,33 @@ internal sealed partial class DocumentRenderer
                 return letters + ".";
             }
         }
+    }
+
+    /// <summary>The characters a bullet falls back to when no font covers U+2022, in order: the black circle, the bullet operator, the middle dot and the hyphen-minus.</summary>
+    private static readonly char[] BulletFallbacks = ['●', '∙', '·', '-'];
+
+    /// <summary>
+    /// The bullet of a list set in <paramref name="style"/>: U+2022, or, when no font of the collection has it (the Arabic and Hebrew fonts do not), the first of <see cref="BulletFallbacks"/> that a font has.
+    /// The fonts are looked at in the order the style chooses them, the style's family first.
+    /// </summary>
+    private char BulletFor(ResolvedStyle style)
+    {
+        int[] order = _fonts.Order(style.Family, style.Weight, style.Italic);
+        bool Covered(char c) => order.Any(i => _fonts.Entries[i].Font.GlyphForCodePoint(c) != 0);
+        if (Covered(BulletCharacter))
+        {
+            return BulletCharacter;
+        }
+
+        foreach (char candidate in BulletFallbacks)
+        {
+            if (Covered(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return BulletCharacter;
     }
 
     /// <summary>
@@ -54,7 +82,7 @@ internal sealed partial class DocumentRenderer
         for (int i = 0; i < list.Items.Count; i++)
         {
             ResolvedStyle style = MarkerStyle(list, listStyle, list.Items[i]);
-            StyledLayout laid = BlockText.Layout([new TextRun(MarkerText(list.Marker, list.Start + i))], style, _fonts, null, TextAlignment.Start, measuring, 1.0);
+            StyledLayout laid = BlockText.Layout([new TextRun(MarkerText(list.Marker, list.Start + i, BulletFor(style)))], style, _fonts, null, TextAlignment.Start, measuring, 1.0);
             column = Math.Max(column, laid.Layout.Width);
         }
 
@@ -87,9 +115,10 @@ internal sealed partial class DocumentRenderer
                 StyledLayout? marker = null;
                 if (j == 0)
                 {
+                    ResolvedStyle markerStyle = MarkerStyle(list, listStyle, item);
                     marker = BlockText.Layout(
-                        [new TextRun(MarkerText(list.Marker, list.Start + i))],
-                        MarkerStyle(list, listStyle, item),
+                        [new TextRun(MarkerText(list.Marker, list.Start + i, BulletFor(markerStyle)))],
+                        markerStyle,
                         _fonts,
                         null,
                         TextAlignment.Start,
@@ -98,10 +127,19 @@ internal sealed partial class DocumentRenderer
                     NoteFamilies(marker);
                 }
 
+                // A marker larger than the text: the first line is made as tall as the marker needs, so that the marker does not reach into the paragraph above (the baseline moves down by the excess ascent).
+                ParagraphLayout laidOut = text.Layout;
+                if (marker is not null)
+                {
+                    LaidOutLine textLine = laidOut.Lines[0];
+                    LaidOutLine markerLine = marker.Layout.Lines[0];
+                    laidOut = laidOut.WithFirstLineGrown(markerLine.Ascent - textLine.Ascent, markerLine.Descent - textLine.Descent);
+                }
+
                 NoteFamilies(text);
                 StyledLayout placed = new()
                 {
-                    Layout = text.Layout,
+                    Layout = laidOut,
                     Styles = text.Styles,
                     Spans = text.Spans,
                     List = new ListPlacement { ContainerWidth = width, Inset = inset, MarkerInset = markerInset, RightToLeft = rtl, Marker = marker },
@@ -109,8 +147,10 @@ internal sealed partial class DocumentRenderer
                 result.Add(new TextItem
                 {
                     Styled = placed,
-                    Before = result.Count == 0 ? Space(list.SpaceBefore, 0) : Space(paragraph.SpaceBefore, 0),
-                    After = last ? lastAfter : Space(paragraph.SpaceAfter, itemGap),
+                    // The space before the first paragraph and after the last is the larger of the list's and the paragraph's own.
+                    Before = result.Count == 0 ? Math.Max(Space(list.SpaceBefore, 0), Space(paragraph.SpaceBefore, 0)) : Space(paragraph.SpaceBefore, 0),
+                    After = last ? Math.Max(lastAfter, Space(paragraph.SpaceAfter, 0)) : Space(paragraph.SpaceAfter, itemGap),
+                    KeepTogether = paragraph.KeepTogether,
                 });
             }
         }

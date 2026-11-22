@@ -5,7 +5,7 @@ namespace Pdfwright;
 /// <summary>What stands before each item of an <see cref="ItemList"/>.</summary>
 public enum ListMarker
 {
-    /// <summary>A bullet, U+2022, before every item.</summary>
+    /// <summary>A bullet, U+2022, before every item. When no font of the collection has U+2022 (the Arabic and Hebrew fonts do not), the first of U+25CF, U+2219, U+00B7 and the hyphen-minus that a font has is used instead.</summary>
     Bullet,
 
     /// <summary>The numbers 1, 2, 3 ... in the digits 0 to 9, each followed by a full stop.</summary>
@@ -99,7 +99,8 @@ public sealed record ListItem
 /// A list: items, each after a marker (a bullet, a number or a letter). The lines of an item that wrap are aligned with the text of its first line, not with the marker (a hanging indent), and the marker stands
 /// at the start edge: in a right-to-left item (the item's paragraph direction, else <see cref="Direction"/>, else the document's) it is at the right edge, with the text hanging to its left. The marker of a number is
 /// set in the direction of its item, so that in a right-to-left item the full stop is to the left of the digits, where right-to-left readers expect it. Items are split between pages line by line, like paragraphs, and the marker stays with the first line of its item.
-/// An item may hold more paragraphs and nested lists (one level deep: a list in a list may not hold a list). A list may be in a <see cref="Callout"/> or in a cell of <see cref="Columns"/>; it cannot be in a header or a footer. The name is not <c>List</c>, which
+/// An item may hold more paragraphs and nested lists (one level deep: a list in a list may not hold a list). A list may be in a <see cref="Callout"/>, in a cell of <see cref="Columns"/>, or be a header or a footer. The first paragraph's space before and the last paragraph's space after are the larger of the list's and the paragraph's own.
+/// The marker of a bullet is U+2022, or, when no font of the collection has it, the first of U+25CF, U+2219, U+00B7 and the hyphen-minus that a font has. A marker larger than the text makes the first line of its item taller. The name is not <c>List</c>, which
 /// is <see cref="System.Collections.Generic.List{T}"/> in most files. Two lists are equal when their items (one by one) and settings are equal.
 /// </summary>
 public sealed record ItemList : Block
@@ -191,7 +192,7 @@ public sealed record ItemList : Block
     /// <summary>The style that applies to the paragraphs and the markers of the list before the paragraph's own style, or <see langword="null"/> for the document's default.</summary>
     public TextStyle? Style { get; init; }
 
-    /// <summary>The style of the markers over <see cref="Style"/> and the first paragraph's style (a colour or a weight for the numbers), or <see langword="null"/> for none. A size that differs from the text's puts the marker on the baseline of the first line.</summary>
+    /// <summary>The style of the markers over <see cref="Style"/> and the first paragraph's style (a colour or a weight for the numbers), or <see langword="null"/> for none. A size that differs from the text's puts the marker on the baseline of the first line; a larger marker makes that line taller (above and below the baseline) so that it does not reach into the text above.</summary>
     public TextStyle? MarkerStyle { get; init; }
 
     /// <summary>The base direction of the paragraphs of the list that set none, and so the side the marker is on. <see langword="null"/> takes the document's (or the enclosing <see cref="Columns"/> or <see cref="Callout"/>'s); <see cref="TextDirection.Auto"/> lets each item's text decide.</summary>
@@ -210,7 +211,7 @@ public sealed record ItemList : Block
         init => _spaceBefore = Check.Space(value, nameof(SpaceBefore));
     }
 
-    /// <summary>The space below the list, or <see langword="null"/> for the default of 0.6 of the document's font size (for a nested list, the space between items). It is dropped at the bottom of a page.</summary>
+    /// <summary>The space below the list, or <see langword="null"/> for the default of 0.6 of the list's font size (<see cref="Style"/> over the document's; for a nested list, the space between items). It is dropped at the bottom of a page.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
     public Length? SpaceAfter
     {

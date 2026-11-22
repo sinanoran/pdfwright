@@ -179,8 +179,22 @@ internal sealed partial class DocumentRenderer
                 };
             }
 
+            case ItemList list:
+            {
+                // A list as one block (in a header or a footer): its paragraphs are a stack, drawn one under the other.
+                Stack stack = new([.. BuildList(list, width, direction, 0, _base.Apply(list.Style).Size * 0.6)]);
+                return new FixedItem
+                {
+                    Kind = "list",
+                    Height = stack.Height,
+                    Before = Space(list.SpaceBefore, 0),
+                    After = AfterDefault(list.SpaceAfter),
+                    Draw = (x, y) => DrawStack(stack, x, y),
+                };
+            }
+
             default:
-                throw new InvalidOperationException($"A {block.GetType().Name} cannot be placed here (a header or a footer holds a paragraph, heading, columns, callout, drawing, image or spacer).");
+                throw new InvalidOperationException($"A block of type {block.GetType().Name} cannot be placed here (a header or a footer holds a paragraph, heading, list, columns, callout, drawing, image or spacer).");
         }
     }
 

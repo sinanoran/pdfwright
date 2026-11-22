@@ -309,14 +309,172 @@ public class ItemListTests
         DocumentTestKit.AssertValid(pdf, "list-callout-split");
     }
 
+    // --- headers and footers ----------------------------------------------------------------------------------------------------
+
+    private static PdfDocumentOptions Framed(Action<DocumentTestKit.OptionsBuilder> change) =>
+        Small(b =>
+        {
+            b.Margins = Margins.Pt(70, 10, 70, 10);
+            change(b);
+        });
+
     [Fact]
-    public void A_list_cannot_be_in_a_header()
+    public void A_list_can_be_a_footer_and_is_drawn_in_the_bottom_margin_with_its_marker()
     {
-        PdfDocument document = new(Small(b => b.Header = _ => new ItemList(["x"])));
+        (byte[] pdf, _) = Save(Framed(b => b.Footer = _ => new ItemList(["foot item", "second foot"]) { Marker = ListMarker.Decimal }), new Paragraph("body"));
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Page page = read.GetPage(1);
+        Word one = Find(page, "1.");
+        Word foot = Find(page, "foot");
+        Word two = Find(page, "2.");
+        Assert.True(foot.BoundingBox.Top < 70, "the footer is inside the bottom margin");
+        Assert.True(two.BoundingBox.Top <= one.BoundingBox.Bottom + 0.5, "the second item is under the first");
+        Assert.True(Find(page, "body").BoundingBox.Bottom > 70, "the body is above the margin");
+        DocumentTestKit.AssertValid(pdf, "list-footer");
+    }
+
+    [Fact]
+    public void A_list_can_be_in_columns_in_a_header()
+    {
+        (byte[] pdf, _) = Save(
+            Framed(b => b.Header = _ => new Columns([[new ItemList(["head item"])], [new Paragraph("right cell")]])),
+            new Paragraph("body"));
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Page page = read.GetPage(1);
+        Word head = Find(page, "head");
+        Assert.True(head.BoundingBox.Bottom > 200 - 70, "the header is inside the top margin");
+        Assert.True(Find(page, "•").BoundingBox.Left < Find(page, "right").BoundingBox.Left);
+        DocumentTestKit.AssertValid(pdf, "list-header-columns");
+    }
+
+    [Fact]
+    public void The_refusal_of_a_block_in_a_header_reads_with_the_right_article_and_names_the_type()
+    {
+        PdfDocument document = new(Framed(b => b.Header = _ => new Table([new TableColumn()], [new TableRow(["x"])])));
         document.Add(new Paragraph("body"));
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => DocumentTestKit.Save(document));
-        Assert.Contains("header", error.Message, StringComparison.Ordinal);
+        Assert.Contains("A block of type Table cannot be placed here", error.ToString(), StringComparison.Ordinal);
+    }
+
+    // --- keeping an item together, spacing, large markers -------------------------------------------------------------------------
+
+    private static string Long(string word, int count) => string.Join(' ', Enumerable.Range(0, count).Select(i => word + i));
+
+    [Fact]
+    public void An_item_whose_paragraph_is_kept_together_moves_whole_to_the_next_page_with_its_marker()
+    {
+        (byte[] pdf, _) = Save(Small(), new Spacer(Length.Pt(140)), new ItemList([new ListItem(new Paragraph(Long("keep", 30)) { KeepTogether = true })]));
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Assert.Equal(2, read.NumberOfPages);
+        Assert.Empty(read.GetPage(1).GetWords());
+        Page second = read.GetPage(2);
+        Word bullet = Find(second, "•");
+        Word first = Find(second, "keep0");
+        Assert.Equal(first.BoundingBox.Bottom, bullet.BoundingBox.Bottom, 3);
+        Assert.Contains(second.GetWords(), w => w.Text == "keep29");
+    }
+
+    [Fact]
+    public void An_item_that_is_not_kept_together_still_splits_between_pages()
+    {
+        (byte[] pdf, _) = Save(Small(), new Spacer(Length.Pt(140)), new ItemList([Long("keep", 30)]));
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Assert.Contains(read.GetPage(1).GetWords(), w => w.Text == "keep0");
+        Assert.Contains(read.GetPage(2).GetWords(), w => w.Text == "keep29");
+    }
+
+    private static double Gap(Page page, string upper, string lower) => Find(page, upper).BoundingBox.Bottom - Find(page, lower).BoundingBox.Top;
+
+    [Fact]
+    public void The_space_before_the_first_paragraph_is_the_larger_of_the_lists_and_the_paragraphs()
+    {
+        double Measure(double own)
+        {
+            (byte[] pdf, _) = Save(
+                Small(),
+                new Paragraph("above") { SpaceAfter = Length.Pt(0) },
+                new ItemList([new ListItem(new Paragraph("first") { SpaceBefore = Length.Pt(own) })]) { SpaceBefore = Length.Pt(5) });
+            using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+            return Gap(read.GetPage(1), "above", "first");
+        }
+
+        Assert.Equal(25, Measure(30) - Measure(0), 0);
+        Assert.Equal(0, Measure(2) - Measure(0), 0); // the list's 5 pt is the larger
+    }
+
+    [Fact]
+    public void The_space_after_the_last_paragraph_is_the_larger_of_the_lists_and_the_paragraphs()
+    {
+        double Measure(double own)
+        {
+            (byte[] pdf, _) = Save(
+                Small(),
+                new ItemList([new ListItem(new Paragraph("last") { SpaceAfter = Length.Pt(own) })]) { SpaceAfter = Length.Pt(5) },
+                new Paragraph("below"));
+            using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+            return Gap(read.GetPage(1), "last", "below");
+        }
+
+        Assert.Equal(25, Measure(30) - Measure(0), 0);
+        Assert.Equal(0, Measure(2) - Measure(0), 0);
+    }
+
+    [Fact]
+    public void A_marker_larger_than_the_text_makes_its_line_taller_and_does_not_reach_into_the_lines_around_it()
+    {
+        (byte[] pdf, _) = Save(
+            Small(),
+            new Paragraph("above"),
+            new ItemList(["first", "second"]) { Marker = ListMarker.Decimal, MarkerStyle = new TextStyle { Size = Length.Pt(30) } });
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Page page = read.GetPage(1);
+        Word above = Find(page, "above");
+        Word one = Find(page, "1.");
+        Word two = Find(page, "2.");
+        Assert.True(one.BoundingBox.Top <= above.BoundingBox.Bottom + 0.5, $"the marker top {one.BoundingBox.Top} is below the paragraph above (bottom {above.BoundingBox.Bottom})");
+        Assert.True(two.BoundingBox.Top <= one.BoundingBox.Bottom + 0.5, "the second marker is under the first");
+        Assert.True(two.BoundingBox.Top <= Find(page, "first").BoundingBox.Bottom + 0.5, "the second marker is under the first item's text");
+        Assert.Equal(Find(page, "first").BoundingBox.Bottom, one.BoundingBox.Bottom, 0);
+    }
+
+    // --- the bullet in fonts that have no U+2022 --------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("NotoSansArabic-Regular.ttf", "Noto Sans Arabic", "مرحبا", (char)0x2D)]
+    [InlineData("NotoSansHebrew-Regular.ttf", "Noto Sans Hebrew", "שלום", (char)0x2D)]
+    public void A_bullet_in_a_collection_without_u2022_falls_back_to_a_glyph_a_font_has(string file, string family, string text, char expected)
+    {
+        FontCollection fonts = DocumentTestKit.Collection(file);
+        (byte[] pdf, PdfDocument document) = Save(
+            DocumentTestKit.Options(b =>
+            {
+                b.Fonts = fonts;
+                b.DefaultStyle = new TextStyle { Family = family, Size = Length.Pt(10) };
+            }),
+            new ItemList([text]) { Direction = TextDirection.RightToLeft });
+
+        Assert.Empty(document.Diagnostics.MissingGlyphs);
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        string markers = string.Concat(read.GetPage(1).GetWords().Where(w => w.Text.Length == 1 && w.Text[0] < 0x2100 && w.Text[0] != '•' && !char.IsLetter(w.Text[0]) && w.Text[0] != (char)0x34F).Select(w => w.Text));
+        Assert.Single(markers);
+        Assert.Equal(expected, markers[0]);
+        DocumentTestKit.AssertValid(pdf, "list-bullet-fallback-" + family.Replace(' ', '-'));
+    }
+
+    [Fact]
+    public void A_bullet_stays_u2022_when_a_font_of_the_collection_has_it()
+    {
+        (byte[] pdf, PdfDocument document) = Save(Small(), new ItemList(["x"]));
+
+        using UglyToad.PdfPig.PdfDocument read = Open(pdf);
+        Assert.Contains(read.GetPage(1).GetWords(), w => w.Text == "•");
+        Assert.Empty(document.Diagnostics.MissingGlyphs);
     }
 
     // --- diagnostics and extraction -------------------------------------------------------------------------------------------
