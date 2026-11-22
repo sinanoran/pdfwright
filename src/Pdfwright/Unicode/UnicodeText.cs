@@ -10,25 +10,35 @@ internal static class UnicodeText
     /// </summary>
     internal static int[] CodePoints(ReadOnlySpan<char> text, out int[] utf16Index)
     {
-        List<int> codePoints = new(text.Length);
-        List<int> indices = new(text.Length + 1);
-        for (int i = 0; i < text.Length;)
+        int pairs = 0;
+        for (int i = 0; i + 1 < text.Length; i++)
         {
-            indices.Add(i);
-            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            if (char.IsHighSurrogate(text[i]) && char.IsLowSurrogate(text[i + 1]))
             {
-                codePoints.Add(char.ConvertToUtf32(text[i], text[i + 1]));
-                i += 2;
-            }
-            else
-            {
-                codePoints.Add(char.IsSurrogate(text[i]) ? 0xFFFD : text[i]);
+                pairs++;
                 i++;
             }
         }
 
-        indices.Add(text.Length);
-        utf16Index = [.. indices];
-        return [.. codePoints];
+        int[] codePoints = new int[text.Length - pairs];
+        utf16Index = new int[codePoints.Length + 1];
+        int n = 0;
+        for (int i = 0; i < text.Length; n++)
+        {
+            utf16Index[n] = i;
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                codePoints[n] = char.ConvertToUtf32(text[i], text[i + 1]);
+                i += 2;
+            }
+            else
+            {
+                codePoints[n] = char.IsSurrogate(text[i]) ? 0xFFFD : text[i];
+                i++;
+            }
+        }
+
+        utf16Index[n] = text.Length;
+        return codePoints;
     }
 }

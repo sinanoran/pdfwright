@@ -26,6 +26,46 @@ internal sealed class ShapingFont : IDisposable
 
     internal ShaperFont Handle { get; }
 
+    /// <summary>The most runs the cache of shaped text holds; when it is full it is emptied (the text of a document that repeats is mostly its first few thousand different runs), so the memory stays bounded.</summary>
+    private const int CacheCapacity = 2048;
+
+    /// <summary>The longest run that is cached: a long paragraph is rarely repeated and costs more to hold.</summary>
+    private const int CacheTextLength = 256;
+
+    private readonly Dictionary<(string Text, bool RightToLeft, string Script, string? Language), ShapedGlyph[]> _cache = [];
+
+    /// <summary>The glyphs of a run shaped earlier (a whole text, shaped with no context), or <see langword="null"/>. A font is shared by every document and thread of its collection, so the cache is locked; the arrays are never changed after they are made.</summary>
+    internal ShapedGlyph[]? GetCached(string text, bool rightToLeft, string script, string? language)
+    {
+        if (text.Length > CacheTextLength)
+        {
+            return null;
+        }
+
+        lock (_cache)
+        {
+            return _cache.TryGetValue((text, rightToLeft, script, language), out ShapedGlyph[]? glyphs) ? glyphs : null;
+        }
+    }
+
+    internal void Cache(string text, bool rightToLeft, string script, string? language, ShapedGlyph[] glyphs)
+    {
+        if (text.Length > CacheTextLength)
+        {
+            return;
+        }
+
+        lock (_cache)
+        {
+            if (_cache.Count >= CacheCapacity)
+            {
+                _cache.Clear();
+            }
+
+            _cache[(text, rightToLeft, script, language)] = glyphs;
+        }
+    }
+
     public void Dispose() => Handle.Dispose();
 }
 
@@ -111,22 +151,40 @@ internal static class TextShaper
         }
 
         int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
-        BidiResult bidi = UnicodeBidi.Resolve(bidiText is null ? codePoints : BidiCodePoints(bidiText, codePoints.Length), paragraphLevel);
+        bool simple = FastPaths && codePoints.Length > 0 && IsSimpleLeftToRight(text, bidiText, paragraphLevel);
+        BidiResult bidi = simple ? SimpleBidi(text, bidiText) : UnicodeBidi.Resolve(bidiText is null ? codePoints : BidiCodePoints(bidiText, codePoints.Length), paragraphLevel);
         if (codePoints.Length == 0)
         {
             return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = [], Missing = [], CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
         }
 
-        List<(int Start, int Length, int Script)> scriptRuns = ScriptItemizer.Itemize(codePoints);
+        // The text of the simple path is one script: Latin when it has a letter, else Common (the itemizer's answer for it, which the tests hold the path to).
         int[] scriptOf = new int[codePoints.Length];
-        foreach ((int start, int length, int script) in scriptRuns)
+        if (simple)
         {
-            Array.Fill(scriptOf, script, start, length);
+            int only = ScriptData.Common;
+            foreach (char c in text)
+            {
+                if (c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z'))
+                {
+                    only = ScriptData.IdOf("Latn");
+                    break;
+                }
+            }
+
+            Array.Fill(scriptOf, only);
+        }
+        else
+        {
+            foreach ((int start, int length, int script) in ScriptItemizer.Itemize(codePoints))
+            {
+                Array.Fill(scriptOf, script, start, length);
+            }
         }
 
         List<int> missing = [];
         int[] styleOf = StyleOfCodePoints(codePoints.Length, utf16Index, text.Length, styling);
-        int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, styling, styleOf, missing);
+        int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, styling, styleOf, missing, simple);
 
         // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
         List<ShapedRun> runs = [];
@@ -207,16 +265,16 @@ internal static class TextShaper
     /// digits and punctuation, which belong to no script, stay in the font of the text before them when it covers them and the style is the same, so that a run is not
     /// cut at every space. When no font covers a whole cluster, the first font that covers its first character is used.
     /// </summary>
-    private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing)
+    private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing, bool everyCharacterIsACluster)
     {
-        bool[] boundaries = UnicodeGraphemeBreaker.Boundaries(codePoints);
+        bool[]? boundaries = everyCharacterIsACluster ? null : UnicodeGraphemeBreaker.Boundaries(codePoints);
         int[] chosen = new int[codePoints.Length];
         int previous = styling is null ? 0 : styling.FontOrders[styleOf[0]][0];
         int previousStyle = styleOf[0];
         for (int start = 0; start < codePoints.Length;)
         {
             int end = start + 1;
-            while (end < codePoints.Length && !boundaries[end])
+            while (boundaries is not null && end < codePoints.Length && !boundaries[end])
             {
                 end++;
             }
@@ -305,9 +363,81 @@ internal static class TextShaper
         return true;
     }
 
+    /// <summary>
+    /// Whether the faster paths are used (they give the same result as the general ones, which the tests hold them to by running both): the simple left-to-right path of <see cref="Shape"/> and the cache of shaped runs.
+    /// An internal switch for tests; it is read at the start of every call.
+    /// </summary>
+    internal static volatile bool FastPaths = true;
+
+    /// <summary>
+    /// Whether the text can skip bidi resolution, script itemization and grapheme cluster breaking: only printable ASCII (a tab in <paramref name="bidiText"/> where <paramref name="text"/> has the space it is shaped as), so every
+    /// character is one cluster and one level, and the paragraph does not start right to left. Digits, which the bidi rules would make level 2 after a right-to-left letter, cannot, there being none.
+    /// </summary>
+    private static bool IsSimpleLeftToRight(string text, string? bidiText, int paragraphLevel)
+    {
+        if (paragraphLevel == 1)
+        {
+            return false;
+        }
+
+        foreach (char c in text)
+        {
+            if (c is < ' ' or > '~')
+            {
+                return false;
+            }
+        }
+
+        if (bidiText is null)
+        {
+            return true;
+        }
+
+        if (bidiText.Length != text.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < bidiText.Length; i++)
+        {
+            if (bidiText[i] != text[i] && !(bidiText[i] == '\t' && text[i] == ' '))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The bidi result of text that <see cref="IsSimpleLeftToRight"/> accepted: paragraph level 0 and every level 0, with the classes of the characters.</summary>
+    private static BidiResult SimpleBidi(string text, string? bidiText)
+    {
+        string source = bidiText ?? text;
+        BidiClass[] classes = new BidiClass[source.Length];
+        for (int i = 0; i < classes.Length; i++)
+        {
+            classes[i] = BidiData.ClassOf(source[i]);
+        }
+
+        return new BidiResult(0, new byte[source.Length], classes);
+    }
+
     private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style)
     {
-        ShapedGlyph[] glyphs = font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, (level & 1) == 1, ScriptData.CodeOf(script), language);
+        bool rightToLeft = (level & 1) == 1;
+        string scriptTag = ScriptData.CodeOf(script);
+
+        // Only a run that is the whole text is cached: it is shaped with no context, so its glyphs depend on nothing but the key.
+        bool whole = FastPaths && utf16Start == 0 && utf16Length == text.Length;
+        ShapedGlyph[]? glyphs = whole ? font.GetCached(text, rightToLeft, scriptTag, language) : null;
+        if (glyphs is null)
+        {
+            glyphs = font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, rightToLeft, scriptTag, language);
+            if (whole)
+            {
+                font.Cache(text, rightToLeft, scriptTag, language, glyphs);
+            }
+        }
 
         return new ShapedRun { Utf16Start = utf16Start, Utf16Length = utf16Length, Level = level, Script = script, FontIndex = fontIndex, Style = style, Glyphs = glyphs };
     }

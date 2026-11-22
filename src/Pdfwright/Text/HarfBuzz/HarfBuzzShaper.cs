@@ -8,6 +8,9 @@ internal sealed class HarfBuzzShaper : IShaper
 {
     internal static HarfBuzzShaper Instance { get; } = new();
 
+    [ThreadStatic]
+    private static HarfBuzzSharp.Buffer? t_buffer;
+
     public ShaperFont CreateFont(byte[] fontBytes, int unitsPerEm)
     {
         ArgumentNullException.ThrowIfNull(fontBytes);
@@ -21,7 +24,10 @@ internal sealed class HarfBuzzShaper : IShaper
             throw new ArgumentException("The font was not made by the HarfBuzz shaper.", nameof(font));
         }
 
-        using HarfBuzzSharp.Buffer buffer = new();
+        // One buffer for each thread: a buffer is a native object that costs more to make than to reset.
+        HarfBuzzSharp.Buffer buffer = t_buffer ??= new HarfBuzzSharp.Buffer();
+        buffer.ClearContents();
+        buffer.ClusterLevel = ClusterLevel.Default;
 
         // The item offset and length make HarfBuzz see the text before and after the run as context (a joining letter, a tatweel).
         buffer.AddUtf16(text, start, length);
@@ -40,8 +46,8 @@ internal sealed class HarfBuzzShaper : IShaper
         }
 
         hb.Font.Shape(buffer);
-        GlyphInfo[] infos = buffer.GlyphInfos;
-        GlyphPosition[] positions = buffer.GlyphPositions;
+        ReadOnlySpan<GlyphInfo> infos = buffer.GetGlyphInfoSpan();
+        ReadOnlySpan<GlyphPosition> positions = buffer.GetGlyphPositionSpan();
         ShapedGlyph[] glyphs = new ShapedGlyph[infos.Length];
         for (int i = 0; i < infos.Length; i++)
         {
