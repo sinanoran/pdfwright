@@ -150,7 +150,7 @@ internal static class PngDecoder
 
         if (width > ImageSource.MaxSide || height > ImageSource.MaxSide)
         {
-            throw new ImageFormatException($"The PNG is {width} by {height} pixels: a side may have at most {ImageSource.MaxSide:N0}.");
+            throw new ImageFormatException(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The PNG is {width} by {height} pixels: a side may have at most {ImageSource.MaxSide:N0}."));
         }
 
         ImageSource.CheckPixels("PNG", width, height, maxPixels);

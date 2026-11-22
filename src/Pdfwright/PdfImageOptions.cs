@@ -15,7 +15,7 @@ public sealed class PdfImageOptions
     {
         get => _maxPixels;
         init => _maxPixels = value is < 1 or > Images.ImageSource.MaxPixelsCap
-            ? throw new ArgumentOutOfRangeException(nameof(MaxPixels), value, $"The pixel limit is between 1 and {Images.ImageSource.MaxPixelsCap:N0}.")
+            ? throw new ArgumentOutOfRangeException(nameof(MaxPixels), value, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The pixel limit is between 1 and {Images.ImageSource.MaxPixelsCap:N0}."))
             : value;
     }
 }

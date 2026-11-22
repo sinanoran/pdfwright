@@ -111,11 +111,13 @@ internal sealed class ImageSource
             return;
         }
 
+        // The numbers are written the same way whatever the current culture, so the message reads the same on every machine.
+        System.Globalization.CultureInfo invariant = System.Globalization.CultureInfo.InvariantCulture;
         string how = maxPixels < MaxPixelsCap
-            ? $"To read it, pass a PdfImageOptions with a larger MaxPixels (up to {MaxPixelsCap:N0}) to PdfImage.FromBytes."
+            ? string.Create(invariant, $"To read it, pass a PdfImageOptions with a larger MaxPixels (up to {MaxPixelsCap:N0}) to PdfImage.FromBytes.")
             : "That is the largest limit that PdfImageOptions.MaxPixels allows.";
         throw new ImageFormatException(
-            $"The {format} is {width:N0} by {height:N0} pixels ({pixels:N0} in all), more than the limit of {maxPixels:N0} pixels (PdfImageOptions.MaxPixels, {DefaultMaxPixels:N0} by default; it applies to a JPEG as well as to a PNG). {how}",
+            string.Create(invariant, $"The {format} is {width:N0} by {height:N0} pixels ({pixels:N0} in all), more than the limit of {maxPixels:N0} pixels (PdfImageOptions.MaxPixels, {DefaultMaxPixels:N0} by default; it applies to a JPEG as well as to a PNG). {how}"),
             limitExceeded: true);
     }
 
