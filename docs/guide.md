@@ -4,7 +4,7 @@ This is the guide to the whole public surface of version 0.1, in the order a rep
 [known-limitations.md](known-limitations.md) lists what it does not do and why. The full public surface (every type and member) is recorded in
 `tests/Pdfwright.Tests/PublicApi/Pdfwright.PublicApi.txt`, and every public member has XML documentation that your editor shows.
 
-Every code block in this guide is compiled and run by the test suite (`tests/Pdfwright.Tests/Documentation`), and the suite fails when a block and the code that was run differ,
+Every C# code block in this guide is compiled and run by the test suite (`tests/Pdfwright.Tests/Documentation`), and the suite fails when a block and the code that was run differ,
 so what you copy is what was tested. A block is a piece of a program, not a whole one: unless it makes its own, the snippets assume
 
 - `fonts`, a `FontCollection` holding the fonts of the examples (Noto Sans in regular, bold and italic, and Noto Sans Arabic);
@@ -32,6 +32,7 @@ Two type names are also names in `System.Drawing`: `Drawing` and `Image`. Where 
 14. [Metadata and deterministic output](#metadata-and-deterministic-output)
 15. [Diagnostics and limits](#diagnostics-and-limits)
 16. [Threads and lifetimes](#threads-and-lifetimes)
+17. [Startup time](#startup-time)
 
 ## How a document is made
 
@@ -686,3 +687,32 @@ collection throws `ObjectDisposedException` after it is disposed.
 - A `PdfDocument` is not thread-safe: do not use one instance from several threads at once (adding while a save runs, or two saves at once, throws `InvalidOperationException`). Make a document for each report.
 - Do not dispose a `FontCollection` while a document made with it is being saved.
 - The callbacks (`Drawing`'s, `Header` and `Footer`) run during the save, on the thread that saves, so they should not capture something that changes meanwhile.
+
+## Startup time
+
+The first document a process saves pays for compiling the code it runs (the JIT): in a fresh process most of the time of a first report is that, not the work. A service that saves many reports pays it once; a command-line tool or a function that starts a process per report pays it every time. Publishing the application with ReadyToRun compiles it ahead of time, Pdfwright and the other libraries included, so nothing in the library has to change:
+
+<!-- snippet: none -->
+```xml
+<PropertyGroup>
+  <PublishReadyToRun>true</PublishReadyToRun>
+  <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+</PropertyGroup>
+```
+
+or, for one publish:
+
+<!-- snippet: none -->
+```bash
+dotnet publish -c Release -r linux-x64 --self-contained false -p:PublishReadyToRun=true
+```
+
+Measured with the benchmark program of the repository (`benchmarks/Pdfwright.Benchmarks`, .NET 10, Windows x64, 30 fresh processes per set, two sets; [baselines.md](baselines.md) has the method and the caveats of that machine), from the start of the process to its exit:
+
+| A fresh process that saves | Default (JIT) | ReadyToRun |
+|---|---|---|
+| a table of 1,000 rows (21 pages) | 607 and 549 ms | 378 and 370 ms |
+| a ten-page report | 432 and 393 ms | 264 and 251 ms |
+| nothing (the runtime starting) | 113 and 109 ms | 111 and 107 ms |
+
+ReadyToRun about doubles the size of the published assemblies (the benchmark's grew from 27 MB to 55 MB) and the code it compiled ahead of time is recompiled by the JIT when it is hot, so a long-running service keeps its steady-state speed. Turning tiered PGO off for the process (`DOTNET_TieredPGO=0`) took about 10 to 25 percent more off the first save in the same measurement (the table: 343 and 331 ms with ReadyToRun, 479 and 461 ms without), at the cost of the profile-guided optimisation that a long-running process gains from; measure it on your own workload before you use it. What is left of the first save, the runtime starting and the work itself, is a matter of the application (keeping a process alive, for one), not of the library; native AOT has not been tried with Pdfwright and its native shaping library.
