@@ -243,7 +243,8 @@ internal static class ParagraphLayouter
             }
         }
 
-        int at = 0;
+        // A long, so that lengths that add up past int.MaxValue cannot wrap back to the length of the text and pass.
+        long at = 0;
         foreach (StyledSpan span in spans)
         {
             if (span.Start != at || span.Length < 0 || (uint)span.Style >= (uint)styles.Count)
@@ -438,7 +439,16 @@ internal static class ParagraphLayouter
             _mandatory = ScratchArray.Rent<bool>(codePointCount + 1);
             try
             {
-                UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints.AsSpan(0, codePointCount), graphemeBoundary);
+                // A paragraph of the simple path is printable ASCII: no grapheme cluster is longer than a character and the tables of that range stand for the general lookups (they give the same result, which the tests hold them to).
+                if (paragraph.PrintableAscii)
+                {
+                    UnicodeGraphemeBreaker.BoundariesOfPrintableAscii(codePointCount, graphemeBoundary);
+                }
+                else
+                {
+                    UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints.AsSpan(0, codePointCount), graphemeBoundary);
+                }
+
                 Array.Clear(_anywhere, 0, Count + 1);
                 for (int i = 1; i < codePointCount; i++)
                 {
@@ -447,7 +457,15 @@ internal static class ParagraphLayouter
 
                 // The places where a line may end: a break opportunity of UAX #14 that is also a grapheme and a glyph cluster boundary, so that no cluster is split
                 // (a right-to-left run has a cluster for a mark of its own, so the glyph clusters alone no longer keep a mark with its base).
-                UnicodeLineBreaker.Breaks(paragraph.CodePoints.AsSpan(0, codePointCount), breaks);
+                if (paragraph.PrintableAscii)
+                {
+                    UnicodeLineBreaker.BreaksOfPrintableAscii(paragraph.CodePoints.AsSpan(0, codePointCount), breaks);
+                }
+                else
+                {
+                    UnicodeLineBreaker.Breaks(paragraph.CodePoints.AsSpan(0, codePointCount), breaks);
+                }
+
                 for (int i = 1; i <= codePointCount; i++)
                 {
                     if (breaks[i] != LineBreakKind.None && graphemeBoundary[i] && _boundary[utf16[i]] && (i == codePointCount || paragraph.CodePoints[i - 1] != SoftHyphen))
