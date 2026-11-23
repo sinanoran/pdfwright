@@ -240,6 +240,41 @@ internal sealed class ShapedParagraph
     /// a run's own level has L1 applied to the paragraph as one line, which is wrong for the white space at the end of every line but the last.
     /// </summary>
     internal required BidiResult Bidi { get; init; }
+
+    private int? _codePointCount;
+
+    /// <summary>
+    /// The number of code points of the text. The arrays above are as long as this unless the paragraph was shaped with <c>pooled</c> (see <see cref="TextShaper.Shape"/>), when they come from the array pool,
+    /// may be longer and hold anything past this count: a reader must use the count, never the length of an array.
+    /// </summary>
+    internal int CodePointCount
+    {
+        get => _codePointCount ?? CodePoints.Length;
+        init => _codePointCount = value;
+    }
+
+    /// <summary>Whether the arrays of the code points and of the bidi result were rented from <see cref="ScratchArray"/> and must be given back with <see cref="Release"/>.</summary>
+    internal bool Pooled { get; init; }
+
+    private bool _released;
+
+    /// <summary>
+    /// Gives the rented arrays back (a paragraph that is not <see cref="Pooled"/> has nothing to give back). The paragraph's code points, indices and bidi result must not be read afterwards, nor may anything hold them: the runs, the glyphs and the list of missing
+    /// characters are not rented and stay valid. Calling it twice does no harm.
+    /// </summary>
+    internal void Release()
+    {
+        if (!Pooled || _released)
+        {
+            return;
+        }
+
+        _released = true;
+        ScratchArray.Return(CodePoints);
+        ScratchArray.Return(Utf16Index);
+        ScratchArray.Return(Bidi.Levels);
+        ScratchArray.Return(Bidi.Classes);
+    }
 }
 
 /// <summary>
@@ -256,8 +291,10 @@ internal static class TextShaper
     /// the text is taken as it is written and a combining mark at its start gets no dotted circle. <paramref name="bidiText"/>, when given, is a text of the
     /// same code points in number that the bidi algorithm reads instead of <paramref name="text"/> (a tab shaped as a space still resolves as a tab: rule L1 needs the segment separator).
     /// <paramref name="styling"/>, when given, sets stretches of the text in different styles: each has its own order of fonts, size and language, and a run never spans two styles that are shaped differently (a change of colour alone does not end a run).
+    /// <paramref name="pooled"/> lets the simple path rent the arrays the paragraph keeps (its code points, their indices and the bidi result) from <see cref="ScratchArray"/>: the caller then owns the paragraph and must call
+    /// <see cref="ShapedParagraph.Release"/> once it is done with them, after which nothing may read them. The runs and their glyphs are never rented, since they outlive the paragraph in the lines.
     /// </summary>
-    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null, ShapeStyling? styling = null)
+    internal static ShapedParagraph Shape(string text, IReadOnlyList<ShapingFont> fonts, int paragraphLevel = UnicodeBidi.AutoLevel, string? language = null, string? bidiText = null, ShapeStyling? styling = null, bool pooled = false)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(fonts);
@@ -266,58 +303,119 @@ internal static class TextShaper
             throw new ArgumentException("At least one font is needed.", nameof(fonts));
         }
 
-        int[] codePoints = UnicodeText.CodePoints(text, out int[] utf16Index);
-        bool simple = FastPaths && codePoints.Length > 0 && IsSimpleLeftToRight(text, bidiText, paragraphLevel);
-        BidiResult bidi = simple ? SimpleBidi(text, bidiText) : UnicodeBidi.Resolve(bidiText is null ? codePoints : BidiCodePoints(bidiText, codePoints.Length), paragraphLevel);
-        if (codePoints.Length == 0)
+        // Every character of printable ASCII is one code point, one cluster and one UTF-16 unit, which is why the simple path needs no decoding (the text has a code point for each of its characters).
+        bool simple = FastPaths && text.Length > 0 && IsSimpleLeftToRight(text, bidiText, paragraphLevel);
+        bool rented = pooled && simple;
+        int[] codePoints;
+        int[] utf16Index;
+        BidiResult bidi;
+        if (rented)
+        {
+            // The arrays that the paragraph keeps are rented, and given back by its Release; a rented array may be longer than the text and holds what it was left with, so each is written in full to the count that is read.
+            codePoints = ScratchArray.Rent<int>(text.Length);
+            utf16Index = ScratchArray.Rent<int>(text.Length + 1);
+            for (int i = 0; i < text.Length; i++)
+            {
+                codePoints[i] = text[i];
+                utf16Index[i] = i;
+            }
+
+            utf16Index[text.Length] = text.Length;
+            bidi = SimpleBidi(bidiText ?? text, true);
+        }
+        else
+        {
+            codePoints = UnicodeText.CodePoints(text, out utf16Index);
+            bidi = simple ? SimpleBidi(bidiText ?? text, false) : UnicodeBidi.Resolve(bidiText is null ? codePoints : BidiCodePoints(bidiText, codePoints.Length), paragraphLevel);
+        }
+
+        int count = rented ? text.Length : codePoints.Length;
+        if (count == 0)
         {
             return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = [], Missing = [], CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
         }
 
-        // The text of the simple path is one script: Latin when it has a letter, else Common (the itemizer's answer for it, which the tests hold the path to).
-        int[] scriptOf = new int[codePoints.Length];
-        if (simple)
+        // What follows is scratch that no result keeps (a run takes only its numbers from these arrays), so it is rented whatever the caller asked for and given back on every way out of the method.
+        int[]? scriptOf = null;
+        int[]? styleOf = null;
+        int[]? fontOf = null;
+        ShapedParagraph? result = null;
+        try
         {
-            int only = ScriptData.Common;
-            foreach (char c in text)
+            // The text of the simple path is one script: Latin when it has a letter, else Common (the itemizer's answer for it, which the tests hold the path to).
+            scriptOf = ScratchArray.Rent<int>(count);
+            if (simple)
             {
-                if (c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z'))
+                int only = ScriptData.Common;
+                foreach (char c in text)
                 {
-                    only = ScriptData.IdOf("Latn");
-                    break;
+                    if (c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z'))
+                    {
+                        only = ScriptData.IdOf("Latn");
+                        break;
+                    }
+                }
+
+                Array.Fill(scriptOf, only, 0, count);
+            }
+            else
+            {
+                foreach ((int start, int length, int script) in ScriptItemizer.Itemize(codePoints))
+                {
+                    Array.Fill(scriptOf, script, start, length);
                 }
             }
 
-            Array.Fill(scriptOf, only);
-        }
-        else
-        {
-            foreach ((int start, int length, int script) in ScriptItemizer.Itemize(codePoints))
-            {
-                Array.Fill(scriptOf, script, start, length);
-            }
-        }
+            List<int> missing = [];
+            styleOf = ScratchArray.Rent<int>(count);
+            StyleOfCodePoints(styleOf, count, utf16Index, text.Length, styling);
+            fontOf = ScratchArray.Rent<int>(count);
+            ChooseFonts(fontOf, codePoints, count, utf16Index, fonts, styling, styleOf, missing, simple);
 
-        List<int> missing = [];
-        int[] styleOf = StyleOfCodePoints(codePoints.Length, utf16Index, text.Length, styling);
-        int[] fontOf = ChooseFonts(codePoints, utf16Index, fonts, styling, styleOf, missing, simple);
-
-        // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
-        List<ShapedRun> runs = [];
-        int runStart = 0;
-        for (int i = 1; i <= codePoints.Length; i++)
-        {
-            if (i < codePoints.Length && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart] && KeyOf(styling, styleOf[i]) == KeyOf(styling, styleOf[runStart]))
+            // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
+            List<ShapedRun> runs = [];
+            int runStart = 0;
+            for (int i = 1; i <= count; i++)
             {
-                continue;
+                if (i < count && bidi.Levels[i] == bidi.Levels[runStart] && scriptOf[i] == scriptOf[runStart] && fontOf[i] == fontOf[runStart] && KeyOf(styling, styleOf[i]) == KeyOf(styling, styleOf[runStart]))
+                {
+                    continue;
+                }
+
+                string? runLanguage = styling is null ? language : styling.Languages[styleOf[runStart]];
+                runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], runLanguage, styleOf[runStart], simple));
+                runStart = i;
             }
 
-            string? runLanguage = styling is null ? language : styling.Languages[styleOf[runStart]];
-            runs.Add(ShapeRun(text, utf16Index[runStart], utf16Index[i] - utf16Index[runStart], bidi.Levels[runStart], scriptOf[runStart], fontOf[runStart], fonts[fontOf[runStart]], runLanguage, styleOf[runStart], simple));
-            runStart = i;
+            result = new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing, CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi, CodePointCount = count, Pooled = rented };
+            return result;
         }
+        finally
+        {
+            if (scriptOf is not null)
+            {
+                ScratchArray.Return(scriptOf);
+            }
 
-        return new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing, CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi };
+            if (styleOf is not null)
+            {
+                ScratchArray.Return(styleOf);
+            }
+
+            if (fontOf is not null)
+            {
+                ScratchArray.Return(fontOf);
+            }
+
+            if (rented && result is null)
+            {
+                // Nobody got the paragraph (a style that does not tile the text, a font that fails): its arrays are given back here, since no caller will.
+                ScratchArray.Return(codePoints);
+                ScratchArray.Return(utf16Index);
+                ScratchArray.Return(bidi.Levels);
+                ScratchArray.Return(bidi.Classes);
+            }
+        }
     }
 
     /// <summary>
@@ -346,12 +444,12 @@ internal static class TextShaper
     private static int KeyOf(ShapeStyling? styling, int style) => styling is null ? 0 : styling.ShapeKeys[style];
 
     /// <summary>The style of every code point: that of the span that holds it, or 0 with no styling.</summary>
-    private static int[] StyleOfCodePoints(int count, int[] utf16Index, int textLength, ShapeStyling? styling)
+    private static void StyleOfCodePoints(int[] styleOf, int count, int[] utf16Index, int textLength, ShapeStyling? styling)
     {
-        int[] styleOf = new int[count];
+        Array.Clear(styleOf, 0, count);
         if (styling is null)
         {
-            return styleOf;
+            return;
         }
 
         int span = 0;
@@ -370,8 +468,6 @@ internal static class TextShaper
 
             styleOf[i] = s.Style;
         }
-
-        return styleOf;
     }
 
     /// <summary>
@@ -381,16 +477,15 @@ internal static class TextShaper
     /// digits and punctuation, which belong to no script, stay in the font of the text before them when it covers them and the style is the same, so that a run is not
     /// cut at every space. When no font covers a whole cluster, the first font that covers its first character is used.
     /// </summary>
-    private static int[] ChooseFonts(int[] codePoints, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing, bool everyCharacterIsACluster)
+    private static void ChooseFonts(int[] chosen, int[] codePoints, int count, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing, bool everyCharacterIsACluster)
     {
-        bool[]? boundaries = everyCharacterIsACluster ? null : UnicodeGraphemeBreaker.Boundaries(codePoints);
-        int[] chosen = new int[codePoints.Length];
+        bool[]? boundaries = everyCharacterIsACluster ? null : UnicodeGraphemeBreaker.Boundaries(codePoints.AsSpan(0, count));
         int previous = styling is null ? 0 : styling.FontOrders[styleOf[0]][0];
         int previousStyle = styleOf[0];
-        for (int start = 0; start < codePoints.Length;)
+        for (int start = 0; start < count;)
         {
             int end = start + 1;
-            while (boundaries is not null && end < codePoints.Length && !boundaries[end])
+            while (boundaries is not null && end < count && !boundaries[end])
             {
                 end++;
             }
@@ -412,8 +507,6 @@ internal static class TextShaper
             previousStyle = style;
             start = end;
         }
-
-        return chosen;
     }
 
     /// <summary>Picks the font for the cluster [start, end). <c>previous</c> is the font of the cluster before when it has the same style, and -1 when the style changed (a neutral character then takes the first font of the order that covers it).</summary>
@@ -526,17 +619,25 @@ internal static class TextShaper
         return true;
     }
 
-    /// <summary>The bidi result of text that <see cref="IsSimpleLeftToRight"/> accepted: paragraph level 0 and every level 0, with the classes of the characters.</summary>
-    private static BidiResult SimpleBidi(string text, string? bidiText)
+    /// <summary>
+    /// The bidi result of <paramref name="source"/>, text that <see cref="IsSimpleLeftToRight"/> accepted: paragraph level 0 and every level 0, with the classes of the characters. With <paramref name="rented"/> the two arrays come from
+    /// <see cref="ScratchArray"/> (longer than the text, and every entry that is read is written here) and the paragraph that holds them gives them back.
+    /// </summary>
+    private static BidiResult SimpleBidi(string source, bool rented)
     {
-        string source = bidiText ?? text;
-        BidiClass[] classes = new BidiClass[source.Length];
-        for (int i = 0; i < classes.Length; i++)
+        BidiClass[] classes = rented ? ScratchArray.Rent<BidiClass>(source.Length) : new BidiClass[source.Length];
+        byte[] levels = rented ? ScratchArray.Rent<byte>(source.Length) : new byte[source.Length];
+        for (int i = 0; i < source.Length; i++)
         {
             classes[i] = BidiData.ClassOf(source[i]);
         }
 
-        return new BidiResult(0, new byte[source.Length], classes);
+        if (rented)
+        {
+            Array.Clear(levels, 0, source.Length);
+        }
+
+        return new BidiResult(0, levels, classes);
     }
 
     private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style, bool simple)
@@ -574,65 +675,89 @@ internal static class TextShaper
     /// </summary>
     private static ShapedGlyph[]? ShapeByWords(string text, int start, int length, string scriptTag, string? language, ShapingFont font)
     {
-        // Latin text has about one glyph for each character; the array grows if a ligature font makes more and is cut to size at the end.
+        // The words of the run are found first, so that the result is made once, of the size it will have: the glyphs of a run are kept by the lines (and by the font's cache of whole texts), so an array that is made too big and cut would leave a copy behind.
+        // The segments of a run are at most as many as its characters; the array that holds them is rented and, being references, cleared before it goes back.
         ShapingFont.WordTable table = font.GetWordTable(scriptTag, language);
-        ShapedGlyph[] result = new ShapedGlyph[length];
-        int count = 0;
-        int end = start + length;
-        for (int segment = start; segment < end;)
+        ShapingFont.ShapedWord[] words = ScratchArray.Rent<ShapingFont.ShapedWord>(length);
+        int wordCount = 0;
+        try
         {
-            bool spaces = text[segment] == ' ';
-            int segmentEnd = segment + 1;
-            while (segmentEnd < end && (text[segmentEnd] == ' ') == spaces)
+            int total = 0;
+            int end = start + length;
+            for (int segment = start; segment < end;)
             {
-                segmentEnd++;
-            }
-
-            int segmentLength = segmentEnd - segment;
-            ShapingFont.ShapedWord? word = table.Get(text, segment, segmentLength);
-            if (word is null)
-            {
-                string piece = text.Substring(segment, segmentLength);
-                ShapedGlyph[] shaped = font.Shaper.Shape(font.Handle, piece, 0, segmentLength, false, scriptTag, language);
-                bool allBase = true;
-                foreach (ShapedGlyph g in shaped)
+                bool spaces = text[segment] == ' ';
+                int segmentEnd = segment + 1;
+                while (segmentEnd < end && (text[segmentEnd] == ' ') == spaces)
                 {
-                    if (!font.Handle.IsBaseGlyph(g.Glyph))
-                    {
-                        allBase = false;
-                        break;
-                    }
+                    segmentEnd++;
                 }
 
-                word = new ShapingFont.ShapedWord(shaped, allBase);
-                table.Add(piece, word);
+                int segmentLength = segmentEnd - segment;
+                ShapingFont.ShapedWord? word = table.Get(text, segment, segmentLength);
+                if (word is null)
+                {
+                    string piece = text.Substring(segment, segmentLength);
+                    ShapedGlyph[] shaped = font.Shaper.Shape(font.Handle, piece, 0, segmentLength, false, scriptTag, language);
+                    bool allBase = true;
+                    foreach (ShapedGlyph g in shaped)
+                    {
+                        if (!font.Handle.IsBaseGlyph(g.Glyph))
+                        {
+                            allBase = false;
+                            break;
+                        }
+                    }
+
+                    word = new ShapingFont.ShapedWord(shaped, allBase);
+                    table.Add(piece, word);
+                }
+
+                if (!word.AllBase)
+                {
+                    return null;
+                }
+
+                words[wordCount++] = word;
+                total += word.Glyphs.Length;
+                segment = segmentEnd;
             }
 
-            if (!word.AllBase)
+            ShapedGlyph[] result = new ShapedGlyph[total];
+            int count = 0;
+            int at = start;
+            for (int w = 0; w < wordCount; w++)
             {
-                return null;
+                ShapedGlyph[] glyphs = words[w].Glyphs;
+                for (int i = 0; i < glyphs.Length; i++)
+                {
+                    result[count++] = glyphs[i] with { Cluster = glyphs[i].Cluster + at };
+                }
+
+                // The segment's own length is not kept with the word, so the next segment starts where the glyphs of this one leave off in the text: found again from the text, as the first loop found it.
+                at = NextSegmentStart(text, at, end);
             }
 
-            ShapedGlyph[] glyphs = word.Glyphs;
-            if (count + glyphs.Length > result.Length)
-            {
-                Array.Resize(ref result, Math.Max(count + glyphs.Length, result.Length * 2));
-            }
-
-            for (int i = 0; i < glyphs.Length; i++)
-            {
-                result[count++] = glyphs[i] with { Cluster = glyphs[i].Cluster + segment };
-            }
-
-            segment = segmentEnd;
+            return result;
         }
-
-        if (count != result.Length)
+        finally
         {
-            Array.Resize(ref result, count);
+            Array.Clear(words, 0, wordCount);
+            ScratchArray.Return(words);
+        }
+    }
+
+    /// <summary>The index where the segment after the one that starts at <paramref name="segment"/> starts: a stretch of spaces, or of other characters, ends at the first character of the other kind.</summary>
+    private static int NextSegmentStart(string text, int segment, int end)
+    {
+        bool spaces = text[segment] == ' ';
+        int next = segment + 1;
+        while (next < end && (text[next] == ' ') == spaces)
+        {
+            next++;
         }
 
-        return result;
+        return next;
     }
 }
 

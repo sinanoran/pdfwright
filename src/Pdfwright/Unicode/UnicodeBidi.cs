@@ -217,11 +217,29 @@ internal static class UnicodeBidi
     }
 
     /// <summary>
+    /// The same as <see cref="LineLevels"/>, written into the first <c>end - start</c> entries of <paramref name="levels"/> instead of a new array, so that a layout that builds many lines allocates none for their levels.
+    /// </summary>
+    internal static void LineLevelsInto(BidiResult paragraph, int start, int end, Span<byte> levels)
+    {
+        ArgumentNullException.ThrowIfNull(paragraph);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)start, (uint)end, nameof(start));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, paragraph.Levels.Length, nameof(end));
+        int count = end - start;
+        ArgumentOutOfRangeException.ThrowIfLessThan(levels.Length, count, nameof(levels));
+        levels = levels[..count];
+        paragraph.Levels.AsSpan(start, count).CopyTo(levels);
+        ApplyL1Core(levels, paragraph.Classes.AsSpan(start, count), 0, count, paragraph.ParagraphLevel);
+    }
+
+    /// <summary>
     /// Rule L1 for the line [<paramref name="start"/>, <paramref name="end"/>) of <paramref name="levels"/>, in place: segment and
     /// paragraph separators, and whitespace before them or at the end of the line, return to the paragraph level. It only ever
     /// sets a level to the paragraph level, so applying it again to a level array that already had it applied changes nothing.
     /// </summary>
-    internal static void ApplyL1(byte[] levels, BidiClass[] classes, int start, int end, byte paragraphLevel)
+    internal static void ApplyL1(byte[] levels, BidiClass[] classes, int start, int end, byte paragraphLevel) => ApplyL1Core(levels.AsSpan(), classes.AsSpan(), start, end, paragraphLevel);
+
+    /// <summary>The same as the array form, on spans (a line's levels need not be an array).</summary>
+    internal static void ApplyL1Core(Span<byte> levels, ReadOnlySpan<BidiClass> classes, int start, int end, byte paragraphLevel)
     {
         for (int i = start; i < end; i++)
         {

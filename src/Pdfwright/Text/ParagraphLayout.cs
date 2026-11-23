@@ -72,7 +72,7 @@ internal sealed class LaidOutLine
 /// <summary>The lines of one paragraph, and what it takes to draw them.</summary>
 internal sealed class ParagraphLayout
 {
-    private readonly TrueTypeFont[] _fonts;
+    private readonly IReadOnlyList<ShapingFont> _fonts;
     private readonly IReadOnlyList<StyledSpan>? _spans;
     private readonly bool _mixedColours;
 
@@ -83,11 +83,38 @@ internal sealed class ParagraphLayout
         Styles = styles;
         Lines = lines;
         Missing = missing;
-        _fonts = [.. fonts.Select(f => f.Font)];
+        _fonts = fonts;
         _spans = spans;
-        _mixedColours = spans is { Count: > 1 } && styles.Select(s => s.Color).Distinct().Skip(1).Any();
-        Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
-        Height = lines.Sum(l => l.Pitch);
+        _mixedColours = spans is { Count: > 1 } && MoreThanOneColour(styles);
+        (Width, Height) = Measure(lines);
+    }
+
+    /// <summary>The width of the widest line and the sum of the lines' pitches, by index: a loop over the list would box an enumerator for every paragraph.</summary>
+    private static (double Width, double Height) Measure(IReadOnlyList<LaidOutLine> lines)
+    {
+        double width = 0;
+        double height = 0;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            width = i == 0 ? lines[i].Width : Math.Max(width, lines[i].Width);
+            height += lines[i].Pitch;
+        }
+
+        return (width, height);
+    }
+
+    /// <summary>Whether the styles do not all have the same colour (a style with no colour counts as one colour of its own).</summary>
+    private static bool MoreThanOneColour(IReadOnlyList<RunStyle> styles)
+    {
+        for (int i = 1; i < styles.Count; i++)
+        {
+            if (styles[i].Color != styles[0].Color)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private ParagraphLayout(ParagraphLayout other, IReadOnlyList<LaidOutLine> lines)
@@ -100,8 +127,7 @@ internal sealed class ParagraphLayout
         _fonts = other._fonts;
         _spans = other._spans;
         _mixedColours = other._mixedColours;
-        Width = lines.Count == 0 ? 0 : lines.Max(l => l.Width);
-        Height = lines.Sum(l => l.Pitch);
+        (Width, Height) = Measure(lines);
     }
 
     /// <summary>
@@ -177,10 +203,10 @@ internal sealed class ParagraphLayout
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
         ArgumentNullException.ThrowIfNull(fontResourceNames);
-        if (embedded.Length != _fonts.Length || fontResourceNames.Length != _fonts.Length)
+        if (embedded.Length != _fonts.Count || fontResourceNames.Length != _fonts.Count)
         {
             throw new ArgumentException(
-                $"The paragraph was laid out with {_fonts.Length} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
+                $"The paragraph was laid out with {_fonts.Count} font(s), and {embedded.Length} embedded font(s) and {fontResourceNames.Length} resource name(s) were given: there must be one of each for every font, in the same order.");
         }
 
         // A font that no run uses may be null (it need not be embedded); one that a run uses must be there and be the very font.
@@ -190,16 +216,17 @@ internal sealed class ParagraphLayout
             throw new ArgumentOutOfRangeException(nameof(firstLine), firstLine, $"Lines {firstLine} to {firstLine + count} are outside the {Lines.Count} lines of the paragraph.");
         }
 
-        Span<bool> used = _fonts.Length <= 256 ? stackalloc bool[_fonts.Length] : new bool[_fonts.Length];
+        Span<bool> used = _fonts.Count <= 256 ? stackalloc bool[_fonts.Count] : new bool[_fonts.Count];
         for (int l = firstLine; l < firstLine + count; l++)
         {
-            foreach (PlacedRun placed in Lines[l].Runs)
+            IReadOnlyList<PlacedRun> placedRuns = Lines[l].Runs;
+            for (int p = 0; p < placedRuns.Count; p++)
             {
-                used[placed.Run.FontIndex] = true;
+                used[placedRuns[p].Run.FontIndex] = true;
             }
         }
 
-        for (int i = 0; i < _fonts.Length; i++)
+        for (int i = 0; i < _fonts.Count; i++)
         {
             if (!used[i] && embedded[i] is null && fontResourceNames[i] is null)
             {
@@ -211,9 +238,9 @@ internal sealed class ParagraphLayout
                 throw new ArgumentException($"Font {i} has no embedded font or no resource name.");
             }
 
-            if (!ReferenceEquals(embedded[i]!.Font, _fonts[i]))
+            if (!ReferenceEquals(embedded[i]!.Font, _fonts[i].Font))
             {
-                throw new ArgumentException($"Embedded font {i} is not the font the paragraph was laid out with at that place ({_fonts[i].PostScriptName}, found {embedded[i]!.Font.PostScriptName}): the glyph numbers and widths would be those of another font.");
+                throw new ArgumentException($"Embedded font {i} is not the font the paragraph was laid out with at that place ({_fonts[i].Font.PostScriptName}, found {embedded[i]!.Font.PostScriptName}): the glyph numbers and widths would be those of another font.");
             }
         }
 
@@ -224,8 +251,10 @@ internal sealed class ParagraphLayout
         {
             LaidOutLine line = Lines[l];
             double baseline = lineTop - line.Ascent;
-            foreach (PlacedRun placed in line.Runs)
+            IReadOnlyList<PlacedRun> lineRuns = line.Runs;
+            for (int r = 0; r < lineRuns.Count; r++)
             {
+                PlacedRun placed = lineRuns[r];
                 int font = placed.Run.FontIndex;
                 RunStyle style = Styles[placed.Run.Style];
                 if (!_mixedColours)
@@ -236,7 +265,7 @@ internal sealed class ParagraphLayout
                 }
 
                 // A run may hold characters of several colours (a colour does not change how a run is shaped): it is written in parts, one for each stretch of its glyphs of one colour.
-                double scale = style.Size / _fonts[font].UnitsPerEm;
+                double scale = style.Size / _fonts[font].Font.UnitsPerEm;
                 foreach ((ShapedRun part, double offset, Color? colour) in ColourParts(placed.Run, scale))
                 {
                     SetColour(content, colour, ref current);

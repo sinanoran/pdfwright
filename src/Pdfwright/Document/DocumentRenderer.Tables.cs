@@ -181,7 +181,21 @@ internal sealed partial class DocumentRenderer
 
     private sealed class CellPlan
     {
-        internal List<CellItem> Items { get; } = [];
+        /// <summary>The lines of the cell. Made once the first paragraph is laid out, with room for its lines (a cell is nearly always one paragraph and one or two lines), so that no list grows from four; <see cref="Reserve"/> makes it.</summary>
+        internal List<CellItem> Items { get; private set; } = null!;
+
+        /// <summary>Makes <see cref="Items"/> with room for <paramref name="lines"/> if it is not made yet, and makes room for that many more if it is.</summary>
+        internal void Reserve(int lines)
+        {
+            if (Items is null)
+            {
+                Items = new List<CellItem>(lines);
+            }
+            else
+            {
+                Items.EnsureCapacity(Items.Count + lines);
+            }
+        }
 
         internal double PadTop { get; init; }
 
@@ -515,6 +529,7 @@ internal sealed partial class DocumentRenderer
                         y += previousAfter + (paragraph.SpaceBefore?.Points ?? 0);
                     }
 
+                    plan.Reserve(layout.Layout.Lines.Count);
                     for (int line = 0; line < layout.Layout.Lines.Count; line++)
                     {
                         double pitch = layout.Layout.Lines[line].Pitch;
@@ -525,6 +540,7 @@ internal sealed partial class DocumentRenderer
                     previousAfter = paragraph.SpaceAfter?.Points ?? (paragraphStyle.Size * 0.6);
                 }
 
+                plan.Reserve(0);
                 cells[i] = plan;
             }
 
