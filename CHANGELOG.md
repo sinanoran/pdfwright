@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A guide section on startup time.** The first save in a fresh process is mostly the JIT; publishing the application with ReadyToRun took the 1,000-row table from 607 and 549 ms to 378 and 370 ms and the ten-page report from 432 and 393 ms to 264 and 251 ms (paired sets, from process start to exit, the runtime's own start about 110 ms of it). The guide says how and what it costs (about twice the size of the published DLLs); the package is unchanged.
+
 ### Changed
 
 - **Printable ASCII skips the general Unicode passes it does not need; output unchanged.** For a paragraph of printable ASCII (the case of most table cells), every place between two characters is a grapheme boundary, so the boundaries are filled instead of computed; line breaks are decided by the same rule code as before, fed from tables of the 95 characters instead of a property lookup per character; the font of the text is filled in one go when the first font of each style covers every character used (else the general choice runs, as before); the styles of a text whose spans tile it in order are filled span by span; and the bidi classes come from a table. Tests compare the two ways on every printable ASCII text of up to three characters (and, run by hand, all 81 million texts of four, which a reviewer ran), on texts of up to five characters over one character of each kind, on random texts, on the ASCII rows of the Unicode test files, and on whole documents byte for byte. Measured alternating with the build before (two sets each, 4.8 to 5.5 GB free): the warm 1,000-row table from 77.9 and 87.1 ms to 57.8 and 54.9 ms (p50), its cold process from 1,092 and 1,458 ms to 896 and 1,240 ms; the ten-page report level within noise warm (20.6 and 22.0 ms against 20.2 and 20.9 ms), its cold process 934 and 873 ms against 1,007 and 1,029 ms at 2.6 to 4.1 GB free (not a difference this machine can tell from noise).
