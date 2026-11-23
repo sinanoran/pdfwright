@@ -8,7 +8,7 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
-- **A guide section on startup time.** The first save in a fresh process is mostly the JIT; publishing the application with ReadyToRun took the 1,000-row table from 607 and 549 ms to 378 and 370 ms and the ten-page report from 432 and 393 ms to 264 and 251 ms (paired sets, from process start to exit, the runtime's own start about 110 ms of it). The guide says how and what it costs (about twice the size of the published assemblies); the package is unchanged.
+- **A guide section on startup time.** The first save in a fresh process is mostly the JIT; publishing the application with ReadyToRun took the 1,000-row table from 607 and 549 ms to 378 and 370 ms and the ten-page report from 432 and 393 ms to 264 and 251 ms (paired sets, from process start to exit, the runtime's own start about 110 ms of it). The guide says how and what it costs (about twice the size of the published DLLs); the package is unchanged.
 
 ### Changed
 

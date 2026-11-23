@@ -690,17 +690,16 @@ collection throws `ObjectDisposedException` after it is disposed.
 
 ## Startup time
 
-The first document a process saves pays for compiling the code it runs (the JIT): in a fresh process most of the time of a first report is that, not the work. A service that saves many reports pays it once; a command-line tool or a function that starts a process per report pays it every time. Publishing the application with ReadyToRun compiles it ahead of time, Pdfwright and the other libraries included, so nothing in the library has to change:
+The first document a process saves pays for compiling and loading the code it runs (the JIT): in a fresh process most of the time of a first report is that, not the work. A service that saves many reports pays it once; a command-line tool or a function that starts a process per report pays it every time. Publishing the application with ReadyToRun compiles it ahead of time, Pdfwright and the other libraries included, so nothing in the library has to change:
 
 <!-- snippet: none -->
 ```xml
 <PropertyGroup>
   <PublishReadyToRun>true</PublishReadyToRun>
-  <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
 </PropertyGroup>
 ```
 
-or, for one publish:
+The code is compiled for one platform, so a publish needs a runtime identifier: `-r linux-x64` (or `win-x64`, `linux-musl-x64`, `osx-arm64` ...), the platform the application runs on, or `<RuntimeIdentifier>` in the project when it is only ever built for one. For one publish, without changing the project:
 
 <!-- snippet: none -->
 ```bash
@@ -715,4 +714,4 @@ Measured with the benchmark program of the repository (`benchmarks/Pdfwright.Ben
 | a ten-page report | 432 and 393 ms | 264 and 251 ms |
 | nothing (the runtime starting) | 113 and 109 ms | 111 and 107 ms |
 
-ReadyToRun about doubles the size of the published assemblies (the benchmark's grew from 27 MB to 55 MB) and the code it compiled ahead of time is recompiled by the JIT when it is hot, so a long-running service keeps its steady-state speed. Turning tiered PGO off for the process (`DOTNET_TieredPGO=0`) took about 10 to 25 percent more off the first save in the same measurement (the table: 343 and 331 ms with ReadyToRun, 479 and 461 ms without), at the cost of the profile-guided optimisation that a long-running process gains from; measure it on your own workload before you use it. What is left of the first save, the runtime starting and the work itself, is a matter of the application (keeping a process alive, for one), not of the library; native AOT has not been tried with Pdfwright and its native shaping library.
+ReadyToRun about doubles the size of the published DLLs (the benchmark's grew from 27 MB to 56 MB), and with tiered compilation (the default) the code it compiled ahead of time is recompiled by the JIT when it is hot, so a long-running service keeps its steady-state speed. Turning tiered PGO off for the process (`DOTNET_TieredPGO=0`) took about a tenth more off the first save with ReadyToRun and a fifth without, in the same measurement (the table: 343 and 331 ms with ReadyToRun, 479 and 461 ms without), at the cost of the profile-guided optimisation that a long-running process gains from; measure it on your own workload before you use it. What is left of the first save, the runtime starting and the work itself, is a matter of the application (keeping a process alive, for one), not of the library; native AOT has not been tried with Pdfwright and its native shaping library.
