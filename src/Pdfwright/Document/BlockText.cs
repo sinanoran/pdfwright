@@ -153,13 +153,12 @@ internal static class BlockText
             length += chunk.Length;
         }
 
-        RunStyle[] runStyles = [.. styles.Select(s => new RunStyle
+        // A loop, not a Select: no iterator, no delegate and no closure for every paragraph; the styles come from the snapshot's table, so a cell in a style that another cell used builds nothing.
+        RunStyle[] runStyles = new RunStyle[styles.Count];
+        for (int i = 0; i < runStyles.Length; i++)
         {
-            FontOrder = fonts.Order(s.Family, s.Weight, s.Italic),
-            Size = s.Size,
-            Language = s.Language,
-            Color = s.Color,
-        })];
+            runStyles[i] = fonts.RunStyleOf(styles[i]);
+        }
 
         ParagraphLayout layout = ParagraphLayouter.Layout(
             only ?? text?.ToString() ?? string.Empty,

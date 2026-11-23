@@ -8,6 +8,7 @@ internal sealed class BidiResult
         ParagraphLevel = paragraphLevel;
         Levels = levels;
         Classes = classes;
+        Count = levels.Length;
     }
 
     /// <summary>The paragraph embedding level: 0 for left-to-right, 1 for right-to-left.</summary>
@@ -16,6 +17,9 @@ internal sealed class BidiResult
     /// breaks the paragraph into lines takes each line's levels from <see cref="UnicodeBidi.LineLevels"/>, which copies.
     /// </remarks>
     internal byte ParagraphLevel { get; }
+
+    /// <summary>The number of characters resolved. The arrays are this long unless they were rented (see <see cref="ScratchArray"/>), when they may be longer and what is past the count is not part of the result.</summary>
+    internal int Count { get; init; }
 
     /// <summary>
     /// The resolved embedding level of each character, with rule L1 applied as if the paragraph were one line. A character that
@@ -205,6 +209,7 @@ internal static class UnicodeBidi
     /// The levels of the line [<paramref name="start"/>, <paramref name="end"/>) of a resolved paragraph, as a new array indexed from 0:
     /// rule L1 applied to that line. A line that is not the last of the paragraph ends in whitespace that the paragraph-wide L1 of
     /// <see cref="Resolve"/> left at its inner level; call this, then <see cref="VisualOrder"/> on the result.
+    /// The layout itself uses <see cref="LineLevelsInto"/>, which allocates nothing; this one is kept as the plain reference that the tests hold it to.
     /// </summary>
     internal static byte[] LineLevels(BidiResult paragraph, int start, int end)
     {
@@ -217,11 +222,29 @@ internal static class UnicodeBidi
     }
 
     /// <summary>
+    /// The same as <see cref="LineLevels"/>, written into the first <c>end - start</c> entries of <paramref name="levels"/> instead of a new array, so that a layout that builds many lines allocates none for their levels.
+    /// </summary>
+    internal static void LineLevelsInto(BidiResult paragraph, int start, int end, Span<byte> levels)
+    {
+        ArgumentNullException.ThrowIfNull(paragraph);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)start, (uint)end, nameof(start));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, paragraph.Count, nameof(end));
+        int count = end - start;
+        ArgumentOutOfRangeException.ThrowIfLessThan(levels.Length, count, nameof(levels));
+        levels = levels[..count];
+        paragraph.Levels.AsSpan(start, count).CopyTo(levels);
+        ApplyL1Core(levels, paragraph.Classes.AsSpan(start, count), 0, count, paragraph.ParagraphLevel);
+    }
+
+    /// <summary>
     /// Rule L1 for the line [<paramref name="start"/>, <paramref name="end"/>) of <paramref name="levels"/>, in place: segment and
     /// paragraph separators, and whitespace before them or at the end of the line, return to the paragraph level. It only ever
     /// sets a level to the paragraph level, so applying it again to a level array that already had it applied changes nothing.
     /// </summary>
-    internal static void ApplyL1(byte[] levels, BidiClass[] classes, int start, int end, byte paragraphLevel)
+    internal static void ApplyL1(byte[] levels, BidiClass[] classes, int start, int end, byte paragraphLevel) => ApplyL1Core(levels.AsSpan(), classes.AsSpan(), start, end, paragraphLevel);
+
+    /// <summary>The same as the array form, on spans (a line's levels need not be an array).</summary>
+    internal static void ApplyL1Core(Span<byte> levels, ReadOnlySpan<BidiClass> classes, int start, int end, byte paragraphLevel)
     {
         for (int i = start; i < end; i++)
         {

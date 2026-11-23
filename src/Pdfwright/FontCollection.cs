@@ -124,6 +124,13 @@ public sealed class FontCollection : IDisposable
 
         private int _spellings;
 
+        /// <summary>The most styles whose <see cref="RunStyle"/> is remembered; a document uses a handful, so the limit only keeps an endless variety of styles from growing the table.</summary>
+        private const int MaxRunStyles = 256;
+
+        private readonly ConcurrentDictionary<Document.ResolvedStyle, RunStyle> _runStyles = new();
+
+        private int _runStyleCount;
+
         internal FontEntry[] Entries { get; } = entries;
 
         internal IReadOnlyList<ShapingFont> Shaping { get; } = [.. entries.Select(e => e.Shaping)];
@@ -155,6 +162,32 @@ public sealed class FontCollection : IDisposable
             }
 
             return order;
+        }
+
+        /// <summary>
+        /// What the shaper and the line builder need of a resolved style: the order of fonts, the size, the language and the colour. A <see cref="RunStyle"/> is never changed after it is made (its order is the shared array of
+        /// <see cref="Order"/>), so the cells of a table that share a style share the one object instead of each building its own. Safe for many threads; the table is bounded like the one of <see cref="Order"/>.
+        /// </summary>
+        internal RunStyle RunStyleOf(Document.ResolvedStyle style)
+        {
+            if (_runStyles.TryGetValue(style, out RunStyle? known))
+            {
+                return known;
+            }
+
+            RunStyle made = new()
+            {
+                FontOrder = Order(style.Family, style.Weight, style.Italic),
+                Size = style.Size,
+                Language = style.Language,
+                Color = style.Color,
+            };
+            if (Volatile.Read(ref _runStyleCount) < MaxRunStyles && _runStyles.TryAdd(style, made))
+            {
+                _ = Interlocked.Increment(ref _runStyleCount);
+            }
+
+            return made;
         }
     }
 }

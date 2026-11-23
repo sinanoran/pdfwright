@@ -55,7 +55,21 @@ internal static class ParagraphLayouter
 
         // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab, and the bidi algorithm reads the tab itself (a segment separator, rule L1).
         (IReadOnlyList<RunStyle> styles, ShapeStyling? styling) = Styling(text, fonts, options);
-        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text, styling);
+        // The paragraph's arrays (code points, indices, bidi result) are rented for the layout: nothing the layout returns refers to them (the lines hold runs and glyphs, which are never rented, and the shaper's list of missing characters, which is an ordinary list and not rented, so keeping it is safe), so they go back when it is done.
+        ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text, styling, pooled: true);
+        try
+        {
+            return LayOutShaped(text, fonts, options, styles, paragraph);
+        }
+        finally
+        {
+            paragraph.Release();
+        }
+    }
+
+    /// <summary>The lines of a paragraph that is shaped: breaks it, builds and aligns the lines. The caller gives the paragraph's arrays back afterwards.</summary>
+    private static ParagraphLayout LayOutShaped(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles, ShapedParagraph paragraph)
+    {
         using State state = new(text, paragraph, fonts, options, styles);
         List<Raw> raws = [];
         int start = 0;
@@ -83,6 +97,62 @@ internal static class ParagraphLayouter
         // A line with nothing visible (an empty line between two hard breaks, a line of white space) is as high as the font of the nearest
         // line that has content (the one before it, else the one after it, else the first font), so that the empty lines of a paragraph in
         // one script do not take the height of another script's font.
+        FillEmptyLines(raws, state, styles);
+
+        // The box lines sit in: the width given, or the widest line's content, so that a paragraph without a width still has an edge to align to.
+        double box = options.MaxWidth ?? WidestLine(raws);
+        bool rightToLeft = (paragraph.ParagraphLevel & 1) == 1;
+
+        // The lines and their runs are arrays of the size they have, which the layout keeps as they are (no list, no wrapper around it, no room to spare).
+        LaidOutLine[] lines = new LaidOutLine[raws.Count];
+        for (int l = 0; l < lines.Length; l++)
+        {
+            Raw raw = raws[l];
+            double offset = Offset(options.Alignment, rightToLeft, box, raw.Width);
+            PlacedRun[] runs = new PlacedRun[raw.Runs.Count];
+            for (int r = 0; r < runs.Length; r++)
+            {
+                Placement placement = raw.Runs[r];
+                runs[r] = new PlacedRun(placement.Run, offset + (placement.X - raw.ContentLeft), placement.Width, placement.IsTrailingSpace);
+            }
+
+            lines[l] = new LaidOutLine
+            {
+                Start = raw.Start,
+                Length = raw.Length,
+                Width = raw.Width,
+                X = offset,
+                Ascent = raw.Ascent,
+                Descent = raw.Descent,
+                Pitch = (raw.Ascent + raw.Descent) * options.LineSpacing,
+                Runs = runs,
+            };
+        }
+
+        return new ParagraphLayout(text, styles, lines, paragraph.Missing.Count == 0 ? [] : paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel, options.Spans);
+    }
+
+    /// <summary>
+    /// Gives each line with nothing visible the ascent and descent of the nearest line that has content (the one before it, else the one after it, else the first font), so that the empty lines of a paragraph in one script do not take the height of another script's font.
+    /// Nothing is allocated when every line has content, which is what almost every paragraph is.
+    /// </summary>
+    private static void FillEmptyLines(List<Raw> raws, State state, IReadOnlyList<RunStyle> styles)
+    {
+        bool anyEmpty = false;
+        for (int i = 0; i < raws.Count; i++)
+        {
+            if (raws[i].FirstFont < 0)
+            {
+                anyEmpty = true;
+                break;
+            }
+        }
+
+        if (!anyEmpty)
+        {
+            return;
+        }
+
         // Two linear passes find the nearest line with content for each line without one (a long run of empty lines must not scan outward from every one of them).
         int[] nearest = new int[raws.Count];
         int previous = -1;
@@ -121,34 +191,18 @@ internal static class ParagraphLayouter
                 raws[i] = raws[i] with { Ascent = ascent, Descent = descent };
             }
         }
+    }
 
-        // The box lines sit in: the width given, or the widest line's content, so that a paragraph without a width still has an edge to align to.
-        double box = options.MaxWidth ?? raws.Max(r => r.Width);
-        bool rightToLeft = (paragraph.ParagraphLevel & 1) == 1;
-        List<LaidOutLine> lines = new(raws.Count);
-        foreach (Raw raw in raws)
+    /// <summary>The width of the widest line of <paramref name="raws"/>, which are never none.</summary>
+    private static double WidestLine(List<Raw> raws)
+    {
+        double widest = raws[0].Width;
+        for (int i = 1; i < raws.Count; i++)
         {
-            double offset = Offset(options.Alignment, rightToLeft, box, raw.Width);
-            List<PlacedRun> runs = new(raw.Runs.Count);
-            foreach (Placement placement in raw.Runs)
-            {
-                runs.Add(new PlacedRun(placement.Run, offset + (placement.X - raw.ContentLeft), placement.Width, placement.IsTrailingSpace));
-            }
-
-            lines.Add(new LaidOutLine
-            {
-                Start = raw.Start,
-                Length = raw.Length,
-                Width = raw.Width,
-                X = offset,
-                Ascent = raw.Ascent,
-                Descent = raw.Descent,
-                Pitch = (raw.Ascent + raw.Descent) * options.LineSpacing,
-                Runs = runs.AsReadOnly(),
-            });
+            widest = Math.Max(widest, raws[i].Width);
         }
 
-        return new ParagraphLayout(text, styles, lines.AsReadOnly(), paragraph.Missing.AsReadOnly(), fonts, paragraph.ParagraphLevel, options.Spans);
+        return widest;
     }
 
     /// <summary>The styles of the paragraph and what the shaper needs to set it in them: with no styles in the options, one style of the options' size and language over every font.</summary>
@@ -363,20 +417,20 @@ internal static class ParagraphLayouter
             // Only a position that starts a code point can be a boundary (a cluster value is one by construction; this is a guard).
             _codePointOf = ScratchArray.Rent<int>(Count + 1);
             Array.Fill(_codePointOf, -1, 0, Count + 1);
-            for (int i = 0; i < paragraph.CodePoints.Length; i++)
+            for (int i = 0; i < paragraph.CodePointCount; i++)
             {
                 Debug.Assert((uint)utf16[i] <= (uint)Count, "A code point starts inside the text.");
                 _codePointOf[utf16[i]] = i;
             }
 
-            _codePointOf[Count] = paragraph.CodePoints.Length;
+            _codePointOf[Count] = paragraph.CodePointCount;
             for (int u = 0; u <= Count; u++)
             {
                 _boundary[u] &= _codePointOf[u] >= 0;
             }
 
             // Where a unit wider than the width may be cut: between grapheme clusters (UAX #29) that are also glyph clusters.
-            int codePointCount = paragraph.CodePoints.Length;
+            int codePointCount = paragraph.CodePointCount;
             bool[] graphemeBoundary = ScratchArray.Rent<bool>(codePointCount + 1);
             LineBreakKind[] breaks = ScratchArray.Rent<LineBreakKind>(codePointCount + 1);
             _anywhere = ScratchArray.Rent<bool>(Count + 1);
@@ -384,7 +438,7 @@ internal static class ParagraphLayouter
             _mandatory = ScratchArray.Rent<bool>(codePointCount + 1);
             try
             {
-                UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints, graphemeBoundary);
+                UnicodeGraphemeBreaker.Boundaries(paragraph.CodePoints.AsSpan(0, codePointCount), graphemeBoundary);
                 Array.Clear(_anywhere, 0, Count + 1);
                 for (int i = 1; i < codePointCount; i++)
                 {
@@ -393,7 +447,7 @@ internal static class ParagraphLayouter
 
                 // The places where a line may end: a break opportunity of UAX #14 that is also a grapheme and a glyph cluster boundary, so that no cluster is split
                 // (a right-to-left run has a cluster for a mark of its own, so the glyph clusters alone no longer keep a mark with its base).
-                UnicodeLineBreaker.Breaks(paragraph.CodePoints, breaks);
+                UnicodeLineBreaker.Breaks(paragraph.CodePoints.AsSpan(0, codePointCount), breaks);
                 for (int i = 1; i <= codePointCount; i++)
                 {
                     if (breaks[i] != LineBreakKind.None && graphemeBoundary[i] && _boundary[utf16[i]] && (i == codePointCount || paragraph.CodePoints[i - 1] != SoftHyphen))
@@ -544,7 +598,10 @@ internal static class ParagraphLayouter
             }
 
             int drawEnd = utf16[drawEndCp];
-            byte[] levels = UnicodeBidi.LineLevels(_paragraph.Bidi, firstCp, endCp);
+            int levelCount = endCp - firstCp;
+            Span<byte> levels = levelCount <= 128 ? stackalloc byte[128] : new byte[levelCount];
+            levels = levels[..levelCount];
+            UnicodeBidi.LineLevelsInto(_paragraph.Bidi, firstCp, endCp, levels);
 
             List<Placement> pieces = [];
             for (int runIndex = FirstRunEndingAfter(start); runIndex < _paragraph.Runs.Count; runIndex++)
@@ -592,9 +649,24 @@ internal static class ParagraphLayouter
             {
                 pieces[0].X = 0; // one piece is in its own order, at the start
             }
+            else if (AllLeftToRight(pieces))
+            {
+                // Pieces of level 0 only (the usual line, which may end in a piece of white space) are already in visual order: rule L2 reverses nothing above level 0.
+                double x = 0;
+                for (int i = 0; i < pieces.Count; i++)
+                {
+                    pieces[i].X = x;
+                    x += pieces[i].Width;
+                }
+            }
             else
             {
-                byte[] pieceLevels = [.. pieces.Select(p => p.Run.Level)];
+                byte[] pieceLevels = new byte[pieces.Count];
+                for (int i = 0; i < pieceLevels.Length; i++)
+                {
+                    pieceLevels[i] = pieces[i].Run.Level;
+                }
+
                 int[] visual = UnicodeBidi.VisualOrder(pieceLevels, 0, pieceLevels.Length);
                 double x = 0;
                 foreach (int index in visual)
@@ -640,6 +712,20 @@ internal static class ParagraphLayouter
             }
 
             return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, firstStyle, pieces);
+        }
+
+        /// <summary>Whether every piece is of level 0, so that the visual order of the pieces is their logical order.</summary>
+        private static bool AllLeftToRight(List<Placement> pieces)
+        {
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                if (pieces[i].Run.Level != 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>One stretch of <paramref name="run"/> on a line: the glyphs whose clusters lie in [from, to), in the order of the level they now have.</summary>
@@ -711,23 +797,26 @@ internal static class ParagraphLayouter
             switch (_glyphOrder[runIndex])
             {
                 case GlyphOrder.Ascending:
-                    return glyphs[FirstIndex(glyphs, g => g.Cluster >= from)..FirstIndex(glyphs, g => g.Cluster >= to)];
+                    return glyphs[FirstIndex(glyphs, from, false)..FirstIndex(glyphs, to, false)];
                 case GlyphOrder.Descending:
-                    return glyphs[FirstIndex(glyphs, g => g.Cluster < to)..FirstIndex(glyphs, g => g.Cluster < from)];
+                    return glyphs[FirstIndex(glyphs, to, true)..FirstIndex(glyphs, from, true)];
                 default:
                     return [.. glyphs.Where(g => g.Cluster >= from && g.Cluster < to)];
             }
         }
 
-        /// <summary>The first index of <paramref name="glyphs"/> where <paramref name="test"/> holds, given that it is false up to there and true after (or <c>glyphs.Length</c>).</summary>
-        private static int FirstIndex(ShapedGlyph[] glyphs, Func<ShapedGlyph, bool> test)
+        /// <summary>
+        /// The first index of <paramref name="glyphs"/> whose cluster is at least <paramref name="bound"/> (when <paramref name="descending"/> is false: the clusters go up, so the test is false up to there and true after) or whose cluster is below it (when it is true:
+        /// the clusters go down), or <c>glyphs.Length</c>. Written out, not taking a delegate, so that cutting a run for a line allocates nothing but the pieces.
+        /// </summary>
+        private static int FirstIndex(ShapedGlyph[] glyphs, int bound, bool descending)
         {
             int low = 0;
             int high = glyphs.Length;
             while (low < high)
             {
                 int middle = low + ((high - low) / 2);
-                if (test(glyphs[middle]))
+                if (descending ? glyphs[middle].Cluster < bound : glyphs[middle].Cluster >= bound)
                 {
                     high = middle;
                 }

@@ -53,6 +53,8 @@ public class LayoutStateReuseTests
         Fill(LineBreakKind.Mandatory);
         Fill(LineBreakClass.BK);
         Fill(CharacterProperties.Of(0x1F600));
+        Fill((byte)7);
+        Fill(BidiClass.R);
     }
 
     [Fact]
@@ -98,6 +100,14 @@ public class LayoutStateReuseTests
         for (int i = 0; i < 300; i++)
         {
             cases.Add((RandomText(random), random.Next(3) == 0 ? null : 30 + random.Next(300), new[] { -1, 0, 1 }[random.Next(3)]));
+        }
+
+        // Cells of a table: printable ASCII, which the shaper's simple path rents its paragraph's arrays for.
+        foreach (string cell in new[] { "Row 12 cell 3 text", "Some longer text of a cell that wraps over a few lines in a narrow column", "  padded  cell  ", "a\tb c", "x" })
+        {
+            cases.Add((cell, 60, -1));
+            cases.Add((cell, null, 0));
+            cases.Add((cell, 25, 1));
         }
 
         List<string> expected = [.. cases.Select(c => Describe(LayoutTestKit.Layout(c.Text, fonts, c.Width, paragraphLevel: c.Level)))];

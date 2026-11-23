@@ -265,9 +265,10 @@ internal sealed partial class DocumentRenderer
     /// <summary>Records the families that the styles of a laid out block name and the collection does not have (the block was set in other fonts), once each in order of first use.</summary>
     private void NoteFamilies(StyledLayout layout)
     {
-        foreach (ResolvedStyle style in layout.Styles)
+        IReadOnlyList<ResolvedStyle> styles = layout.Styles;
+        for (int i = 0; i < styles.Count; i++)
         {
-            NoteFamily(style.Family);
+            NoteFamily(styles[i].Family);
         }
     }
 
@@ -401,9 +402,10 @@ internal sealed partial class DocumentRenderer
         Array.Clear(names);
         for (int l = firstLine; l < firstLine + count; l++)
         {
-            foreach (PlacedRun placed in layout.Lines[l].Runs)
+            IReadOnlyList<PlacedRun> placedRuns = layout.Lines[l].Runs;
+            for (int r = 0; r < placedRuns.Count; r++)
             {
-                int index = placed.Run.FontIndex;
+                int index = placedRuns[r].Run.FontIndex;
                 if (embedded[index] is not null)
                 {
                     continue;
