@@ -36,7 +36,41 @@ internal sealed class ShapingFont : IDisposable
     /// <summary>The longest run that is cached: a long paragraph is rarely repeated and costs more to hold.</summary>
     private const int CacheTextLength = 256;
 
-    private readonly Dictionary<(string Text, bool RightToLeft, string Script, string? Language), ShapedGlyph[]> _cache = [];
+    // The cache of whole texts: one table, keyed by the text alone, for each direction, script and language that has been shaped, found by a look along the few tables there are. A key of the text, the direction, the script and
+    // the language together was a tuple, whose hashing (randomized for strings) and dictionary are generic code of the framework that a ReadyToRun build compiles at run time; a dictionary keyed by a string is not, and hashes the
+    // text without the randomized seed. The entries are counted over all the tables, which are emptied together when the count reaches the capacity, as the one dictionary was.
+    private readonly object _cacheGate = new();
+    private TextTable[] _textTables = [];
+    private int _cachedTexts;
+
+    /// <summary>The texts shaped whole in one direction, script and language. Read and written under the lock of the font's cache.</summary>
+    private sealed class TextTable(bool rightToLeft, string script, string? language)
+    {
+        internal Dictionary<string, ShapedGlyph[]> Glyphs { get; } = [];
+
+        internal bool Is(bool rightToLeft, string script, string? language) =>
+            RightToLeft == rightToLeft && string.Equals(Script, script, StringComparison.Ordinal) && string.Equals(Language, language, StringComparison.Ordinal);
+
+        private bool RightToLeft { get; } = rightToLeft;
+
+        private string Script { get; } = script;
+
+        private string? Language { get; } = language;
+    }
+
+    /// <summary>The table of whole texts of a direction, script and language, or <see langword="null"/>. The caller holds the lock.</summary>
+    private TextTable? FindTextTable(bool rightToLeft, string script, string? language)
+    {
+        foreach (TextTable table in _textTables)
+        {
+            if (table.Is(rightToLeft, script, language))
+            {
+                return table;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>The glyphs of a run shaped earlier (a whole text, shaped with no context), or <see langword="null"/>. A font is shared by every document and thread of its collection, so the cache is locked; the arrays are never changed after they are made.</summary>
     internal ShapedGlyph[]? GetCached(string text, bool rightToLeft, string script, string? language)
@@ -46,9 +80,9 @@ internal sealed class ShapingFont : IDisposable
             return null;
         }
 
-        lock (_cache)
+        lock (_cacheGate)
         {
-            return _cache.TryGetValue((text, rightToLeft, script, language), out ShapedGlyph[]? glyphs) ? glyphs : null;
+            return FindTextTable(rightToLeft, script, language) is { } table && table.Glyphs.TryGetValue(text, out ShapedGlyph[]? glyphs) ? glyphs : null;
         }
     }
 
@@ -59,14 +93,30 @@ internal sealed class ShapingFont : IDisposable
             return;
         }
 
-        lock (_cache)
+        lock (_cacheGate)
         {
-            if (_cache.Count >= CacheCapacity)
+            // Full, or holding as many tables as the word cache may (a program that gives every text a language of its own): emptied, so that neither the entries nor the tables to look along grow without bound.
+            if (_cachedTexts >= CacheCapacity || (_textTables.Length >= WordTableLimit && FindTextTable(rightToLeft, script, language) is null))
             {
-                _cache.Clear();
+                _textTables = [];
+                _cachedTexts = 0;
             }
 
-            _cache[(text, rightToLeft, script, language)] = glyphs;
+            TextTable? table = FindTextTable(rightToLeft, script, language);
+            if (table is null)
+            {
+                table = new TextTable(rightToLeft, script, language);
+                _textTables = [.. _textTables, table];
+            }
+
+            if (table.Glyphs.TryAdd(text, glyphs))
+            {
+                _cachedTexts++;
+            }
+            else
+            {
+                table.Glyphs[text] = glyphs;
+            }
         }
     }
 
@@ -92,36 +142,76 @@ internal sealed class ShapingFont : IDisposable
     /// <summary>A word as it was shaped on its own: its glyphs (clusters from 0) and whether every one is a base glyph, the condition for using it in word-by-word shaping. Never changed after it is made.</summary>
     internal sealed record ShapedWord(ShapedGlyph[] Glyphs, bool AllBase);
 
-    // One table of words for each script and language. The tables are found without a lock and never removed (a clear empties them), so a caller may keep the table it got for the whole run.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Script, string? Language), WordTable> _tables = new();
+    // One table of words for each script and language, in an array that is replaced, never changed, when a table is added (under the lock) or the tables are dropped: a lookup reads the array without a lock and looks along it (a
+    // document uses a script or two), and a caller may keep the table it got for the whole run. A dictionary keyed by the script and the language was a tuple key, generic code of the framework that a ReadyToRun build compiles at run time.
+    private volatile WordTable[] _wordTables = [];
+    private readonly object _wordTablesGate = new();
     private int _wordCount;
 
     /// <summary>How many tables of words (scripts and languages) the font holds now. For tests.</summary>
-    internal int WordTableCount => _tables.Count;
+    internal int WordTableCount => _wordTables.Length;
 
     /// <summary>How many words the word cache holds now (counted, not the approximate count that bounds it). For tests.</summary>
-    internal int WordCacheCount => _tables.Values.Sum(t => t.Count);
+    internal int WordCacheCount => _wordTables.Sum(t => t.Count);
 
     /// <summary>Empties the cache of whole texts, which is how a test makes a text reach the word cache again. For tests.</summary>
     internal void ClearWholeTextCache()
     {
-        lock (_cache)
+        lock (_cacheGate)
         {
-            _cache.Clear();
+            _textTables = [];
+            _cachedTexts = 0;
         }
     }
 
     /// <summary>The words of one script and language. A font is shared by every thread and document of its collection and a hit is the common case (one for each word of every cell), so a lookup takes no lock.</summary>
     internal WordTable GetWordTable(string script, string? language)
     {
-        (string, string?) key = (script, language);
-        if (_tables.TryGetValue(key, out WordTable? table))
+        if (FindWordTable(_wordTables, script, language) is { } known)
         {
-            return table;
+            return known;
         }
 
-        // The number of languages is bounded too (a program that sets a different language tag for every text would otherwise make a table for each): past the limit new languages are shaped without a cache.
-        return _tables.Count >= WordTableLimit ? new WordTable(this, kept: false) : _tables.GetOrAdd(key, _ => new WordTable(this, kept: true));
+        lock (_wordTablesGate)
+        {
+            WordTable[] tables = _wordTables;
+            if (FindWordTable(tables, script, language) is { } added)
+            {
+                return added; // added by another thread meanwhile
+            }
+
+            // The number of languages is bounded too (a program that sets a different language tag for every text would otherwise make a table for each): past the limit new languages are shaped without a cache.
+            if (tables.Length >= WordTableLimit)
+            {
+                return new WordTable(this, script, language, kept: false);
+            }
+
+            WordTable made = new(this, script, language, kept: true);
+            _wordTables = [.. tables, made];
+            return made;
+        }
+    }
+
+    private static WordTable? FindWordTable(WordTable[] tables, string script, string? language)
+    {
+        foreach (WordTable table in tables)
+        {
+            if (table.Is(script, language))
+            {
+                return table;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Drops every table of words, which is how the word cache is emptied when it passes its capacity.</summary>
+    private void DropWordTables()
+    {
+        lock (_wordTablesGate)
+        {
+            _wordTables = [];
+        }
     }
 
     /// <summary>
@@ -132,15 +222,19 @@ internal sealed class ShapingFont : IDisposable
     internal sealed class WordTable
     {
         private readonly ShapingFont _owner;
+        private readonly string _script;
+        private readonly string? _language;
         private readonly bool _kept;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord> _words = new(StringComparer.Ordinal);
 #if NET9_0_OR_GREATER
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord>.AlternateLookup<ReadOnlySpan<char>> _lookup;
 #endif
 
-        internal WordTable(ShapingFont owner, bool kept)
+        internal WordTable(ShapingFont owner, string script, string? language, bool kept)
         {
             _owner = owner;
+            _script = script;
+            _language = language;
             _kept = kept;
 #if NET9_0_OR_GREATER
             _lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
@@ -148,6 +242,9 @@ internal sealed class ShapingFont : IDisposable
         }
 
         internal int Count => _words.Count;
+
+        /// <summary>Whether this is the table of the script and language.</summary>
+        internal bool Is(string script, string? language) => string.Equals(_script, script, StringComparison.Ordinal) && string.Equals(_language, language, StringComparison.Ordinal);
 
         /// <summary>The word shaped earlier for <c>text[start .. start + length]</c> (left to right, with no context), or <see langword="null"/>.</summary>
         internal ShapedWord? Get(string text, int start, int length)
@@ -175,7 +272,7 @@ internal sealed class ShapingFont : IDisposable
             if (Interlocked.Increment(ref _owner._wordCount) > WordCacheCapacity)
             {
                 // The tables themselves go too, not only their words, so that the languages of old texts do not stay; a thread that holds a table finishes its run with it, and what it adds to it is lost with it.
-                _owner._tables.Clear();
+                _owner.DropWordTables();
 
                 Interlocked.Exchange(ref _owner._wordCount, 0);
             }
