@@ -29,11 +29,48 @@ internal sealed class PdfEmbeddedFont
     internal const string ContinuationText = "\u034F";
 
     private readonly TrueTypeFont _font;
-    private readonly Dictionary<(int Glyph, string Text), int> _codes = [];
-    private readonly SortedDictionary<int, (int Glyph, string Text)> _byCode = [];
-    private readonly HashSet<int> _glyphsWithCode = [];
+
+    // The codes handed out, kept by glyph. A glyph's first code is its id, so the text it was first drawn for is all that is kept for it (null for a glyph not drawn yet), and the codes of a glyph drawn
+    // for other texts are a short chain of their own. Every glyph drawn is looked up here (more than a hundred thousand times for a 1,000-row table), so these are plain arrays indexed by the glyph instead
+    // of a dictionary keyed by the glyph and its text, which hashed the text each time and, as a generic collection over a tuple, had to be compiled at run time even in a ReadyToRun build. The arrays are
+    // in pages of 256 glyphs, made when a glyph of the page is first drawn, so that a document that draws a few glyphs of a font of 65,000 (a CJK font) makes a few pages, not arrays of the whole font
+    // (a megabyte for each document); the list of pages is one reference for each 256 glyphs.
+    private readonly GlyphPage?[] _pages;
+
+    // The codes above the glyph count, in the order they were handed out, which is the order of the codes.
+    private readonly List<ExtraCode> _extraCodes = [];
+    private int _glyphsDrawn;
     private int _nextExtra;
     private bool _written;
+
+    /// <summary>The number of glyphs in a page of <see cref="GlyphPage"/>.</summary>
+    private const int PageSize = 256;
+
+    /// <summary>For each glyph of one page (256 glyph ids that follow one another), the text it was first drawn for and the chain of its other codes.</summary>
+    private sealed class GlyphPage
+    {
+        internal string?[] FirstText { get; } = new string?[PageSize];
+
+        internal ExtraCode?[] Extras { get; } = new ExtraCode?[PageSize];
+    }
+
+    /// <summary>A code above the glyph count: a glyph drawn for another text than the one it was first drawn for. The codes of one glyph form a chain, the newest first.</summary>
+    private sealed class ExtraCode(int code, int glyph, string text, ExtraCode? next)
+    {
+        internal int Code { get; } = code;
+
+        internal int Glyph { get; } = glyph;
+
+        internal string Text { get; } = text;
+
+        internal ExtraCode? Next { get; } = next;
+    }
+
+    /// <summary>The codes handed out, in ascending order, with the glyph and the text of each (three arrays of one length).</summary>
+    private readonly record struct CodeTable(int[] Codes, int[] Glyphs, string[] Texts)
+    {
+        internal int Count => Codes.Length;
+    }
 
     internal PdfEmbeddedFont(PdfDocumentWriter document, TrueTypeFont font)
     {
@@ -47,6 +84,7 @@ internal sealed class PdfEmbeddedFont
 
         _font = font;
         _nextExtra = font.GlyphCount;
+        _pages = new GlyphPage?[Math.Max(1, (font.GlyphCount + PageSize - 1) / PageSize)];
         Reference = document.AllocateObject();
         document.OnComplete(Write);
     }
@@ -79,31 +117,105 @@ internal sealed class PdfEmbeddedFont
         }
 
         text ??= string.Empty;
-        if (_codes.TryGetValue((glyph, text), out int known))
+        GlyphPage page = _pages[glyph / PageSize] ??= new GlyphPage();
+        int slot = glyph % PageSize;
+        string? firstText = page.FirstText[slot];
+        if (firstText is null)
         {
-            return known;
+            page.FirstText[slot] = text;
+            _glyphsDrawn++;
+            return glyph;
         }
 
-        bool first = !_glyphsWithCode.Contains(glyph);
-        int code = first ? glyph : _nextExtra;
+        if (ReferenceEquals(firstText, text) || string.Equals(firstText, text, StringComparison.Ordinal))
+        {
+            return glyph;
+        }
+
+        for (ExtraCode? extra = page.Extras[slot]; extra is not null; extra = extra.Next)
+        {
+            if (string.Equals(extra.Text, text, StringComparison.Ordinal))
+            {
+                return extra.Code;
+            }
+        }
+
+        int code = _nextExtra;
         if (code > 0xFFFF)
         {
             throw new InvalidOperationException(
                 $"The font has no code left for glyph {glyph} drawn for another text: a two-byte code names 65,536 glyph and text pairs, and this font's {_font.GlyphCount} glyphs take the first of them.");
         }
 
-        if (first)
+        _nextExtra++;
+        ExtraCode made = new(code, glyph, text, page.Extras[slot]);
+        page.Extras[slot] = made;
+        _extraCodes.Add(made);
+        return code;
+    }
+
+    /// <summary>
+    /// Every code handed out, in ascending order: the glyphs drawn (whose code is their id) in the order of their ids, then the codes above the glyph count in the order they were handed out, which is
+    /// ascending as well. This is the order the font's objects are written in.
+    /// </summary>
+    private CodeTable Codes()
+    {
+        int count = _glyphsDrawn + _extraCodes.Count;
+        CodeTable table = new(new int[count], new int[count], new string[count]);
+        int at = 0;
+        for (int p = 0; p < _pages.Length; p++)
         {
-            _glyphsWithCode.Add(glyph);
-        }
-        else
-        {
-            _nextExtra++;
+            if (_pages[p] is not { } page)
+            {
+                continue;
+            }
+
+            for (int slot = 0; slot < PageSize; slot++)
+            {
+                if (page.FirstText[slot] is { } text)
+                {
+                    int glyph = (p * PageSize) + slot;
+                    table.Codes[at] = glyph;
+                    table.Glyphs[at] = glyph;
+                    table.Texts[at] = text;
+                    at++;
+                }
+            }
         }
 
-        _codes[(glyph, text)] = code;
-        _byCode[code] = (glyph, text);
-        return code;
+        foreach (ExtraCode extra in _extraCodes)
+        {
+            table.Codes[at] = extra.Code;
+            table.Glyphs[at] = extra.Glyph;
+            table.Texts[at] = extra.Text;
+            at++;
+        }
+
+        return table;
+    }
+
+    /// <summary>The glyphs drawn, each once, in the order of their ids: what the subset keeps besides the glyphs these need.</summary>
+    private int[] GlyphsDrawn()
+    {
+        int[] glyphs = new int[_glyphsDrawn];
+        int at = 0;
+        for (int p = 0; p < _pages.Length; p++)
+        {
+            if (_pages[p] is not { } page)
+            {
+                continue;
+            }
+
+            for (int slot = 0; slot < PageSize; slot++)
+            {
+                if (page.FirstText[slot] is not null)
+                {
+                    glyphs[at++] = (p * PageSize) + slot;
+                }
+            }
+        }
+
+        return glyphs;
     }
 
     /// <summary>
@@ -118,16 +230,17 @@ internal sealed class PdfEmbeddedFont
     private void Write(PdfDocumentWriter document)
     {
         _written = true;
-        if (_byCode.Count == 0)
+        if (_glyphsDrawn == 0)
         {
             // A font that no page used still has to be a valid object, because pages may refer to it.
-            _byCode[0] = (0, string.Empty);
-            _glyphsWithCode.Add(0);
+            (_pages[0] ??= new GlyphPage()).FirstText[0] = string.Empty;
+            _glyphsDrawn = 1;
         }
 
-        string tag = SubsetTag();
+        CodeTable codes = Codes();
+        string tag = SubsetTag(codes);
         string baseFont = tag + "+" + _font.PostScriptName;
-        byte[] subset = TrueTypeSubsetter.Subset(_font, [.. _glyphsWithCode]);
+        byte[] subset = TrueTypeSubsetter.Subset(_font, GlyphsDrawn());
 
         PdfReference file = document.AddObject(new PdfStream(
             new PdfDictionary().Set("Length1", subset.Length),
@@ -164,7 +277,7 @@ internal sealed class PdfEmbeddedFont
 
         // Codes above the glyph count exist only when a glyph was drawn for a second text: a map sends them to their glyph.
         PdfObject glyphMap = _nextExtra > _font.GlyphCount
-            ? document.AddObject(new PdfStream(new PdfDictionary(), CidToGidMap()))
+            ? document.AddObject(new PdfStream(new PdfDictionary(), CidToGidMap(codes)))
             : new PdfName("Identity");
         PdfReference cidFont = document.AddObject(new PdfDictionary()
             .Set("Type", "Font")
@@ -176,10 +289,10 @@ internal sealed class PdfEmbeddedFont
                 .Set("Supplement", 0))
             .Set("FontDescriptor", descriptor)
             .Set("DW", 1000)
-            .Set("W", Widths())
+            .Set("W", Widths(codes))
             .Set("CIDToGIDMap", glyphMap));
 
-        PdfReference toUnicode = document.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(ToUnicodeMap())));
+        PdfReference toUnicode = document.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(ToUnicodeMap(codes))));
 
         document.WriteObject(Reference, new PdfDictionary()
             .Set("Type", "Font")
@@ -196,15 +309,15 @@ internal sealed class PdfEmbeddedFont
     /// </summary>
     private static byte[] BigEndian(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
 
-    private string SubsetTag()
+    private string SubsetTag(CodeTable codes)
     {
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(_font.Bytes);
-        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode)
+        for (int i = 0; i < codes.Count; i++)
         {
-            hash.AppendData(BigEndian(pair.Key));
-            hash.AppendData(BigEndian(pair.Value.Glyph));
-            hash.AppendData(Encoding.UTF8.GetBytes(pair.Value.Text));
+            hash.AppendData(BigEndian(codes.Codes[i]));
+            hash.AppendData(BigEndian(codes.Glyphs[i]));
+            hash.AppendData(Encoding.UTF8.GetBytes(codes.Texts[i]));
             hash.AppendData([0]);
         }
 
@@ -222,23 +335,23 @@ internal sealed class PdfEmbeddedFont
     /// The map from codes to glyphs: two bytes per code. Only the codes that were drawn are filled in; every other entry is zero
     /// (the <c>.notdef</c> glyph, which nothing draws), so that the map compresses to the size of what was used.
     /// </summary>
-    private byte[] CidToGidMap()
+    private byte[] CidToGidMap(CodeTable codes)
     {
         byte[] map = new byte[_nextExtra * 2];
-        foreach (KeyValuePair<int, (int Glyph, string Text)> pair in _byCode)
+        for (int i = 0; i < codes.Count; i++)
         {
-            map[pair.Key * 2] = (byte)(pair.Value.Glyph >> 8);
-            map[(pair.Key * 2) + 1] = (byte)pair.Value.Glyph;
+            map[codes.Codes[i] * 2] = (byte)(codes.Glyphs[i] >> 8);
+            map[(codes.Codes[i] * 2) + 1] = (byte)codes.Glyphs[i];
         }
 
         return map;
     }
 
     /// <summary>The <c>/W</c> array: runs of consecutive codes as <c>first [w1 w2 ...]</c>.</summary>
-    private PdfArray Widths()
+    private PdfArray Widths(CodeTable codes)
     {
         PdfArray widths = new();
-        int[] ids = [.. _byCode.Keys];
+        int[] ids = codes.Codes;
         int i = 0;
         while (i < ids.Length)
         {
@@ -251,7 +364,7 @@ internal sealed class PdfEmbeddedFont
             PdfArray run = new();
             for (int k = start; k <= i; k++)
             {
-                run.Add(new PdfInteger((long)Advance(_byCode[ids[k]].Glyph)));
+                run.Add(new PdfInteger((long)Advance(codes.Glyphs[k])));
             }
 
             widths.Add(new PdfInteger(ids[start]));
@@ -266,22 +379,23 @@ internal sealed class PdfEmbeddedFont
     /// The <c>ToUnicode</c> CMap (ISO 32000-1, 9.10.3): one <c>bfchar</c> per code, the text as UTF-16BE
     /// (several code points when the glyph stands for a cluster, such as a ligature), in blocks of at most 100 as the format requires.
     /// </summary>
-    private string ToUnicodeMap()
+    private static string ToUnicodeMap(CodeTable codes)
     {
-        List<KeyValuePair<int, (int Glyph, string Text)>> mapped = [.. _byCode]; // a code with no text (the rest of a cluster) maps to U+034F, see the class remarks
+        // A code with no text (the rest of a cluster) maps to U+034F, see the class remarks.
         StringBuilder cmap = new();
         cmap.Append("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n");
         cmap.Append("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n");
         cmap.Append("/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n");
         cmap.Append("1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
-        for (int block = 0; block < mapped.Count; block += 100)
+        for (int block = 0; block < codes.Count; block += 100)
         {
-            List<KeyValuePair<int, (int Glyph, string Text)>> chunk = mapped.GetRange(block, Math.Min(100, mapped.Count - block));
-            cmap.Append(chunk.Count.ToString(CultureInfo.InvariantCulture)).Append(" beginbfchar\n");
-            foreach (KeyValuePair<int, (int Glyph, string Text)> pair in chunk)
+            int chunk = Math.Min(100, codes.Count - block);
+            cmap.Append(chunk.ToString(CultureInfo.InvariantCulture)).Append(" beginbfchar\n");
+            for (int i = block; i < block + chunk; i++)
             {
-                cmap.Append('<').Append(pair.Key.ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
-                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(pair.Value.Text.Length == 0 ? ContinuationText : pair.Value.Text))).Append(">\n");
+                string text = codes.Texts[i];
+                cmap.Append('<').Append(codes.Codes[i].ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
+                    .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(text.Length == 0 ? ContinuationText : text))).Append(">\n");
             }
 
             cmap.Append("endbfchar\n");

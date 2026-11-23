@@ -40,11 +40,17 @@ internal static class OpenTypeSpaceCheck
         private readonly long _budgetEnd = (16L * data.Length) + 4096;
         private long _reads;
         private readonly HashSet<int> _lookups = [];
-        private readonly HashSet<(int Type, int Offset)> _subtables = [];
-        private readonly HashSet<(int Subtable, int Offset)> _sets = [];
-        private readonly HashSet<(int Subtable, int Offset)> _rules = [];
+
+        // The pairs (a subtable's type and offset, a rule set's or a rule's subtable and offset) are kept as one long each, the first number in the high half: a set of tuples hashes them with the
+        // runtime's randomized seed, whose making is the first use of the system's random numbers in a process, and is generic code that a ReadyToRun build compiles at run time.
+        private readonly HashSet<long> _subtables = [];
+        private readonly HashSet<long> _sets = [];
+        private readonly HashSet<long> _rules = [];
         private readonly Dictionary<int, bool> _coverages = [];
         private readonly Dictionary<int, int> _classes = [];
+
+        /// <summary>Two numbers as the one long that the sets of pairs keep: the first in the high half, the second in the low half.</summary>
+        private static long Pair(int first, int second) => ((long)first << 32) | (uint)second;
 
         private void Spend()
         {
@@ -116,7 +122,7 @@ internal static class OpenTypeSpaceCheck
                         sub += U32(sub + 4);
                     }
 
-                    if (!_subtables.Add((subType, sub)))
+                    if (!_subtables.Add(Pair(subType, sub)))
                     {
                         continue;
                     }
@@ -236,7 +242,7 @@ internal static class OpenTypeSpaceCheck
                         }
 
                         int set = sub + setOffset;
-                        if (!_sets.Add((sub, set)))
+                        if (!_sets.Add(Pair(sub, set)))
                         {
                             continue;
                         }
@@ -245,7 +251,7 @@ internal static class OpenTypeSpaceCheck
                         for (int r = 0; r < ruleCount; r++)
                         {
                             int rule = set + U16(set + 2 + (2 * r));
-                            if (!_rules.Add((sub, rule)))
+                            if (!_rules.Add(Pair(sub, rule)))
                             {
                                 continue;
                             }
@@ -309,7 +315,7 @@ internal static class OpenTypeSpaceCheck
                         }
 
                         int set = sub + setOffset;
-                        if (!_sets.Add((sub, set)))
+                        if (!_sets.Add(Pair(sub, set)))
                         {
                             continue;
                         }
@@ -318,7 +324,7 @@ internal static class OpenTypeSpaceCheck
                         for (int r = 0; r < ruleCount; r++)
                         {
                             int at = set + U16(set + 2 + (2 * r));
-                            if (!_rules.Add((sub, at)))
+                            if (!_rules.Add(Pair(sub, at)))
                             {
                                 continue;
                             }

@@ -1,4 +1,3 @@
-using System.Buffers;
 using Pdfwright.Pdf;
 using Pdfwright.Tests.Conformance;
 using Pdfwright.Tests.Document;
@@ -8,7 +7,7 @@ using Pdfwright.Unicode;
 namespace Pdfwright.Tests.Text;
 
 /// <summary>
-/// The working arrays of a layout (the breakers' scratch arrays and the line breaker's State) are rented from the shared array pool and given back, and the content buffer of a finished
+/// The working arrays of a layout (the breakers' scratch arrays and the line breaker's State) are kept for reuse by each thread (<see cref="ScratchArray"/>) and given back, and the content buffer of a finished
 /// page is kept for the next page of a save. None of it may change a result: a rented array holds whatever its last user left, and a buffer holds the bytes of the page before.
 /// </summary>
 public class LayoutStateReuseTests
@@ -23,9 +22,9 @@ public class LayoutStateReuseTests
         string.Concat(Enumerable.Range(0, 1 + random.Next(14)).Select(_ => Pieces[random.Next(Pieces.Length)] + (random.Next(3) > 0 ? " " : string.Empty)));
 
     /// <summary>
-    /// Fills pooled arrays of every type the layout rents with values that would change a result if they were read, and gives them back. A dozen arrays of each size are held at once before any is
-    /// returned, so that the pool's per-core stacks are filled as well as the slot of this thread: a single rent and return only dirties that slot, which the next rent on the thread takes first.
-    /// It fills only arrays it rented and gives every one back, so it leaves nothing of the pool's state corrupt for tests of other classes that run at the same time.
+    /// Fills kept arrays of every type the layout rents with values that would change a result if they were read, and gives them back. A dozen arrays of each size are held at once before any is
+    /// returned, more than the slots a thread keeps of a size, so that every slot is dirty: a single rent and return only dirties one, which the next rent on the thread takes first.
+    /// The arrays are kept by each thread (<see cref="ScratchArray"/>), so this dirties those of the thread the test runs on, which is the thread its layouts run on.
     /// </summary>
     private static void Poison()
     {
@@ -36,13 +35,13 @@ public class LayoutStateReuseTests
                 T[][] held = new T[12][];
                 for (int k = 0; k < held.Length; k++)
                 {
-                    held[k] = ArrayPool<T>.Shared.Rent(size);
+                    held[k] = ScratchArray.Rent<T>(size);
                     Array.Fill(held[k], value);
                 }
 
                 foreach (T[] array in held)
                 {
-                    ArrayPool<T>.Shared.Return(array);
+                    ScratchArray.Return(array);
                 }
             }
         }
@@ -197,32 +196,175 @@ public class LayoutStateReuseTests
     }
 
     [Fact]
-    public void A_layout_of_a_text_above_the_pool_limit_leaves_nothing_in_the_pool()
+    public void A_layout_of_a_text_above_the_pool_limit_neither_takes_nor_adds_kept_arrays_of_the_largest_size()
     {
         ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
         string text = LongText(100_000);
-        int size = text.Length + 1;
 
-        // An array of the size the layout needs, marked and given back to the pool of this thread: a layout that rents from the pool takes it first, and writes its own values over the marks.
-        // (A pooled array is not cleared, so the test looks for the marks and not for zeros.)
-        bool[] flags = ArrayPool<bool>.Shared.Rent(size);
-        int[] ints = ArrayPool<int>.Shared.Rent(size);
-        double[] doubles = ArrayPool<double>.Shared.Rent(size);
+        // The thread keeps an array of the largest size of two types, marked and given back last: a layout of a text above the limit allocates its arrays of the text's length, so it takes none of these (they would come back
+        // overwritten, or others would) and gives none back (the thread keeps as many of each as before). A kept array is not cleared, so the test looks for the marks and not for zeros.
+        // What the thread keeps of the two types is taken first, so that the marked arrays fit within what a thread may keep of a type.
+        static void Drain<T>()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<T>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<T>(size);
+                }
+            }
+        }
+
+        Drain<bool>();
+        Drain<int>();
+        bool[] flags = ScratchArray.Rent<bool>(ScratchArray.PoolLimit);
+        int[] ints = ScratchArray.Rent<int>(ScratchArray.PoolLimit);
         Array.Fill(flags, true);
         Array.Fill(ints, 7);
-        Array.Fill(doubles, 7.0);
-        ArrayPool<bool>.Shared.Return(flags);
-        ArrayPool<int>.Shared.Return(ints);
-        ArrayPool<double>.Shared.Return(doubles);
+        ScratchArray.Return(flags);
+        ScratchArray.Return(ints);
+        int[] kept = [ScratchArray.KeptCount<bool>(ScratchArray.PoolLimit), ScratchArray.KeptCount<int>(ScratchArray.PoolLimit)];
+        Assert.All(kept, count => Assert.True(count >= 1));
 
         ParagraphLayout layout = LayoutTestKit.Layout(text, fonts, 3000);
         Assert.True(layout.Lines.Count > 100);
 
+        Assert.Equal(kept, (int[])[ScratchArray.KeptCount<bool>(ScratchArray.PoolLimit), ScratchArray.KeptCount<int>(ScratchArray.PoolLimit)]);
+        bool[] flagsAfter = ScratchArray.Rent<bool>(ScratchArray.PoolLimit);
+        int[] intsAfter = ScratchArray.Rent<int>(ScratchArray.PoolLimit);
+        Assert.Same(flags, flagsAfter);
+        Assert.Same(ints, intsAfter);
         Assert.All(flags, v => Assert.True(v));
         Assert.All(ints, v => Assert.Equal(7, v));
-        Assert.All(doubles, v => Assert.Equal(7.0, v));
+        ScratchArray.Return(flags);
+        ScratchArray.Return(ints);
     }
 
+    [Fact]
+    public void A_thread_keeps_at_most_eight_arrays_of_a_size_and_a_bounded_number_of_bytes_of_the_large_ones()
+    {
+        // The bound of what a thread keeps, which is never trimmed: arrays given back past it are dropped.
+        static void Drain()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<int>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<int>(size);
+                }
+            }
+        }
+
+        for (int length = 16; length <= ScratchArray.PoolLimit; length *= 2)
+        {
+            Drain();
+            int[][] held = [.. Enumerable.Range(0, 20).Select(_ => ScratchArray.Rent<int>(length))];
+            foreach (int[] array in held)
+            {
+                ScratchArray.Return(array);
+            }
+
+            bool large = length > ScratchArray.LargestSmall;
+            int expected = large ? Math.Min(8, ScratchArray.LargeBytesPerType / (length * sizeof(int))) : 8;
+            Assert.Equal(expected, ScratchArray.KeptCount<int>(length));
+            Assert.Equal(large ? expected * length * sizeof(int) : 0, ScratchArray.KeptBytes<int>());
+
+            // What is kept is handed out again, the last given back first, and then new arrays.
+            Assert.Same(held[expected - 1], ScratchArray.Rent<int>(length));
+            Drain();
+            Assert.Equal(0, ScratchArray.KeptBytes<int>());
+            int[] fresh = ScratchArray.Rent<int>(length);
+            Assert.DoesNotContain(held, array => ReferenceEquals(array, fresh));
+        }
+    }
+
+    [Fact]
+    public void Arrays_given_back_take_the_place_of_kept_arrays_of_other_large_sizes_within_the_bound()
+    {
+        static void Drain()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<int>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<int>(size);
+                }
+            }
+        }
+
+        // What longer texts left: one array of 4,096 and one of 2,048 (24 KB of the 28 KB a thread keeps of a type).
+        Drain();
+        int[] largest = ScratchArray.Rent<int>(4096);
+        int[] large = ScratchArray.Rent<int>(2048);
+        ScratchArray.Return(largest);
+        ScratchArray.Return(large);
+        Assert.Equal(24 * 1024, ScratchArray.KeptBytes<int>());
+
+        // The current work gives back seven arrays of 1,024 (28 KB): all are kept, in the place of the larger arrays, the largest dropped first, and the bound holds after each one.
+        int[][] current = [.. Enumerable.Range(0, 7).Select(_ => ScratchArray.Rent<int>(1024))];
+        for (int i = 0; i < current.Length; i++)
+        {
+            ScratchArray.Return(current[i]);
+            Assert.True(ScratchArray.KeptBytes<int>() <= ScratchArray.LargeBytesPerType);
+            if (i == 1)
+            {
+                Assert.Equal(0, ScratchArray.KeptCount<int>(4096));
+                Assert.Equal(1, ScratchArray.KeptCount<int>(2048));
+            }
+        }
+
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(0, ScratchArray.KeptCount<int>(4096));
+        Assert.Equal(0, ScratchArray.KeptCount<int>(2048));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+
+        // An eighth array of the same size does not push out its own size: it is dropped.
+        ScratchArray.Return(new int[1024]);
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+
+        // A small array never takes the place of a large one, and is kept outside the bytes of the large ones.
+        int smallBefore = ScratchArray.KeptCount<int>(256);
+        ScratchArray.Return(new int[256]);
+        Assert.Equal(smallBefore + 1, ScratchArray.KeptCount<int>(256));
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        Drain();
+    }
+
+    [Fact]
+    public void An_array_that_cannot_fit_beside_the_arrays_of_its_own_size_drops_nothing_else()
+    {
+        static void Drain()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<int>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<int>(size);
+                }
+            }
+        }
+
+        // One array of 4,096 (16 KB) and three of 1,024 (12 KB) fill the share; a second array of 4,096 would need 32 KB beside the first, so it is dropped and the arrays of 1,024 stay.
+        Drain();
+        int[] largest = ScratchArray.Rent<int>(4096);
+        int[] second = ScratchArray.Rent<int>(4096);
+        int[][] smaller = [.. Enumerable.Range(0, 3).Select(_ => ScratchArray.Rent<int>(1024))];
+        ScratchArray.Return(largest);
+        foreach (int[] array in smaller)
+        {
+            ScratchArray.Return(array);
+        }
+
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        ScratchArray.Return(second);
+        Assert.Equal(1, ScratchArray.KeptCount<int>(4096));
+        Assert.Equal(3, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        Assert.Same(largest, ScratchArray.Rent<int>(4096));
+        Drain();
+    }
     [Fact]
     public void A_layout_of_a_text_above_the_pool_limit_is_the_same_whatever_the_pooled_arrays_hold()
     {

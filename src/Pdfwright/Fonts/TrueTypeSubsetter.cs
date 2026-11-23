@@ -20,35 +20,47 @@ namespace Pdfwright.Fonts;
 /// </remarks>
 internal static class TrueTypeSubsetter
 {
-    private static readonly string[] CopiedTables = ["cvt ", "fpgm", "prep"];
-
     internal static byte[] Subset(TrueTypeFont font, IReadOnlyCollection<int> used)
     {
         ArgumentNullException.ThrowIfNull(font);
         ArgumentNullException.ThrowIfNull(used);
 
-        SortedSet<int> keep = [0];
-        Stack<int> pending = new(used);
-        while (pending.Count > 0)
+        // The glyphs kept, as a flag for each glyph id, and the highest of them. Plain arrays rather than a sorted set and a stack of the framework: this runs once for each font of every document, and
+        // generic collections of another assembly are compiled at run time on first use even in a ReadyToRun build.
+        bool[] keep = new bool[Math.Max(font.GlyphCount, 1)];
+        keep[0] = true;
+        int highest = 0;
+        int[] pending = new int[Math.Max(used.Count, 16)];
+        int waiting = 0;
+        foreach (int glyph in used)
         {
-            int glyph = pending.Pop();
+            Push(ref pending, ref waiting, glyph);
+        }
+
+        // The glyphs are taken from the end, as from a stack, in the order the stack of before took them (which only decides which of several glyphs outside the font is reported).
+        while (waiting > 0)
+        {
+            int glyph = pending[--waiting];
             if (glyph < 0 || glyph >= font.GlyphCount)
             {
                 throw new ArgumentOutOfRangeException(nameof(used), glyph, $"The font has {font.GlyphCount} glyphs.");
             }
 
-            if (!keep.Add(glyph))
+            if (keep[glyph])
             {
                 continue;
             }
 
-            foreach (int component in font.Components(glyph))
+            keep[glyph] = true;
+            highest = Math.Max(highest, glyph);
+            IReadOnlyList<int> components = font.Components(glyph);
+            for (int c = 0; c < components.Count; c++)
             {
-                pending.Push(component);
+                Push(ref pending, ref waiting, components[c]);
             }
         }
 
-        int count = keep.Max + 1;
+        int count = highest + 1;
 
         // glyf and loca (always the long form: the offsets of a subset need no halving).
         using MemoryStream glyf = new();
@@ -56,7 +68,7 @@ internal static class TrueTypeSubsetter
         for (int glyph = 0; glyph < count; glyph++)
         {
             BinaryPrimitives.WriteUInt32BigEndian(loca.AsSpan(glyph * 4, 4), (uint)glyf.Length);
-            if (keep.Contains(glyph))
+            if (keep[glyph])
             {
                 ReadOnlySpan<byte> data = font.GlyphData(glyph);
                 glyf.Write(data);
@@ -87,32 +99,33 @@ internal static class TrueTypeSubsetter
         byte[] maxp = font.Table("maxp").ToArray();
         BinaryPrimitives.WriteUInt16BigEndian(maxp.AsSpan(4, 2), (ushort)count);
 
-        List<(string Tag, byte[] Data)> tables =
-        [
-            ("glyf", glyf.ToArray()),
-            ("head", head),
-            ("hhea", hhea),
-            ("hmtx", hmtx),
-            ("loca", loca),
-            ("maxp", maxp),
-        ];
-        foreach (string tag in CopiedTables)
-        {
-            ReadOnlySpan<byte> table = font.Table(tag);
-            if (!table.IsEmpty)
-            {
-                tables.Add((tag, table.ToArray()));
-            }
-        }
-
-        tables.Sort((a, b) => string.CompareOrdinal(a.Tag, b.Tag));
-        return Assemble(tables);
+        // The tables in the order of their tags (ordinal), which the directory must follow: the copied ones that the font has, among the six that are always written. The order is known here, so it
+        // is written out rather than sorted.
+        List<string> tags = [];
+        List<byte[]> tables = [];
+        AddCopy(tags, tables, font, "cvt ");
+        AddCopy(tags, tables, font, "fpgm");
+        tags.AddRange(["glyf", "head", "hhea", "hmtx", "loca", "maxp"]);
+        tables.AddRange([glyf.ToArray(), head, hhea, hmtx, loca, maxp]);
+        AddCopy(tags, tables, font, "prep");
+        return Assemble(tags, tables);
     }
 
-    /// <summary>Writes the sfnt: the table directory in tag order, each table on a four-byte boundary, and the head checksum adjustment.</summary>
-    private static byte[] Assemble(List<(string Tag, byte[] Data)> tables)
+    /// <summary>Adds a copy of a table that is written as it is (the hinting tables), when the font has it and it is not empty.</summary>
+    private static void AddCopy(List<string> tags, List<byte[]> data, TrueTypeFont font, string tag)
     {
-        int count = tables.Count;
+        ReadOnlySpan<byte> table = font.Table(tag);
+        if (!table.IsEmpty)
+        {
+            tags.Add(tag);
+            data.Add(table.ToArray());
+        }
+    }
+
+    /// <summary>Writes the sfnt: the table directory in tag order (the order of <paramref name="tags"/>), each table on a four-byte boundary, and the head checksum adjustment.</summary>
+    private static byte[] Assemble(List<string> tags, List<byte[]> tables)
+    {
+        int count = tags.Count;
         int entrySelector = 0;
         while ((1 << (entrySelector + 1)) <= count)
         {
@@ -121,7 +134,12 @@ internal static class TrueTypeSubsetter
 
         int searchRange = (1 << entrySelector) * 16;
         int offset = 12 + (count * 16);
-        int total = offset + tables.Sum(t => Padded(t.Data.Length));
+        int total = offset;
+        foreach (byte[] table in tables)
+        {
+            total += Padded(table.Length);
+        }
+
         byte[] file = new byte[total];
         BinaryPrimitives.WriteUInt32BigEndian(file.AsSpan(0, 4), 0x00010000);
         BinaryPrimitives.WriteUInt16BigEndian(file.AsSpan(4, 2), (ushort)count);
@@ -132,7 +150,8 @@ internal static class TrueTypeSubsetter
         int headAt = -1;
         for (int i = 0; i < count; i++)
         {
-            (string tag, byte[] data) = tables[i];
+            string tag = tags[i];
+            byte[] data = tables[i];
             int record = 12 + (i * 16);
             for (int c = 0; c < 4; c++)
             {
@@ -155,6 +174,16 @@ internal static class TrueTypeSubsetter
         uint adjustment = unchecked(0xB1B0AFBA - Checksum(file));
         BinaryPrimitives.WriteUInt32BigEndian(file.AsSpan(headAt + 8, 4), adjustment);
         return file;
+    }
+
+    private static void Push(ref int[] stack, ref int count, int glyph)
+    {
+        if (count == stack.Length)
+        {
+            Array.Resize(ref stack, stack.Length * 2);
+        }
+
+        stack[count++] = glyph;
     }
 
     private static int Padded(int length) => (length + 3) & ~3;

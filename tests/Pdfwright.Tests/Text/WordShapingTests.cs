@@ -424,6 +424,25 @@ public class WordShapingTests
         Assert.InRange(font.WordCacheCount, 1, ShapingFont.WordCacheCapacity);
     }
 
+    [Fact]
+    public void Whole_texts_in_more_languages_than_the_cache_keeps_tables_for_are_shaped_as_without_the_cache()
+    {
+        // The cache of whole texts keeps one table for each direction, script and language and is emptied when it would hold more tables than the word cache may: every text, cached or not, is shaped as the general code shapes it.
+        using ShapingFont font = Fresh("NotoSans-Regular.ttf");
+        ShapingFont[] fonts = [font];
+        for (int round = 0; round < 3; round++)
+        {
+            for (int i = 0; i < ShapingFont.WordTableLimit * 2; i++)
+            {
+                string language = $"en-x-{i % (ShapingFont.WordTableLimit + 7)}";
+                foreach (string text in new[] { "Row 1", "alpha beta", "x", "مرحبا" })
+                {
+                    Assert.Equal(WithoutFastPaths(() => D(TextShaper.Shape(text, fonts, Auto, language))), D(TextShaper.Shape(text, fonts, Auto, language)));
+                }
+            }
+        }
+    }
+
     private static PdfDocument Table(FontCollection fonts, int rows)
     {
         PdfDocument document = new(new PdfDocumentOptions
