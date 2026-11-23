@@ -11,6 +11,14 @@ namespace Pdfwright.Benchmarks.Scenarios;
 /// </summary>
 internal static class ScenarioDocuments
 {
+    private const int Report20ParagraphsPerSection = 20;
+
+    private const int Report20Notes = 8;
+
+    private const int StressParagraphsPerSection = 23;
+
+    private const int StressRowsPerTable = 60;
+
     private static readonly string[] FontFiles = ["NotoSans-Regular.ttf", "NotoSans-Bold.ttf", "NotoSansArabic-Regular.ttf", "NotoSansDevanagari-Regular.ttf"];
 
     private static readonly string[] Months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -75,7 +83,7 @@ internal static class ScenarioDocuments
             if (section is 1 or 3 or 5)
             {
                 document.Add(new Heading(3, $"Chart {(section + 1) / 2}"));
-                document.Add(section == 3 ? LineChart(Series(section, 12), Months) : BarChart(Series(section, 8), Months));
+                document.Add(section == 3 ? LineChart(Series(section, 12), Months, "Line chart of twelve monthly figures from January to December") : BarChart(Series(section, 8), Months, "Bar chart of eight monthly figures from January to August"));
             }
 
             if (section is 2 or 4)
@@ -113,7 +121,7 @@ internal static class ScenarioDocuments
             {
                 charts++;
                 document.Add(new Heading(3, $"Chart {charts}"));
-                document.Add(charts % 2 == 0 ? LineChart(Series(section, 12), Months) : BarChart(Series(section, 8), Months));
+                document.Add(charts % 2 == 0 ? LineChart(Series(section, 12), Months, "Line chart of twelve monthly figures from January to December") : BarChart(Series(section, 8), Months, "Bar chart of eight monthly figures from January to August"));
             }
 
             document.Add(new Heading(3, $"Table {section}"));
@@ -123,14 +131,6 @@ internal static class ScenarioDocuments
 
         return document;
     }
-
-    private const int Report20ParagraphsPerSection = 20;
-
-    private const int Report20Notes = 8;
-
-    private const int StressParagraphsPerSection = 23;
-
-    private const int StressRowsPerTable = 60;
 
     private static PdfDocument ReportShell(FontCollection fonts, string title) => new(new PdfDocumentOptions
     {
@@ -256,7 +256,7 @@ internal static class ScenarioDocuments
         "A longer sentence follows so that the paragraph wraps over several lines and the line breaker has real work to do on every page of the document. " +
         "Orders, returns and refunds are shown in the tables and charts of this section, and the notes below each one explain how they were counted.";
 
-    private static Drawing BarChart(double[] values, string[] labels)
+    private static Drawing BarChart(double[] values, string[] labels, string altText = "Bar chart of sales by month")
     {
         TextStyle small = new() { Size = Length.Pt(8) };
         return new Drawing(Length.Mm(150), Length.Mm(60), canvas =>
@@ -273,10 +273,10 @@ internal static class ScenarioDocuments
                 canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by month" };
+        { AltText = altText };
     }
 
-    private static Drawing LineChart(double[] values, string[] labels)
+    private static Drawing LineChart(double[] values, string[] labels, string altText = "Line chart of orders per month")
     {
         TextStyle small = new() { Size = Length.Pt(8) };
         return new Drawing(Length.Mm(150), Length.Mm(60), canvas =>
@@ -303,7 +303,7 @@ internal static class ScenarioDocuments
                 canvas.DrawText(labels[i], x, canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Line chart of orders per month" };
+        { AltText = altText };
     }
 
     private static Table Invoices(int rowCount) =>
