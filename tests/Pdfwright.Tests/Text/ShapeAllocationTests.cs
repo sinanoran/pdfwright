@@ -30,7 +30,7 @@ public class ShapeAllocationTests
     /// <summary>The same for a cell that wraps over several lines (it was over 9.3 KB).</summary>
     private const int WrappedBudget = 7000;
 
-    /// <summary>Dirties pooled arrays of every type the shaper rents, a dozen of each size so that the per-core stacks are filled as well as the slot of this thread.</summary>
+    /// <summary>Dirties kept arrays of every type the shaper rents, a dozen of each size, more than the slots the thread keeps of a size (<see cref="ScratchArray"/>), so that every one of them is dirty.</summary>
     private static void Poison()
     {
         static void Fill<T>(T value)
@@ -40,13 +40,13 @@ public class ShapeAllocationTests
                 T[][] held = new T[12][];
                 for (int k = 0; k < held.Length; k++)
                 {
-                    held[k] = ArrayPool<T>.Shared.Rent(size);
+                    held[k] = ScratchArray.Rent<T>(size);
                     Array.Fill(held[k], value);
                 }
 
                 foreach (T[] array in held)
                 {
-                    ArrayPool<T>.Shared.Return(array);
+                    ScratchArray.Return(array);
                 }
             }
         }

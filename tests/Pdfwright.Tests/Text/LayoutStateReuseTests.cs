@@ -8,7 +8,7 @@ using Pdfwright.Unicode;
 namespace Pdfwright.Tests.Text;
 
 /// <summary>
-/// The working arrays of a layout (the breakers' scratch arrays and the line breaker's State) are rented from the shared array pool and given back, and the content buffer of a finished
+/// The working arrays of a layout (the breakers' scratch arrays and the line breaker's State) are kept for reuse by each thread (<see cref="ScratchArray"/>) and given back, and the content buffer of a finished
 /// page is kept for the next page of a save. None of it may change a result: a rented array holds whatever its last user left, and a buffer holds the bytes of the page before.
 /// </summary>
 public class LayoutStateReuseTests
@@ -23,9 +23,9 @@ public class LayoutStateReuseTests
         string.Concat(Enumerable.Range(0, 1 + random.Next(14)).Select(_ => Pieces[random.Next(Pieces.Length)] + (random.Next(3) > 0 ? " " : string.Empty)));
 
     /// <summary>
-    /// Fills pooled arrays of every type the layout rents with values that would change a result if they were read, and gives them back. A dozen arrays of each size are held at once before any is
-    /// returned, so that the pool's per-core stacks are filled as well as the slot of this thread: a single rent and return only dirties that slot, which the next rent on the thread takes first.
-    /// It fills only arrays it rented and gives every one back, so it leaves nothing of the pool's state corrupt for tests of other classes that run at the same time.
+    /// Fills kept arrays of every type the layout rents with values that would change a result if they were read, and gives them back. A dozen arrays of each size are held at once before any is
+    /// returned, more than the slots a thread keeps of a size, so that every slot is dirty: a single rent and return only dirties one, which the next rent on the thread takes first.
+    /// The arrays are kept by each thread (<see cref="ScratchArray"/>), so this dirties those of the thread the test runs on, which is the thread its layouts run on.
     /// </summary>
     private static void Poison()
     {
@@ -36,13 +36,13 @@ public class LayoutStateReuseTests
                 T[][] held = new T[12][];
                 for (int k = 0; k < held.Length; k++)
                 {
-                    held[k] = ArrayPool<T>.Shared.Rent(size);
+                    held[k] = ScratchArray.Rent<T>(size);
                     Array.Fill(held[k], value);
                 }
 
                 foreach (T[] array in held)
                 {
-                    ArrayPool<T>.Shared.Return(array);
+                    ScratchArray.Return(array);
                 }
             }
         }
@@ -203,8 +203,8 @@ public class LayoutStateReuseTests
         string text = LongText(100_000);
         int size = text.Length + 1;
 
-        // An array of the size the layout needs, marked and given back to the pool of this thread: a layout that rents from the pool takes it first, and writes its own values over the marks.
-        // (A pooled array is not cleared, so the test looks for the marks and not for zeros.)
+        // An array of the size the layout needs, marked and given back to the framework's pool on this thread: a layout that rented such an array from a pool would take it first, and write its own values over the marks.
+        // The scratch arrays of the library never keep an array of this size (another test holds them to that), and nothing of a layout rents from the framework's pool. (A pooled array is not cleared, so the test looks for the marks and not for zeros.)
         bool[] flags = ArrayPool<bool>.Shared.Rent(size);
         int[] ints = ArrayPool<int>.Shared.Rent(size);
         double[] doubles = ArrayPool<double>.Shared.Rent(size);
