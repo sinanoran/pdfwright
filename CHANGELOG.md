@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-23
+
 ### Added
 
 - **A guide section on startup time.** The first save in a fresh process is mostly the JIT; publishing the application with ReadyToRun took the 1,000-row table from 607 and 549 ms to 378 and 370 ms and the ten-page report from 432 and 393 ms to 264 and 251 ms (paired sets, from process start to exit, the runtime's own start about 110 ms of it). The guide says how and what it costs (about twice the size of the published DLLs); the package is unchanged.
@@ -113,7 +115,8 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
 - A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/sinanoran/pdfwright/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/sinanoran/pdfwright/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/sinanoran/pdfwright/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/sinanoran/pdfwright/compare/v0.1.0...v0.1.1
