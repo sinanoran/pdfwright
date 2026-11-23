@@ -182,6 +182,56 @@ internal sealed class ShapingFont : IDisposable
         }
     }
 
+    /// <summary>Which of the printable ASCII characters (U+0020 to U+007E) the font has a glyph for: bit <c>c - 0x20</c>, the first 64 in <see cref="Low"/> and the other 31 in <see cref="High"/>. Never changed after it is made.</summary>
+    internal sealed class AsciiCoverage(ulong low, ulong high)
+    {
+        internal ulong Low { get; } = low;
+
+        internal ulong High { get; } = high;
+
+        /// <summary>Whether the font has a glyph for every character of the set <paramref name="low"/>, <paramref name="high"/> (laid out as in this class).</summary>
+        internal bool Covers(ulong low, ulong high) => (low & ~Low) == 0 && (high & ~High) == 0;
+    }
+
+    private AsciiCoverage? _asciiCoverage;
+
+    /// <summary>
+    /// The printable ASCII characters the font has a glyph for, found once from its character map on the first ask. A font is shared by every thread of its collection: two threads that ask first both compute the same value and one wins, which does not matter
+    /// as the value is never changed and is the same from either.
+    /// </summary>
+    internal AsciiCoverage PrintableAsciiCoverage
+    {
+        get
+        {
+            AsciiCoverage? known = Volatile.Read(ref _asciiCoverage);
+            if (known is not null)
+            {
+                return known;
+            }
+
+            ulong low = 0;
+            ulong high = 0;
+            for (int c = ' '; c <= '~'; c++)
+            {
+                if (Font.GlyphForCodePoint(c) != 0)
+                {
+                    int bit = c - ' ';
+                    if (bit < 64)
+                    {
+                        low |= 1UL << bit;
+                    }
+                    else
+                    {
+                        high |= 1UL << (bit - 64);
+                    }
+                }
+            }
+
+            AsciiCoverage made = new(low, high);
+            return Interlocked.CompareExchange(ref _asciiCoverage, made, null) ?? made;
+        }
+    }
+
     public void Dispose() => Handle.Dispose();
 }
 
@@ -240,6 +290,12 @@ internal sealed class ShapedParagraph
     /// a run's own level has L1 applied to the paragraph as one line, which is wrong for the white space at the end of every line but the last.
     /// </summary>
     internal required BidiResult Bidi { get; init; }
+
+    /// <summary>
+    /// Whether every character of the text is printable ASCII (U+0020 to U+007E; a tab was shaped as a space) and the paragraph is left to right: the simple path of <see cref="TextShaper.Shape"/> made it. The line breaker
+    /// may then use tables for that range instead of looking each character up (see <see cref="UnicodeLineBreaker.BreaksOfPrintableAscii"/>).
+    /// </summary>
+    internal bool PrintableAscii { get; init; }
 
     private int? _codePointCount;
 
@@ -377,7 +433,7 @@ internal static class TextShaper
 
             List<int> missing = [];
             styleOf = ScratchArray.Rent<int>(count);
-            StyleOfCodePoints(styleOf, count, utf16Index, text.Length, styling);
+            StyleOfCodePoints(styleOf, count, utf16Index, text.Length, styling, simple);
             fontOf = ScratchArray.Rent<int>(count);
             ChooseFonts(fontOf, codePoints, count, utf16Index, fonts, styling, styleOf, missing, simple);
 
@@ -396,7 +452,7 @@ internal static class TextShaper
                 runStart = i;
             }
 
-            result = new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing, CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi, CodePointCount = count, Pooled = rented };
+            result = new ShapedParagraph { ParagraphLevel = bidi.ParagraphLevel, Runs = runs, Missing = missing, CodePoints = codePoints, Utf16Index = utf16Index, Bidi = bidi, CodePointCount = count, Pooled = rented, PrintableAscii = simple };
             return result;
         }
         finally
@@ -452,12 +508,28 @@ internal static class TextShaper
     /// <summary>The shaping group of a style: styles in one group are shaped alike, so a run may span them.</summary>
     private static int KeyOf(ShapeStyling? styling, int style) => styling is null ? 0 : styling.ShapeKeys[style];
 
-    /// <summary>The style of every code point: that of the span that holds it, or 0 with no styling.</summary>
-    private static void StyleOfCodePoints(int[] styleOf, int count, int[] utf16Index, int textLength, ShapeStyling? styling)
+    /// <summary>
+    /// The style of every code point: that of the span that holds it, or 0 with no styling. When <paramref name="indexIsPosition"/> (the simple path: a code point is a UTF-16 unit, so its index is its position) and the spans follow one another from the
+    /// start of the text to its end, each span is filled in one go, which gives what the loop below gives for such spans; anything else, such as spans that do not tile the text (which that loop reports), takes the loop.
+    /// </summary>
+    private static void StyleOfCodePoints(int[] styleOf, int count, int[] utf16Index, int textLength, ShapeStyling? styling, bool indexIsPosition)
     {
         Array.Clear(styleOf, 0, count);
         if (styling is null)
         {
+            return;
+        }
+
+        if (indexIsPosition && TileOneAfterAnother(styling, count))
+        {
+            foreach (StyledSpan filled in styling.Spans)
+            {
+                if (filled.Style != 0)
+                {
+                    Array.Fill(styleOf, filled.Style, filled.Start, filled.Length);
+                }
+            }
+
             return;
         }
 
@@ -479,6 +551,23 @@ internal static class TextShaper
         }
     }
 
+    /// <summary>Whether the spans, in order, start at 0, each begins where the one before ends and none is of negative length, and together they cover exactly <paramref name="count"/> characters.</summary>
+    private static bool TileOneAfterAnother(ShapeStyling styling, int count)
+    {
+        int position = 0;
+        foreach (StyledSpan span in styling.Spans)
+        {
+            if (span.Start != position || span.Length < 0)
+            {
+                return false;
+            }
+
+            position += span.Length;
+        }
+
+        return position == count;
+    }
+
     /// <summary>
     /// A font for every character, chosen per grapheme cluster so that a base and its marks are never split between fonts (nor between styles:
     /// a cluster is set in the style of its first character, which <paramref name="styleOf"/> is changed to say). A cluster of a real
@@ -488,6 +577,11 @@ internal static class TextShaper
     /// </summary>
     private static void ChooseFonts(int[] chosen, int[] codePoints, int count, int[] utf16Index, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf, List<int> missing, bool everyCharacterIsACluster)
     {
+        if (everyCharacterIsACluster && TryChooseFontsOfPrintableAscii(chosen, codePoints, count, fonts, styling, styleOf))
+        {
+            return;
+        }
+
         bool[]? boundaries = everyCharacterIsACluster ? null : UnicodeGraphemeBreaker.Boundaries(codePoints.AsSpan(0, count));
         int previous = styling is null ? 0 : styling.FontOrders[styleOf[0]][0];
         int previousStyle = styleOf[0];
@@ -516,6 +610,73 @@ internal static class TextShaper
             previousStyle = style;
             start = end;
         }
+    }
+
+    /// <summary>
+    /// The font of every character of a text of printable ASCII (the simple path) when the first font of the order of each style the text uses has a glyph for every character the text has, which is then the font the loop of
+    /// <see cref="ChooseFonts"/> would give each one: a character that belongs to a script (a letter) takes the first font of its style's order that covers it, which is that one; a neutral character takes the font of the character before it when the
+    /// style is in the same shaping group and that font covers it, which is that same first font as long as styles of one group agree on it (checked here, since a group is meant to have one order of fonts but this does not rely on it), and else
+    /// the first font that covers it, which is that one again. So nothing is missing, either. Returns <see langword="false"/>, with <paramref name="chosen"/> in no state to be read, when any of this does not hold (a font lacks a glyph the text
+    /// uses, a style's first font is not in the list), and the loop then decides. The font's coverage of the 95 characters is made once per font (<see cref="ShapingFont.PrintableAsciiCoverage"/>).
+    /// </summary>
+    private static bool TryChooseFontsOfPrintableAscii(int[] chosen, int[] codePoints, int count, IReadOnlyList<ShapingFont> fonts, ShapeStyling? styling, int[] styleOf)
+    {
+        ulong low = 0;
+        ulong high = 0;
+        for (int i = 0; i < count; i++)
+        {
+            int bit = codePoints[i] - ' ';
+            if ((uint)bit >= '~' - ' ' + 1)
+            {
+                return false; // not printable ASCII after all: the caller's promise is not kept, so let the loop decide
+            }
+
+            if (bit < 64)
+            {
+                low |= 1UL << bit;
+            }
+            else
+            {
+                high |= 1UL << (bit - 64);
+            }
+        }
+
+        if (styling is null)
+        {
+            if (!fonts[0].PrintableAsciiCoverage.Covers(low, high))
+            {
+                return false;
+            }
+
+            Array.Fill(chosen, 0, 0, count);
+            return true;
+        }
+
+        int style = styleOf[0];
+        int first = -1;
+        for (int i = 0; i < count; i++)
+        {
+            if (i == 0 || styleOf[i] != style)
+            {
+                int previousFirst = first;
+                int previousStyle = style;
+                style = styleOf[i];
+                first = styling.FontOrders[style][0];
+                if ((uint)first >= (uint)fonts.Count || !fonts[first].PrintableAsciiCoverage.Covers(low, high))
+                {
+                    return false;
+                }
+
+                if (i > 0 && first != previousFirst && KeyOf(styling, style) == KeyOf(styling, previousStyle))
+                {
+                    return false;
+                }
+            }
+
+            chosen[i] = first;
+        }
+
+        return true;
     }
 
     /// <summary>Picks the font for the cluster [start, end). <c>previous</c> is the font of the cluster before when it has the same style, and -1 when the style changed (a neutral character then takes the first font of the order that covers it).</summary>
@@ -628,6 +789,20 @@ internal static class TextShaper
         return true;
     }
 
+    // The bidi class of each ASCII character, from the general lookup; the text of the simple path has nothing outside U+0000 to U+007F (printable ASCII and the tab of its bidi text). A static initializer, so it is made once and safely for any number of threads.
+    private static readonly BidiClass[] AsciiBidiClasses = MakeAsciiBidiClasses();
+
+    private static BidiClass[] MakeAsciiBidiClasses()
+    {
+        BidiClass[] classes = new BidiClass[128];
+        for (int c = 0; c < classes.Length; c++)
+        {
+            classes[c] = BidiData.ClassOf(c);
+        }
+
+        return classes;
+    }
+
     /// <summary>
     /// The bidi result of <paramref name="source"/>, text that <see cref="IsSimpleLeftToRight"/> accepted: paragraph level 0 and every level 0, with the classes of the characters. With <paramref name="rented"/> the two arrays come from
     /// <see cref="ScratchArray"/> (longer than the text, and every entry that is read is written here) and the paragraph that holds them gives them back.
@@ -652,7 +827,7 @@ internal static class TextShaper
 
         for (int i = 0; i < source.Length; i++)
         {
-            classes[i] = BidiData.ClassOf(source[i]);
+            classes[i] = AsciiBidiClasses[source[i]];
         }
 
         if (rented)

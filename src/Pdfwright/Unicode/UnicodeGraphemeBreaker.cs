@@ -58,6 +58,22 @@ internal static class UnicodeGraphemeBreaker
         }
     }
 
+    /// <summary>
+    /// The same as <see cref="Boundaries(ReadOnlySpan{int}, bool[])"/> for a text of <paramref name="count"/> characters that are all printable ASCII (U+0020 to U+007E): every position is a boundary. None of those characters is a control, a joiner, an extender,
+    /// a spacing mark, a prepended character, a regional indicator, a Hangul jamo or an emoji, and the only pair that rule GB3 joins (CR LF) has no printable member, so rule GB999 decides every position. The tests hold this against the general rules on
+    /// every printable ASCII text of up to three characters and on longer random ones. The characters themselves are not read.
+    /// </summary>
+    internal static void BoundariesOfPrintableAscii(int count, bool[] boundaries)
+    {
+        if (boundaries.Length < count + 1)
+        {
+            throw new ArgumentException("The array must have room for one entry more than the text has code points.", nameof(boundaries));
+        }
+
+        // An empty text has no boundary at all, as in the general code, which clears the entry and returns.
+        Array.Fill(boundaries, count > 0, 0, count + 1);
+    }
+
     private static bool IsBoundary(CharacterInfo[] info, int i, GraphemeBreakClass l, GraphemeBreakClass r, int regionalRun)
     {
         // GB3 to GB5

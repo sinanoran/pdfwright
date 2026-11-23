@@ -72,6 +72,88 @@ internal static class UnicodeLineBreaker
         }
     }
 
+    /// <summary>The first character of the printable ASCII range, which <see cref="AsciiClasses"/> and <see cref="AsciiInfo"/> start at.</summary>
+    private const int FirstAscii = ' ';
+
+    /// <summary>The number of printable ASCII characters, U+0020 to U+007E.</summary>
+    private const int AsciiCount = '~' - ' ' + 1;
+
+    // The line break class (after LB1) and the properties of each printable ASCII character, made by the same lookup and the same resolution that the general code applies to every character. Static initializers, so that they are made once and safely for any number of threads.
+    private static readonly LineBreakClass[] AsciiClasses = MakeAsciiClasses();
+
+    private static readonly CharacterInfo[] AsciiInfo = MakeAsciiInfo();
+
+    private static LineBreakClass[] MakeAsciiClasses()
+    {
+        LineBreakClass[] classes = new LineBreakClass[AsciiCount];
+        for (int i = 0; i < AsciiCount; i++)
+        {
+            classes[i] = Resolve(CharacterProperties.Of(FirstAscii + i));
+        }
+
+        return classes;
+    }
+
+    private static CharacterInfo[] MakeAsciiInfo()
+    {
+        CharacterInfo[] info = new CharacterInfo[AsciiCount];
+        for (int i = 0; i < AsciiCount; i++)
+        {
+            info[i] = CharacterProperties.Of(FirstAscii + i);
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// The same as <see cref="Breaks(ReadOnlySpan{int}, LineBreakKind[])"/> for a text of printable ASCII only (U+0020 to U+007E; <see cref="ArgumentException"/> for anything else). Such a text has no combining mark or joiner, so every character is a unit of its
+    /// own, and no regional indicator, aksara or dotted circle, so the rules that ask about those never match. The classes and properties come from a table made once instead of a lookup for each character and the units need no arrays of their own,
+    /// but the decision for every boundary is made by the very same code (<c>Decide</c>) as in the general case, which is why the two cannot differ; the tests compare them on every printable ASCII text of up to four characters and on millions of longer ones.
+    /// </summary>
+    internal static void BreaksOfPrintableAscii(ReadOnlySpan<int> text, LineBreakKind[] breaks)
+    {
+        int count = text.Length;
+        if (breaks.Length < count + 1)
+        {
+            throw new ArgumentException("The array must have room for one entry more than the text has code points.", nameof(breaks));
+        }
+
+        Array.Clear(breaks, 0, count + 1);
+        if (count == 0)
+        {
+            return;
+        }
+
+        LineBreakClass[] cls = ScratchArray.Rent<LineBreakClass>(count);
+        CharacterInfo[] info = ScratchArray.Rent<CharacterInfo>(count);
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                int index = text[i] - FirstAscii;
+                if ((uint)index >= AsciiCount)
+                {
+                    throw new ArgumentException("The text must be printable ASCII.", nameof(text));
+                }
+
+                cls[i] = AsciiClasses[index];
+                info[i] = AsciiInfo[index];
+            }
+
+            for (int k = 1; k < count; k++)
+            {
+                breaks[k] = Decide(cls, info, null, null, null, count, k);
+            }
+
+            breaks[count] = LineBreakKind.Mandatory;
+        }
+        finally
+        {
+            ScratchArray.Return(cls);
+            ScratchArray.Return(info);
+        }
+    }
+
     private static void FindBreaks(ReadOnlySpan<int> text, LineBreakKind[] breaks, int[] unitStart, LineBreakClass[] cls, CharacterInfo[] info, bool[] endsInJoiner, bool[] dottedCircle, int[] runOfRegionalIndicators, LineBreakClass[] baseClass)
     {
         int count = text.Length;
@@ -123,11 +205,11 @@ internal static class UnicodeLineBreaker
 
     private static bool In(LineBreakClass value, LineBreakClass a, LineBreakClass b, LineBreakClass c) => value == a || value == b || value == c;
 
-    private static bool IsAksara(LineBreakClass[] cls, bool[] dottedCircle, int unit) =>
-        cls[unit] is LineBreakClass.AK or LineBreakClass.AS || dottedCircle[unit];
+    private static bool IsAksara(LineBreakClass[] cls, bool[]? dottedCircle, int unit) =>
+        cls[unit] is LineBreakClass.AK or LineBreakClass.AS || (dottedCircle is not null && dottedCircle[unit]);
 
-    private static bool IsAksaraOrCircle(LineBreakClass[] cls, bool[] dottedCircle, int unit) =>
-        cls[unit] == LineBreakClass.AK || dottedCircle[unit];
+    private static bool IsAksaraOrCircle(LineBreakClass[] cls, bool[]? dottedCircle, int unit) =>
+        cls[unit] == LineBreakClass.AK || (dottedCircle is not null && dottedCircle[unit]);
 
     /// <summary>The first unit going back from <paramref name="unit"/> that is not in the class <paramref name="skip"/> (-1 when there is none).</summary>
     private static int Back(LineBreakClass[] cls, int unit, LineBreakClass skip)
@@ -140,7 +222,8 @@ internal static class UnicodeLineBreaker
         return unit;
     }
 
-    private static LineBreakKind Decide(LineBreakClass[] cls, CharacterInfo[] info, bool[] endsInJoiner, bool[] dottedCircle, int[] runOfRegionalIndicators, int units, int k)
+    /// <summary>The decision for the boundary before unit <paramref name="k"/>. A <see langword="null"/> <paramref name="endsInJoiner"/> or <paramref name="dottedCircle"/> means that no unit has the flag, and a <see langword="null"/> <paramref name="runOfRegionalIndicators"/> that there is no regional indicator, so that the rule that reads it is never reached.</summary>
+    private static LineBreakKind Decide(LineBreakClass[] cls, CharacterInfo[] info, bool[]? endsInJoiner, bool[]? dottedCircle, int[]? runOfRegionalIndicators, int units, int k)
     {
         LineBreakClass l = cls[k - 1];
         LineBreakClass r = cls[k];
@@ -176,7 +259,7 @@ internal static class UnicodeLineBreaker
         }
 
         // LB8a
-        if (endsInJoiner[k - 1])
+        if (endsInJoiner is not null && endsInJoiner[k - 1])
         {
             return LineBreakKind.None;
         }
@@ -410,7 +493,7 @@ internal static class UnicodeLineBreaker
         // LB30a: regional indicators pair up
         if (l == LineBreakClass.RI && r == LineBreakClass.RI)
         {
-            if (runOfRegionalIndicators[k - 1] % 2 == 1)
+            if (runOfRegionalIndicators![k - 1] % 2 == 1)
             {
                 return LineBreakKind.None;
             }
