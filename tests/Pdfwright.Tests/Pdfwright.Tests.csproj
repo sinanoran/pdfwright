@@ -51,6 +51,9 @@
     <Compile Include="..\..\tools\Pdfwright.UnicodeGen\ScriptDataGenerator.cs" Link="Unicode\ScriptDataGenerator.cs" />
     <!-- The sample of the documentation is compiled here too, so that a test builds and reads back the very report that the sample program writes. -->
     <Compile Include="..\..\samples\Pdfwright.Samples.Report\ReportSample.cs" Link="Documentation\ReportSample.cs" />
+    <!-- The documents of the measuring scenarios are shared source: the allocation-budget tests build exactly what the benchmarks measure. -->
+    <Compile Include="..\..\benchmarks\Pdfwright.Benchmarks\Scenarios\ScenarioDocuments.cs" Link="Performance\ScenarioDocuments.cs" />
+    <Compile Include="..\..\benchmarks\Pdfwright.Benchmarks\Scenarios\TableData.cs" Link="Performance\TableData.cs" />
   </ItemGroup>
 
 </Project>

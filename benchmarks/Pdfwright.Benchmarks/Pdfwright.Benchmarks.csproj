@@ -26,6 +26,7 @@
     <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Regular.ttf" Link="fonts\NotoSans-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSans-Bold.ttf" Link="fonts\NotoSans-Bold.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSansArabic-Regular.ttf" Link="fonts\NotoSansArabic-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\Pdfwright.Tests\Fonts\NotoSansDevanagari-Regular.ttf" Link="fonts\NotoSansDevanagari-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

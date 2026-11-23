@@ -3,19 +3,34 @@ using System.Globalization;
 namespace Pdfwright.Benchmarks.Scenarios;
 
 /// <summary>
-/// The two measured documents, built only through the public API. <see cref="Table"/> is the baseline scenario
+/// The measured documents, built only through the public API. <see cref="Table"/> is the baseline scenario
 /// (1,000 rows by 6 columns, A4 portrait, a repeated header, a "Page x of y" footer); <see cref="Report"/> is a
 /// report of about ten pages with headings, paragraphs, two tables, two charts, a header and a footer, in Latin and Arabic.
+/// The others are the scenarios of section 7 of the plan: <see cref="Report20"/>, <see cref="Stress"/>, <see cref="TableArabic"/>
+/// and <see cref="TableDevanagari"/>. The allocation-budget tests compile this file too, so that the tests and the benchmarks measure the same documents.
 /// </summary>
 internal static class ScenarioDocuments
 {
-    private static readonly string[] FontFiles = ["NotoSans-Regular.ttf", "NotoSans-Bold.ttf", "NotoSansArabic-Regular.ttf"];
+    private const int Report20ParagraphsPerSection = 20;
+
+    private const int Report20Notes = 8;
+
+    private const int StressParagraphsPerSection = 23;
+
+    private const int StressRowsPerTable = 60;
+
+    private static readonly string[] FontFiles = ["NotoSans-Regular.ttf", "NotoSans-Bold.ttf", "NotoSansArabic-Regular.ttf", "NotoSansDevanagari-Regular.ttf"];
+
+    private static readonly string[] Months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     private static readonly Color Blue = Color.FromHex("#3366CC");
 
-    internal static FontCollection LoadFonts()
+    /// <summary>Loads the fonts of the scenarios from the <c>fonts</c> folder beside the program.</summary>
+    internal static FontCollection LoadFonts() => LoadFonts(Path.Combine(AppContext.BaseDirectory, "fonts"));
+
+    /// <summary>Loads the fonts of the scenarios from <paramref name="directory"/>.</summary>
+    internal static FontCollection LoadFonts(string directory)
     {
-        string directory = Path.Combine(AppContext.BaseDirectory, "fonts");
         FontCollection fonts = new();
         foreach (string file in FontFiles)
         {
@@ -26,7 +41,132 @@ internal static class ScenarioDocuments
     }
 
     /// <summary>The 1,000-row table of the baselines. The Chromium baseline printed with its default header and footer (title and date, page x/y); here the header carries the title and the footer "Page x of y".</summary>
-    internal static PdfDocument Table(FontCollection fonts, int rows = 1000)
+    internal static PdfDocument Table(FontCollection fonts, int rows = 1000) =>
+        TableDocument(fonts, TableData.Header, TableData.Rows(rows), new TextStyle { Size = Length.Pt(9) }, null);
+
+    /// <summary>The same table with the cell texts in Arabic (right to left, Noto Sans Arabic, Latin digits): "Row r cell c text" as "صف r خلية c نص", the columns running from the right edge.</summary>
+    internal static PdfDocument TableArabic(FontCollection fonts, int rows = 1000) =>
+        TableDocument(
+            fonts,
+            TableData.LocalizedHeader("عمود"),
+            TableData.LocalizedRows(rows, "صف", "خلية", "نص"),
+            new TextStyle { Family = "Noto Sans Arabic", Size = Length.Pt(9), Language = "ar" },
+            TextDirection.RightToLeft);
+
+    /// <summary>The same table with the cell texts in Devanagari (Hindi, Noto Sans Devanagari, Latin digits): "Row r cell c text" as "पंक्ति r कक्ष c पाठ".</summary>
+    internal static PdfDocument TableDevanagari(FontCollection fonts, int rows = 1000) =>
+        TableDocument(
+            fonts,
+            TableData.LocalizedHeader("स्तंभ"),
+            TableData.LocalizedRows(rows, "पंक्ति", "कक्ष", "पाठ"),
+            new TextStyle { Family = "Noto Sans Devanagari", Size = Length.Pt(9), Language = "hi" },
+            null);
+
+    /// <summary>
+    /// The 20-page report of the plan: a heading, a row of four KPI boxes, three charts, two tables of 40 rows, prose, notes, a header and a footer, in Latin.
+    /// About 20 A4 pages (the diagnostics say how many).
+    /// </summary>
+    internal static PdfDocument Report20(FontCollection fonts)
+    {
+        PdfDocument document = ReportShell(fonts, "Annual report 2026");
+        document.Add(new Heading(1, "Annual report 2026"));
+        document.Add(Kpis());
+        document.Add(new Paragraph(Prose(0)));
+        for (int section = 1; section <= 6; section++)
+        {
+            document.Add(new Heading(2, $"Section {section}"));
+            for (int p = 0; p < Report20ParagraphsPerSection; p++)
+            {
+                document.Add(new Paragraph(Prose((section * 10) + p)));
+            }
+
+            if (section is 1 or 3 or 5)
+            {
+                document.Add(new Heading(3, $"Chart {(section + 1) / 2}"));
+                document.Add(section == 3 ? LineChart(Series(section, 12), Months, "Line chart of twelve monthly figures from January to December") : BarChart(Series(section, 8), Months, "Bar chart of eight monthly figures from January to August"));
+            }
+
+            if (section is 2 or 4)
+            {
+                document.Add(new Heading(3, $"Table {section / 2}"));
+                document.Add(Invoices(40));
+            }
+        }
+
+        document.Add(new Heading(2, "Notes"));
+        for (int n = 1; n <= Report20Notes; n++)
+        {
+            document.Add(new Paragraph($"Note {n}. " + Prose(100 + n)) { Style = new TextStyle { Size = Length.Pt(8) } });
+        }
+
+        return document;
+    }
+
+    /// <summary>The stress document of the plan: about 100 A4 pages, 12 charts and 20 tables mixed with prose, with a header and a footer, in Latin.</summary>
+    internal static PdfDocument Stress(FontCollection fonts)
+    {
+        PdfDocument document = ReportShell(fonts, "Stress document");
+        document.Add(new Heading(1, "Stress document"));
+        document.Add(Kpis());
+        int charts = 0;
+        for (int section = 1; section <= 20; section++)
+        {
+            document.Add(new Heading(2, $"Section {section}"));
+            for (int p = 0; p < StressParagraphsPerSection; p++)
+            {
+                document.Add(new Paragraph(Prose((section * 10) + p)));
+            }
+
+            if (charts < 12 && section % 5 != 0)
+            {
+                charts++;
+                document.Add(new Heading(3, $"Chart {charts}"));
+                document.Add(charts % 2 == 0 ? LineChart(Series(section, 12), Months, "Line chart of twelve monthly figures from January to December") : BarChart(Series(section, 8), Months, "Bar chart of eight monthly figures from January to August"));
+            }
+
+            document.Add(new Heading(3, $"Table {section}"));
+            document.Add(Invoices(StressRowsPerTable));
+            document.Add(new Paragraph($"Note {section}. " + Prose(200 + section)) { Style = new TextStyle { Size = Length.Pt(8) } });
+        }
+
+        return document;
+    }
+
+    private static PdfDocument ReportShell(FontCollection fonts, string title) => new(new PdfDocumentOptions
+    {
+        Fonts = fonts,
+        DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
+        PageSize = PageSize.A4,
+        Margins = Margins.Mm(top: 25, right: 15, bottom: 20, left: 15),
+        Title = title,
+        Language = "en",
+        Header = page => new Paragraph(title) { Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
+        Footer = page => new Paragraph($"Page {page.Number} of {page.Count}") { Alignment = TextAlignment.End, Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
+    });
+
+    /// <summary>A row of four boxes, each with a figure and a label.</summary>
+    private static Columns Kpis() => new(
+        new (string Value, string Label)[] { ("1.24 M", "Revenue"), ("12.4 %", "Growth"), ("3,842", "Orders"), ("97.1 %", "Satisfaction") }
+            .Select(k => (Block)new Callout(
+            [
+                new Paragraph(k.Value) { Style = new TextStyle { Size = Length.Pt(18), Weight = 700 } },
+                new Paragraph(k.Label) { Style = new TextStyle { Size = Length.Pt(9), Color = Color.MidGray } },
+            ])
+            { Fill = Color.Gray(0.95), CornerRadius = Length.Pt(4) }));
+
+    /// <summary>Values from 1 to 10, the same for the same seed.</summary>
+    private static double[] Series(int seed, int count)
+    {
+        double[] values = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            values[i] = (((seed * 31) + (i * 17)) * 7 % 10) + 1;
+        }
+
+        return values;
+    }
+
+    private static PdfDocument TableDocument(FontCollection fonts, IReadOnlyList<string> header, IEnumerable<string[]> rows, TextStyle tableStyle, TextDirection? direction)
     {
         PdfDocument document = new(new PdfDocumentOptions
         {
@@ -43,12 +183,13 @@ internal static class ScenarioDocuments
         document.Add(new Heading(1, "Report"));
         document.Add(new Table(
             Enumerable.Range(0, TableData.Columns).Select(_ => new TableColumn(ColumnWidth.Fraction(1))),
-            new TableRow(TableData.Header.ToArray()),
-            TableData.Rows(rows).Select(cells => new TableRow(cells)))
+            new TableRow(header.ToArray()),
+            rows.Select(cells => new TableRow(cells)))
         {
             Borders = Borders.Horizontal,
             CellPadding = Margins.Pt(1, 3, 1, 3),
-            Style = new TextStyle { Size = Length.Pt(9) },
+            Style = tableStyle,
+            Direction = direction,
         });
         return document;
     }
@@ -115,7 +256,7 @@ internal static class ScenarioDocuments
         "A longer sentence follows so that the paragraph wraps over several lines and the line breaker has real work to do on every page of the document. " +
         "Orders, returns and refunds are shown in the tables and charts of this section, and the notes below each one explain how they were counted.";
 
-    private static Drawing BarChart(double[] values, string[] labels)
+    private static Drawing BarChart(double[] values, string[] labels, string altText = "Bar chart of sales by month")
     {
         TextStyle small = new() { Size = Length.Pt(8) };
         return new Drawing(Length.Mm(150), Length.Mm(60), canvas =>
@@ -132,10 +273,10 @@ internal static class ScenarioDocuments
                 canvas.DrawText(labels[i], x + ((step - 12) / 2), canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Bar chart of sales by month" };
+        { AltText = altText };
     }
 
-    private static Drawing LineChart(double[] values, string[] labels)
+    private static Drawing LineChart(double[] values, string[] labels, string altText = "Line chart of orders per month")
     {
         TextStyle small = new() { Size = Length.Pt(8) };
         return new Drawing(Length.Mm(150), Length.Mm(60), canvas =>
@@ -162,7 +303,7 @@ internal static class ScenarioDocuments
                 canvas.DrawText(labels[i], x, canvas.Height - 3, small, TextAlignment.Center);
             }
         })
-        { AltText = "Line chart of orders per month" };
+        { AltText = altText };
     }
 
     private static Table Invoices(int rowCount) =>
