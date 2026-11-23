@@ -181,15 +181,17 @@ internal sealed partial class DocumentRenderer
 
     private sealed class CellPlan
     {
-        /// <summary>The lines of the cell. Made once the first paragraph is laid out, with room for its lines (a cell is nearly always one paragraph and one or two lines), so that no list grows from four; <see cref="Reserve"/> makes it.</summary>
-        internal List<CellItem> Items { get; private set; } = null!;
+        private List<CellItem>? _items;
+
+        /// <summary>The lines of the cell. A cell nearly always is one paragraph of one or two lines, so the list is made when the first paragraph is laid out, with room for its lines (see <see cref="Reserve"/>), and no list grows from four; one that is read before that is an empty list.</summary>
+        internal List<CellItem> Items => _items ??= [];
 
         /// <summary>Makes <see cref="Items"/> with room for <paramref name="lines"/> if it is not made yet, and makes room for that many more if it is.</summary>
         internal void Reserve(int lines)
         {
-            if (Items is null)
+            if (_items is null)
             {
-                Items = new List<CellItem>(lines);
+                _items = new List<CellItem>(lines);
             }
             else
             {

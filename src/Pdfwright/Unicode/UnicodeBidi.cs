@@ -8,6 +8,7 @@ internal sealed class BidiResult
         ParagraphLevel = paragraphLevel;
         Levels = levels;
         Classes = classes;
+        Count = levels.Length;
     }
 
     /// <summary>The paragraph embedding level: 0 for left-to-right, 1 for right-to-left.</summary>
@@ -16,6 +17,9 @@ internal sealed class BidiResult
     /// breaks the paragraph into lines takes each line's levels from <see cref="UnicodeBidi.LineLevels"/>, which copies.
     /// </remarks>
     internal byte ParagraphLevel { get; }
+
+    /// <summary>The number of characters resolved. The arrays are this long unless they were rented (see <see cref="ScratchArray"/>), when they may be longer and what is past the count is not part of the result.</summary>
+    internal int Count { get; init; }
 
     /// <summary>
     /// The resolved embedding level of each character, with rule L1 applied as if the paragraph were one line. A character that
@@ -205,6 +209,7 @@ internal static class UnicodeBidi
     /// The levels of the line [<paramref name="start"/>, <paramref name="end"/>) of a resolved paragraph, as a new array indexed from 0:
     /// rule L1 applied to that line. A line that is not the last of the paragraph ends in whitespace that the paragraph-wide L1 of
     /// <see cref="Resolve"/> left at its inner level; call this, then <see cref="VisualOrder"/> on the result.
+    /// The layout itself uses <see cref="LineLevelsInto"/>, which allocates nothing; this one is kept as the plain reference that the tests hold it to.
     /// </summary>
     internal static byte[] LineLevels(BidiResult paragraph, int start, int end)
     {
@@ -223,7 +228,7 @@ internal static class UnicodeBidi
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)start, (uint)end, nameof(start));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, paragraph.Levels.Length, nameof(end));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, paragraph.Count, nameof(end));
         int count = end - start;
         ArgumentOutOfRangeException.ThrowIfLessThan(levels.Length, count, nameof(levels));
         levels = levels[..count];

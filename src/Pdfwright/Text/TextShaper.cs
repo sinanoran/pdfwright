@@ -321,7 +321,16 @@ internal static class TextShaper
             }
 
             utf16Index[text.Length] = text.Length;
-            bidi = SimpleBidi(bidiText ?? text, true);
+            try
+            {
+                bidi = SimpleBidi(bidiText ?? text, true);
+            }
+            catch
+            {
+                ScratchArray.Return(codePoints);
+                ScratchArray.Return(utf16Index);
+                throw;
+            }
         }
         else
         {
@@ -626,7 +635,21 @@ internal static class TextShaper
     private static BidiResult SimpleBidi(string source, bool rented)
     {
         BidiClass[] classes = rented ? ScratchArray.Rent<BidiClass>(source.Length) : new BidiClass[source.Length];
-        byte[] levels = rented ? ScratchArray.Rent<byte>(source.Length) : new byte[source.Length];
+        byte[] levels;
+        try
+        {
+            levels = rented ? ScratchArray.Rent<byte>(source.Length) : new byte[source.Length];
+        }
+        catch
+        {
+            if (rented)
+            {
+                ScratchArray.Return(classes);
+            }
+
+            throw;
+        }
+
         for (int i = 0; i < source.Length; i++)
         {
             classes[i] = BidiData.ClassOf(source[i]);
@@ -637,7 +660,7 @@ internal static class TextShaper
             Array.Clear(levels, 0, source.Length);
         }
 
-        return new BidiResult(0, levels, classes);
+        return new BidiResult(0, levels, classes) { Count = source.Length };
     }
 
     private static ShapedRun ShapeRun(string text, int utf16Start, int utf16Length, byte level, int script, int fontIndex, ShapingFont font, string? language, int style, bool simple)

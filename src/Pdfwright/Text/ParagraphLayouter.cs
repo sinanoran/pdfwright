@@ -55,7 +55,7 @@ internal static class ParagraphLayouter
 
         // A tab has no glyph in a font: it is shaped, broken and measured as the space it is laid out as (the same length, so every index holds), while the text the glyphs are cut from for readers stays the tab, and the bidi algorithm reads the tab itself (a segment separator, rule L1).
         (IReadOnlyList<RunStyle> styles, ShapeStyling? styling) = Styling(text, fonts, options);
-        // The paragraph's arrays (code points, indices, bidi result) are rented for the layout: nothing the layout returns refers to them (the lines hold runs and glyphs, which are never rented, and a copy of the missing characters), so they go back when it is done.
+        // The paragraph's arrays (code points, indices, bidi result) are rented for the layout: nothing the layout returns refers to them (the lines hold runs and glyphs, which are never rented, and the shaper's list of missing characters, which is an ordinary list and not rented, so keeping it is safe), so they go back when it is done.
         ShapedParagraph paragraph = TextShaper.Shape(text.Replace('\t', ' '), fonts, options.ParagraphLevel, options.Language, text, styling, pooled: true);
         try
         {

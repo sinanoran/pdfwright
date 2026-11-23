@@ -270,6 +270,23 @@ public class ShapeAllocationTests
     }
 
     [Fact]
+    public void The_levels_of_a_line_past_the_count_of_a_rented_result_are_refused_though_the_array_is_longer()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        ShapedParagraph paragraph = TextShaper.Shape("Row 12 cell 3 text", fonts, pooled: true);
+        try
+        {
+            Assert.Equal(18, paragraph.Bidi.Count);
+            Assert.True(paragraph.Bidi.Levels.Length >= 18);
+            UnicodeBidi.LineLevelsInto(paragraph.Bidi, 0, 18, new byte[32]);
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => UnicodeBidi.LineLevelsInto(paragraph.Bidi, 0, 19, new byte[32]));
+        }
+        finally
+        {
+            paragraph.Release();
+        }
+    }
+    [Fact]
     public void The_levels_of_a_line_written_into_a_buffer_are_those_of_a_new_array()
     {
         Random random = new(20261201);
