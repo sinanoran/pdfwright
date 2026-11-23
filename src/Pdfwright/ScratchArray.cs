@@ -91,8 +91,9 @@ internal static class ScratchArray
     }
 
     /// <summary>
-    /// Gives back an array that <see cref="Rent{T}"/> returned. An array above <see cref="PoolLimit"/> was allocated and is just dropped, as is one when the thread keeps enough of its size or of its type;
-    /// the caller must not use any array after returning it.
+    /// Gives back an array that <see cref="Rent{T}"/> returned. An array above <see cref="PoolLimit"/> was allocated and is just dropped, as is one when the thread keeps all the slots of its size, or,
+    /// for a large size, when the arrays of its own size leave it no room within <see cref="LargeBytesPerType"/> (kept arrays of other large sizes make room for it); the caller must not use any array
+    /// after returning it.
     /// </summary>
     internal static void Return<T>(T[] array)
     {
@@ -130,9 +131,23 @@ internal static class ScratchArray
         }
     }
 
-    /// <summary>Drops kept arrays of the large sizes other than <paramref name="size"/>, the largest first, until <paramref name="bytes"/> more fit within <see cref="LargeBytesPerType"/>. Whether they fit.</summary>
+    /// <summary>
+    /// Drops kept arrays of the large sizes other than <paramref name="size"/>, the largest first, until <paramref name="bytes"/> more fit within <see cref="LargeBytesPerType"/>. Whether they fit; when the
+    /// arrays of <paramref name="size"/> itself leave no room, nothing is dropped.
+    /// </summary>
     private static bool MakeRoom<T>(T[]?[] slots, int size, int bytes)
     {
+        int ownBytes = 0;
+        for (int i = size * SlotsPerSize; i < (size + 1) * SlotsPerSize; i++)
+        {
+            ownBytes += slots[i] is { } own ? BytesOf<T>(own.Length) : 0;
+        }
+
+        if (ownBytes + bytes > LargeBytesPerType)
+        {
+            return false;
+        }
+
         for (int other = Sizes - 1; other > SizeOf(LargestSmall); other--)
         {
             if (other == size)

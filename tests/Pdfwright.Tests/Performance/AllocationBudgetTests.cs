@@ -77,6 +77,15 @@ public sealed class AllocationBudgetTests : IDisposable
     {
         static void Crowd<T>()
         {
+            // What the thread keeps of the large sizes is taken first: what earlier tests left would otherwise fill the share, the arrays below would be dropped, and the thread would not be crowded.
+            for (int size = ScratchArray.LargestSmall * 2; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<T>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<T>(size);
+                }
+            }
+
             List<T[]> held = [];
             for (int i = 0; i < 8; i++)
             {

@@ -324,9 +324,45 @@ public class LayoutStateReuseTests
         Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
 
         // A small array never takes the place of a large one, and is kept outside the bytes of the large ones.
+        int smallBefore = ScratchArray.KeptCount<int>(256);
         ScratchArray.Return(new int[256]);
+        Assert.Equal(smallBefore + 1, ScratchArray.KeptCount<int>(256));
         Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
         Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        Drain();
+    }
+
+    [Fact]
+    public void An_array_that_cannot_fit_beside_the_arrays_of_its_own_size_drops_nothing_else()
+    {
+        static void Drain()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<int>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<int>(size);
+                }
+            }
+        }
+
+        // One array of 4,096 (16 KB) and three of 1,024 (12 KB) fill the share; a second array of 4,096 would need 32 KB beside the first, so it is dropped and the arrays of 1,024 stay.
+        Drain();
+        int[] largest = ScratchArray.Rent<int>(4096);
+        int[] second = ScratchArray.Rent<int>(4096);
+        int[][] smaller = [.. Enumerable.Range(0, 3).Select(_ => ScratchArray.Rent<int>(1024))];
+        ScratchArray.Return(largest);
+        foreach (int[] array in smaller)
+        {
+            ScratchArray.Return(array);
+        }
+
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        ScratchArray.Return(second);
+        Assert.Equal(1, ScratchArray.KeptCount<int>(4096));
+        Assert.Equal(3, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        Assert.Same(largest, ScratchArray.Rent<int>(4096));
         Drain();
     }
     [Fact]
