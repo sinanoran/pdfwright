@@ -117,16 +117,16 @@ internal sealed class PdfReal : PdfObject
     }
 
     /// <summary>
-    /// The count of hundred-thousandths below which <see cref="WriteScaled"/> and the whole-number path of <see cref="Write"/> need no custom format: the custom
-    /// format of a double keeps 15 significant digits and then rounds them to five decimals, and a decimal of at most 15 digits goes through a double and back
-    /// unchanged, so a count under 1e15 (at most 15 digits) is written as exactly its own digits.
+    /// The bound, 1e15, below which no custom format is needed: for <see cref="WriteScaled"/> it bounds the count of hundred-thousandths, and for the
+    /// whole-number path of <see cref="Write"/> the value itself. The custom format of a double keeps 15 significant digits and then rounds them to five
+    /// decimals, and a decimal of at most 15 digits goes through a double and back unchanged, so a number of at most 15 digits is written as exactly its own digits.
     /// </summary>
     private const long ExactLimit = 1_000_000_000_000_000;
 
     /// <summary>
     /// Writes <paramref name="count"/> hundred-thousandths as <see cref="Write"/> writes <c>count / 100000.0</c>, byte for byte, without the slow custom format when
     /// <paramref name="count"/> is under 1e15 in size (a value under 1e10, far beyond a page); beyond that it formats the double as <see cref="Write"/> does.
-    /// The destination must hold at least 400 bytes.
+    /// The destination must hold at least 400 bytes, which only that fallback can need (the fast path writes at most 17).
     /// </summary>
     internal static int WriteScaled(long count, Span<byte> destination)
     {
