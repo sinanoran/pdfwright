@@ -179,6 +179,31 @@ The Arabic table has 31 pages against 21 because Noto Sans Arabic's lines are ta
 
 So the first save of the table is 73 ms faster with the JIT (15 percent) and 69 ms with ReadyToRun (22 percent), and with ReadyToRun it is now **under the plan's 250 ms** (241 ms, the runtime's 71 ms included); the report is 41 and 39 ms faster. The working set of the table is 27.5 MB over the runtime's start with the JIT and 25.2 MB with ReadyToRun (target 25 MB). The machine was much quieter than in the sittings above (12 GB free against 2 to 8 GB), which is why `main`'s own numbers are lower than there; the comparison that counts is the paired one in this table.
 
+**Font bytes held once (23 November 2026, output unchanged; the same sitting as the cold start above, `perf/font-bytes-in-place` alone and both branches together).** `FontCollection.Add` copies a font into an array on the pinned object heap and HarfBuzz reads that array in place, so a font's bytes are no longer kept a second time in native memory. Peak working set, p50 of 40 fresh processes, and the process's own time:
+
+| | `main` | Font bytes alone | Cold start alone | Both |
+|---|---|---|---|---|
+| A, JIT | 53.2 MB, 492 ms | 51.6 MB, 488 ms | 52.2 MB, 419 ms | **50.4 MB**, 417 ms |
+| A, ReadyToRun | 50.1 MB, 310 ms | 48.9 MB, 313 ms | 48.7 MB, 241 ms | **47.3 MB**, **240 ms** |
+| B, JIT | 49.1 MB, 357 ms | 47.5 MB, 357 ms | 45.6 MB, 316 ms | **43.9 MB**, 315 ms |
+| B, ReadyToRun | 44.1 MB, 222 ms | 42.4 MB, 219 ms | 42.1 MB, 183 ms | **40.4 MB**, 180 ms |
+
+The runtime's own start is 24.7 MB (JIT) and 23.5 MB (ReadyToRun) in every build. So the table's increase over it is 28.5 MB on `main` and 25.7 MB with both changes (JIT), and 26.6 and **23.8 MB with ReadyToRun, under the plan's 25 MB**; the report's is 24.4 and 19.2 MB (JIT), 20.6 and 16.9 MB (ReadyToRun). Holding the bytes once saves 1.2 to 1.8 MB and does not change the time.
+
+**The scenarios, warm, in a quiet sitting (23 November 2026, the same sitting; `main` and both changes, default JIT, two rounds each, 50 runs after 5 warm-up, 10 runs for the stress document and the 10,000-row table).** p50 of each round:
+
+| Scenario | `main` | Both changes | Plan target |
+|---|---|---|---|
+| `table` (1,000 rows) | 31.6 and 32.9 ms | 30.1 and 30.3 ms | under 60 ms, met |
+| `report` (ten pages) | 33.5 and 32.7 ms | 24.2 and 21.9 ms | |
+| `report20` | 28.4 and 35.1 ms | 30.8 and 28.7 ms | under 40 ms, met |
+| `stress` (101 pages) | 111.5 and 123.5 ms | 124.4 and 109.0 ms | under 400 ms, met |
+| `table-arabic` | 167.7 and 159.5 ms | 156.9 and 155.8 ms | at most 2 times the Latin table: not met (about 5 times) |
+| `table-devanagari` | 187.1 and 192.9 ms | 182.5 and 182.3 ms | not met (about 6 times) |
+| `table10k` (10,000 rows) | 387.2 and 365.6 ms | 366.4 and 370.1 ms | (12 times the 1,000 rows) |
+
+The warm table is about half of the 55 to 58 ms measured in the ASCII-paths sitting, at 12 GB free against 2.6 to 4.9 GB there: the free memory of this machine moves the warm times too. The allocation per save is unchanged (18.5, 3.4, 6.1, 31.1, 42.5, 37.9 and 183 MB). What the Arabic and Hindi tables still cost is shaping every cell whole (their fonts' rules involve the space, so the word cache refuses them) and the general Unicode passes for text that is not printable ASCII.
+
 **After the allocation-free content writing (22 November 2026, same machine and build settings, `Release`, .NET 10 runtime).** The numbers, operators and glyph codes of a page's content are now written straight into its byte buffer, and the glyph order of a run no longer uses LINQ; the output is byte for byte the same (513,897 bytes for A, 102,715 for B). Warm, 100 runs after 10 warm-up, a full GC between runs, A and B each measured before and after in the same sitting:
 
 | | Before (re-measured in the same sitting) | After |

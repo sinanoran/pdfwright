@@ -191,7 +191,18 @@ internal sealed class TrueTypeFont
     /// </summary>
     internal bool MayEmbedSubset => (EmbeddingPermission & 0x0100) == 0 && (EmbeddingPermission & 0x0200) == 0 && ((EmbeddingPermission & 0x0002) == 0 || (EmbeddingPermission & 0x000C) != 0);
 
+    /// <summary>Parses a font from a copy of <paramref name="data"/>, which the caller may change afterwards.</summary>
     internal static TrueTypeFont Parse(byte[] data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        return ParseOwned(data.ToArray());
+    }
+
+    /// <summary>
+    /// Parses a font from <paramref name="data"/> itself, which the font keeps as its <see cref="RawBytes"/> without a copy: the caller gives the array up and must not change it (nor let anyone else)
+    /// afterwards. A font collection uses it for the copy it makes on the pinned object heap, so that the array the shaping engine reads in place is that copy.
+    /// </summary>
+    internal static TrueTypeFont ParseOwned(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
         if (data.Length < 12)
@@ -201,7 +212,7 @@ internal sealed class TrueTypeFont
 
         try
         {
-            return new TrueTypeFont(data.ToArray());
+            return new TrueTypeFont(data);
         }
         catch (Exception error) when (error is ArgumentException or OverflowException)
         {
