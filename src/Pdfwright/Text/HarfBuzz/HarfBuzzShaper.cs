@@ -95,6 +95,7 @@ internal sealed class HarfBuzzFont : ShaperFont
     private readonly Face _face;
     private readonly HarfBuzzSharp.Font _font;
     private volatile bool _disposed;
+    private readonly Lazy<string?> _wordShapingRefusal;
 
     internal HarfBuzzFont(byte[] bytes, int unitsPerEm)
     {
@@ -105,6 +106,24 @@ internal sealed class HarfBuzzFont : ShaperFont
         _face = new Face(_blob, 0);
         _font = new HarfBuzzSharp.Font(_face);
         _font.SetScale(unitsPerEm, unitsPerEm);
+        _wordShapingRefusal = new Lazy<string?>(() => HarfBuzzSpaceCheck.Refusal(Face, Font), LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    /// <summary>The verdict of <see cref="HarfBuzzSpaceCheck"/>, computed on the first call and kept.</summary>
+    public override string? WordShapingRefusal => _wordShapingRefusal.Value;
+
+    /// <summary>A base glyph is one that GDEF calls a base glyph or does not classify. A library without the function answers no, so no word is taken.</summary>
+    public override bool IsBaseGlyph(int glyph)
+    {
+        try
+        {
+            int glyphClass = HarfBuzzLayoutNative.hb_ot_layout_get_glyph_class(Face.Handle, (uint)glyph);
+            return glyphClass is 0 or 1;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            return false;
+        }
     }
 
     internal Face Face
