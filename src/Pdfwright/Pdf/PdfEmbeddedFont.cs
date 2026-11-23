@@ -32,16 +32,27 @@ internal sealed class PdfEmbeddedFont
 
     // The codes handed out, kept by glyph. A glyph's first code is its id, so the text it was first drawn for is all that is kept for it (null for a glyph not drawn yet), and the codes of a glyph drawn
     // for other texts are a short chain of their own. Every glyph drawn is looked up here (more than a hundred thousand times for a 1,000-row table), so these are plain arrays indexed by the glyph instead
-    // of a dictionary keyed by the glyph and its text, which hashed the text each time and, as a generic collection over a tuple, had to be compiled at run time even in a ReadyToRun build. The arrays grow
-    // with the highest glyph drawn, up to the font's glyph count.
-    private string?[] _firstText = [];
-    private ExtraCode?[] _extras = [];
+    // of a dictionary keyed by the glyph and its text, which hashed the text each time and, as a generic collection over a tuple, had to be compiled at run time even in a ReadyToRun build. The arrays are
+    // in pages of 256 glyphs, made when a glyph of the page is first drawn, so that a document that draws a few glyphs of a font of 65,000 (a CJK font) makes a few pages, not arrays of the whole font
+    // (a megabyte for each document); the list of pages is one reference for each 256 glyphs.
+    private readonly GlyphPage?[] _pages;
 
     // The codes above the glyph count, in the order they were handed out, which is the order of the codes.
     private readonly List<ExtraCode> _extraCodes = [];
     private int _glyphsDrawn;
     private int _nextExtra;
     private bool _written;
+
+    /// <summary>The number of glyphs in a page of <see cref="GlyphPage"/>.</summary>
+    private const int PageSize = 256;
+
+    /// <summary>For each glyph of one page (256 glyph ids that follow one another), the text it was first drawn for and the chain of its other codes.</summary>
+    private sealed class GlyphPage
+    {
+        internal string?[] FirstText { get; } = new string?[PageSize];
+
+        internal ExtraCode?[] Extras { get; } = new ExtraCode?[PageSize];
+    }
 
     /// <summary>A code above the glyph count: a glyph drawn for another text than the one it was first drawn for. The codes of one glyph form a chain, the newest first.</summary>
     private sealed class ExtraCode(int code, int glyph, string text, ExtraCode? next)
@@ -73,6 +84,7 @@ internal sealed class PdfEmbeddedFont
 
         _font = font;
         _nextExtra = font.GlyphCount;
+        _pages = new GlyphPage?[Math.Max(1, (font.GlyphCount + PageSize - 1) / PageSize)];
         Reference = document.AllocateObject();
         document.OnComplete(Write);
     }
@@ -105,15 +117,12 @@ internal sealed class PdfEmbeddedFont
         }
 
         text ??= string.Empty;
-        if (glyph >= _firstText.Length)
-        {
-            Grow(glyph);
-        }
-
-        string? firstText = _firstText[glyph];
+        GlyphPage page = _pages[glyph / PageSize] ??= new GlyphPage();
+        int slot = glyph % PageSize;
+        string? firstText = page.FirstText[slot];
         if (firstText is null)
         {
-            _firstText[glyph] = text;
+            page.FirstText[slot] = text;
             _glyphsDrawn++;
             return glyph;
         }
@@ -123,7 +132,7 @@ internal sealed class PdfEmbeddedFont
             return glyph;
         }
 
-        for (ExtraCode? extra = _extras[glyph]; extra is not null; extra = extra.Next)
+        for (ExtraCode? extra = page.Extras[slot]; extra is not null; extra = extra.Next)
         {
             if (string.Equals(extra.Text, text, StringComparison.Ordinal))
             {
@@ -139,18 +148,10 @@ internal sealed class PdfEmbeddedFont
         }
 
         _nextExtra++;
-        ExtraCode made = new(code, glyph, text, _extras[glyph]);
-        _extras[glyph] = made;
+        ExtraCode made = new(code, glyph, text, page.Extras[slot]);
+        page.Extras[slot] = made;
         _extraCodes.Add(made);
         return code;
-    }
-
-    /// <summary>Makes the arrays kept by glyph long enough for <paramref name="glyph"/>, which is below the glyph count: twice as long as they were (at least 256), or the glyph count when that is less.</summary>
-    private void Grow(int glyph)
-    {
-        int length = Math.Min(_font.GlyphCount, Math.Max(glyph + 1, Math.Max(256, _firstText.Length * 2)));
-        Array.Resize(ref _firstText, length);
-        Array.Resize(ref _extras, length);
     }
 
     /// <summary>
@@ -162,14 +163,23 @@ internal sealed class PdfEmbeddedFont
         int count = _glyphsDrawn + _extraCodes.Count;
         CodeTable table = new(new int[count], new int[count], new string[count]);
         int at = 0;
-        for (int glyph = 0; glyph < _firstText.Length; glyph++)
+        for (int p = 0; p < _pages.Length; p++)
         {
-            if (_firstText[glyph] is { } text)
+            if (_pages[p] is not { } page)
             {
-                table.Codes[at] = glyph;
-                table.Glyphs[at] = glyph;
-                table.Texts[at] = text;
-                at++;
+                continue;
+            }
+
+            for (int slot = 0; slot < PageSize; slot++)
+            {
+                if (page.FirstText[slot] is { } text)
+                {
+                    int glyph = (p * PageSize) + slot;
+                    table.Codes[at] = glyph;
+                    table.Glyphs[at] = glyph;
+                    table.Texts[at] = text;
+                    at++;
+                }
             }
         }
 
@@ -189,11 +199,19 @@ internal sealed class PdfEmbeddedFont
     {
         int[] glyphs = new int[_glyphsDrawn];
         int at = 0;
-        for (int glyph = 0; glyph < _firstText.Length; glyph++)
+        for (int p = 0; p < _pages.Length; p++)
         {
-            if (_firstText[glyph] is not null)
+            if (_pages[p] is not { } page)
             {
-                glyphs[at++] = glyph;
+                continue;
+            }
+
+            for (int slot = 0; slot < PageSize; slot++)
+            {
+                if (page.FirstText[slot] is not null)
+                {
+                    glyphs[at++] = (p * PageSize) + slot;
+                }
             }
         }
 
@@ -215,13 +233,7 @@ internal sealed class PdfEmbeddedFont
         if (_glyphsDrawn == 0)
         {
             // A font that no page used still has to be a valid object, because pages may refer to it.
-            if (_firstText.Length == 0)
-            {
-                _firstText = new string?[1];
-                _extras = new ExtraCode?[1];
-            }
-
-            _firstText[0] = string.Empty;
+            (_pages[0] ??= new GlyphPage()).FirstText[0] = string.Empty;
             _glyphsDrawn = 1;
         }
 

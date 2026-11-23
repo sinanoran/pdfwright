@@ -52,8 +52,9 @@ public class EmbeddedFontCodeTests
     {
         Random random = new(seed);
 
-        // A mix of glyphs that are drawn often for one text (most glyphs of real text), a few drawn for several texts, low and high ids, and the .notdef glyph.
-        int[] glyphs = [0, 1, 3, 36, 68, 69, 70, 300, 1000, Regular.GlyphCount - 2, Regular.GlyphCount - 1];
+        // A mix of glyphs that are drawn often for one text (most glyphs of real text), a few drawn for several texts, low and high ids, the .notdef glyph, and the glyphs on either side of the edges of
+        // the pages of 256 glyphs the font keeps its codes in.
+        int[] glyphs = [0, 1, 3, 36, 68, 69, 70, 255, 256, 257, 300, 511, 512, 1000, Regular.GlyphCount - 2, Regular.GlyphCount - 1];
         Reference reference = new(Regular.GlyphCount);
         List<(int Expected, int Actual)> codes = [];
         string file = Draw(font =>
@@ -105,6 +106,22 @@ public class EmbeddedFontCodeTests
         }
 
         AssertMapsAre(reference, file);
+    }
+
+    [Fact]
+    public void Drawing_one_glyph_of_a_large_font_allocates_a_page_of_codes_not_arrays_of_the_whole_font()
+    {
+        // The codes are kept in pages of 256 glyphs made on demand: the first glyph drawn, the last of the font, makes one page (two arrays of 256 references, about 4 KB), not arrays as long as the font
+        // (16 bytes a glyph: about 62 KB for the 3,885 glyphs of Noto Sans, a megabyte for a CJK font, for every document).
+        using MemoryStream stream = new();
+        using PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None });
+        PdfEmbeddedFont font = new(document, Regular);
+        _ = font.UseGlyph(0, "x"); // the first call of the method, so that what is measured below is the data alone
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = font.UseGlyph(Regular.GlyphCount - 1, "y");
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.InRange(allocated, 1, 6 * 1024);
+        Assert.True(allocated < 4L * Regular.GlyphCount, $"drawing one glyph allocated {allocated} bytes, in proportion to the font's {Regular.GlyphCount} glyphs");
     }
 
     private static string Draw(Action<PdfEmbeddedFont> use)
