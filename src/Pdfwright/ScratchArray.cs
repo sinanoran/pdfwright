@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Pdfwright;
 
 /// <summary>
@@ -5,10 +7,19 @@ namespace Pdfwright;
 /// proportion to the longest text it ever laid out.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The arrays are kept here rather than in the framework's shared array pool: the pool is a generic class of the framework, and for an element type of this library (the classes of the Unicode
 /// algorithms) or one the framework does not pool itself (<see cref="double"/>) its code was compiled at run time on the first save of a process even in a ReadyToRun build, about forty methods in all.
-/// The code here is the library's own and is compiled ahead of time with it. Each thread keeps at most <see cref="SlotsPerSize"/> arrays of each size (the powers of two from 16 to <see cref="PoolLimit"/>
-/// elements) of each element type, which for the short texts of cells and lines is a few kilobytes; what a thread keeps goes with the thread.
+/// The code here is the library's own and is compiled ahead of time with it.
+/// </para>
+/// <para>
+/// What a thread keeps is never trimmed, only dropped with the thread, so it is bounded tightly. For each element type it keeps at most <see cref="SlotsPerSize"/> arrays of each size (the powers of two
+/// from 16 to <see cref="PoolLimit"/> elements); of the sizes up to <see cref="LargestSmall"/> elements that is all (8 x 496 elements), and the larger sizes share at most <see cref="LargeBytesPerType"/>
+/// bytes of elements (a reference counts as its eight bytes), so that the arrays of long texts never crowd out those of cells and lines. The layout uses nine element types (<see cref="int"/>,
+/// <see cref="double"/>, <see cref="bool"/>, <see cref="byte"/>, the shaper's words, the character properties and the three classes of the line breaker and the bidi algorithm), of 29 bytes together,
+/// so a thread keeps at most 3,968 x 29 bytes (115 KB) of small arrays and 9 x 28 KB (252 KB) of large ones, about 367 KB, and the headers of at most 9 x 72 arrays of 24 bytes (about 15 KB). A thread that
+/// has laid out only cells and lines of usual length keeps a few kilobytes.
+/// </para>
 /// </remarks>
 internal static class ScratchArray
 {
@@ -18,6 +29,15 @@ internal static class ScratchArray
     /// thread keeps memory in proportion to the longest text it ever laid out.
     /// </summary>
     internal const int PoolLimit = 4096;
+
+    /// <summary>The longest of the small sizes, which are kept in all their slots; a larger array is kept only within <see cref="LargeBytesPerType"/>.</summary>
+    internal const int LargestSmall = 256;
+
+    /// <summary>
+    /// The most bytes of elements of the sizes above <see cref="LargestSmall"/> that a thread keeps of one element type: an array given back that would pass it is dropped. Every array of the layout of a
+    /// paragraph of up to about a thousand characters fits (seven arrays of 1,024 <see cref="int"/> are 28 KB), so the usual paragraphs allocate none; a longer text keeps what fits and allocates the rest.
+    /// </summary>
+    internal const int LargeBytesPerType = 28 * 1024;
 
     /// <summary>The shortest array that is handed out (an array for fewer elements is this long), as the framework's pool does.</summary>
     private const int ShortestLength = 16;
@@ -55,6 +75,11 @@ internal static class ScratchArray
                 if (slots[i] is { } kept)
                 {
                     slots[i] = null;
+                    if (kept.Length > LargestSmall)
+                    {
+                        Kept<T>.Bytes -= BytesOf<T>(kept.Length);
+                    }
+
                     return kept;
                 }
             }
@@ -63,7 +88,10 @@ internal static class ScratchArray
         return new T[ShortestLength << size];
     }
 
-    /// <summary>Gives back an array that <see cref="Rent{T}"/> returned. An array above <see cref="PoolLimit"/> was allocated and is just dropped, as is one when the thread keeps enough of its size; the caller must not use any array after returning it.</summary>
+    /// <summary>
+    /// Gives back an array that <see cref="Rent{T}"/> returned. An array above <see cref="PoolLimit"/> was allocated and is just dropped, as is one when the thread keeps enough of its size or of its type;
+    /// the caller must not use any array after returning it.
+    /// </summary>
     internal static void Return<T>(T[] array)
     {
         ArgumentNullException.ThrowIfNull(array);
@@ -73,6 +101,12 @@ internal static class ScratchArray
             return; // not one of the sizes kept: one allocated for a long text, or the empty array
         }
 
+        int bytes = length > LargestSmall ? BytesOf<T>(length) : 0;
+        if (Kept<T>.Bytes + bytes > LargeBytesPerType)
+        {
+            return; // the thread keeps as much of the large arrays of this type as it may
+        }
+
         T[]?[] slots = Kept<T>.Slots ??= new T[]?[Sizes * SlotsPerSize];
         int first = SizeOf(length) * SlotsPerSize;
         for (int i = first; i < first + SlotsPerSize; i++)
@@ -80,18 +114,46 @@ internal static class ScratchArray
             if (slots[i] is null)
             {
                 slots[i] = array;
+                Kept<T>.Bytes += bytes;
                 return;
             }
         }
     }
 
+    /// <summary>How many arrays of one element type, of the size that holds <paramref name="length"/> elements, the current thread keeps now. For tests.</summary>
+    internal static int KeptCount<T>(int length)
+    {
+        if (Kept<T>.Slots is not { } slots || length < 1 || length > PoolLimit)
+        {
+            return 0;
+        }
+
+        int first = SizeOf(length) * SlotsPerSize;
+        int kept = 0;
+        for (int i = first; i < first + SlotsPerSize; i++)
+        {
+            kept += slots[i] is null ? 0 : 1;
+        }
+
+        return kept;
+    }
+
+    /// <summary>How many bytes of elements of one type, in arrays above <see cref="LargestSmall"/> elements, the current thread keeps now. For tests.</summary>
+    internal static int KeptBytes<T>() => Kept<T>.Bytes;
+
     /// <summary>The index of the size of array that holds <paramref name="length"/> elements (1 to <see cref="PoolLimit"/>): 0 for up to 16, 1 for up to 32, and so on.</summary>
     private static int SizeOf(int length) => Math.Max(0, System.Numerics.BitOperations.Log2((uint)length - 1) - 3);
 
-    /// <summary>The arrays of one element type that the current thread keeps: <see cref="SlotsPerSize"/> slots for each size, the smallest size first.</summary>
+    /// <summary>The bytes of the elements of an array of <paramref name="length"/> elements (a reference is the size of a pointer).</summary>
+    private static int BytesOf<T>(int length) => length * Unsafe.SizeOf<T>();
+
+    /// <summary>The arrays of one element type that the current thread keeps (<see cref="SlotsPerSize"/> slots for each size, the smallest size first) and the bytes of the elements of the large ones.</summary>
     private static class Kept<T>
     {
         [ThreadStatic]
         internal static T[]?[]? Slots;
+
+        [ThreadStatic]
+        internal static int Bytes;
     }
 }
