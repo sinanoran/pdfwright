@@ -277,6 +277,58 @@ public class LayoutStateReuseTests
             Assert.DoesNotContain(held, array => ReferenceEquals(array, fresh));
         }
     }
+
+    [Fact]
+    public void Arrays_given_back_take_the_place_of_kept_arrays_of_other_large_sizes_within_the_bound()
+    {
+        static void Drain()
+        {
+            for (int size = 16; size <= ScratchArray.PoolLimit; size *= 2)
+            {
+                while (ScratchArray.KeptCount<int>(size) > 0)
+                {
+                    _ = ScratchArray.Rent<int>(size);
+                }
+            }
+        }
+
+        // What longer texts left: one array of 4,096 and one of 2,048 (24 KB of the 28 KB a thread keeps of a type).
+        Drain();
+        int[] largest = ScratchArray.Rent<int>(4096);
+        int[] large = ScratchArray.Rent<int>(2048);
+        ScratchArray.Return(largest);
+        ScratchArray.Return(large);
+        Assert.Equal(24 * 1024, ScratchArray.KeptBytes<int>());
+
+        // The current work gives back seven arrays of 1,024 (28 KB): all are kept, in the place of the larger arrays, the largest dropped first, and the bound holds after each one.
+        int[][] current = [.. Enumerable.Range(0, 7).Select(_ => ScratchArray.Rent<int>(1024))];
+        for (int i = 0; i < current.Length; i++)
+        {
+            ScratchArray.Return(current[i]);
+            Assert.True(ScratchArray.KeptBytes<int>() <= ScratchArray.LargeBytesPerType);
+            if (i == 1)
+            {
+                Assert.Equal(0, ScratchArray.KeptCount<int>(4096));
+                Assert.Equal(1, ScratchArray.KeptCount<int>(2048));
+            }
+        }
+
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(0, ScratchArray.KeptCount<int>(4096));
+        Assert.Equal(0, ScratchArray.KeptCount<int>(2048));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+
+        // An eighth array of the same size does not push out its own size: it is dropped.
+        ScratchArray.Return(new int[1024]);
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+
+        // A small array never takes the place of a large one, and is kept outside the bytes of the large ones.
+        ScratchArray.Return(new int[256]);
+        Assert.Equal(7, ScratchArray.KeptCount<int>(1024));
+        Assert.Equal(ScratchArray.LargeBytesPerType, ScratchArray.KeptBytes<int>());
+        Drain();
+    }
     [Fact]
     public void A_layout_of_a_text_above_the_pool_limit_is_the_same_whatever_the_pooled_arrays_hold()
     {

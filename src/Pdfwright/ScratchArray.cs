@@ -15,7 +15,8 @@ namespace Pdfwright;
 /// <para>
 /// What a thread keeps is never trimmed, only dropped with the thread, so it is bounded tightly. For each element type it keeps at most <see cref="SlotsPerSize"/> arrays of each size (the powers of two
 /// from 16 to <see cref="PoolLimit"/> elements); of the sizes up to <see cref="LargestSmall"/> elements that is all (8 x 496 elements), and the larger sizes share at most <see cref="LargeBytesPerType"/>
-/// bytes of elements (a reference counts as its eight bytes), so that the arrays of long texts never crowd out those of cells and lines. The layout uses nine element types (<see cref="int"/>,
+/// bytes of elements (a reference counts as its eight bytes), so that the arrays of long texts never crowd out those of cells and lines; within that share the arrays given back last take the place of
+/// those of other large sizes, so that what earlier texts left does not keep the arrays of the current work from being kept. The layout uses nine element types (<see cref="int"/>,
 /// <see cref="double"/>, <see cref="bool"/>, <see cref="byte"/>, the shaper's words, the character properties and the three classes of the line breaker and the bidi algorithm), of 29 bytes together,
 /// so a thread keeps at most 3,968 x 29 bytes (115 KB) of small arrays and 9 x 28 KB (252 KB) of large ones, about 367 KB, and the headers of at most 9 x 72 arrays of 24 bytes (about 15 KB). A thread that
 /// has laid out only cells and lines of usual length keeps a few kilobytes.
@@ -34,7 +35,8 @@ internal static class ScratchArray
     internal const int LargestSmall = 256;
 
     /// <summary>
-    /// The most bytes of elements of the sizes above <see cref="LargestSmall"/> that a thread keeps of one element type: an array given back that would pass it is dropped. Every array of the layout of a
+    /// The most bytes of elements of the sizes above <see cref="LargestSmall"/> that a thread keeps of one element type: an array given back that would pass it takes the place of kept arrays of the other
+    /// large sizes (the largest first), and is dropped when the arrays of its own size alone leave no room. Every array of the layout of a
     /// paragraph of up to about a thousand characters fits (seven arrays of 1,024 <see cref="int"/> are 28 KB), so the usual paragraphs allocate none; a longer text keeps what fits and allocates the rest.
     /// </summary>
     internal const int LargeBytesPerType = 28 * 1024;
@@ -102,22 +104,57 @@ internal static class ScratchArray
         }
 
         int bytes = length > LargestSmall ? BytesOf<T>(length) : 0;
-        if (Kept<T>.Bytes + bytes > LargeBytesPerType)
+        if (bytes > LargeBytesPerType)
         {
-            return; // the thread keeps as much of the large arrays of this type as it may
+            return; // larger than all a thread may keep of the large arrays of this type
         }
 
         T[]?[] slots = Kept<T>.Slots ??= new T[]?[Sizes * SlotsPerSize];
-        int first = SizeOf(length) * SlotsPerSize;
+        int size = SizeOf(length);
+        int first = size * SlotsPerSize;
         for (int i = first; i < first + SlotsPerSize; i++)
         {
             if (slots[i] is null)
             {
+                // The arrays of the other large sizes make room for this one, the largest first: they were left by earlier texts, and the array given back now is the one the current work uses. Kept
+                // as they were, they would keep this size from being kept at all, and every paragraph of this length would allocate its arrays again.
+                if (Kept<T>.Bytes + bytes > LargeBytesPerType && !MakeRoom(slots, size, bytes))
+                {
+                    return; // the arrays of this size alone are as much as the thread may keep
+                }
+
                 slots[i] = array;
                 Kept<T>.Bytes += bytes;
                 return;
             }
         }
+    }
+
+    /// <summary>Drops kept arrays of the large sizes other than <paramref name="size"/>, the largest first, until <paramref name="bytes"/> more fit within <see cref="LargeBytesPerType"/>. Whether they fit.</summary>
+    private static bool MakeRoom<T>(T[]?[] slots, int size, int bytes)
+    {
+        for (int other = Sizes - 1; other > SizeOf(LargestSmall); other--)
+        {
+            if (other == size)
+            {
+                continue;
+            }
+
+            for (int i = other * SlotsPerSize; i < (other + 1) * SlotsPerSize; i++)
+            {
+                if (slots[i] is { } kept)
+                {
+                    slots[i] = null;
+                    Kept<T>.Bytes -= BytesOf<T>(kept.Length);
+                    if (Kept<T>.Bytes + bytes <= LargeBytesPerType)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>How many arrays of one element type, of the size that holds <paramref name="length"/> elements, the current thread keeps now. For tests.</summary>

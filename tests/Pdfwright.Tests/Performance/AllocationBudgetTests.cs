@@ -58,6 +58,49 @@ public sealed class AllocationBudgetTests : IDisposable
     [Fact]
     public void Devanagari_table_stays_within_its_guard() => AssertWithin(fonts => ScenarioDocuments.TableDevanagari(fonts), expectedPages: 20, null, DevanagariGuard);
 
+    /// <summary>
+    /// The budgets hold on a thread whose kept arrays are those of other, longer texts: what earlier work left must not keep the arrays of the next document from being kept. The threads of a test run
+    /// (and of a server) lay out every kind of text in turn; before the arrays given back made room for themselves, such a thread allocated 10.4 MB for the 20-page report and 47.8 MB for the stress
+    /// document, which is how the budgets failed on the build machines and not on a machine that skipped the tests that ran before them.
+    /// </summary>
+    [Fact]
+    public void Report_and_stress_document_stay_within_their_budgets_on_a_thread_that_keeps_the_arrays_of_longer_texts()
+    {
+        CrowdWithLargerArrays();
+        AssertWithin(ScenarioDocuments.Report20, expectedPages: 20, ReportTarget, ReportGuard);
+        CrowdWithLargerArrays();
+        AssertWithin(ScenarioDocuments.Stress, expectedPages: 101, StressTarget, StressGuard);
+    }
+
+    /// <summary>Fills what the thread may keep of every element type of the layout with arrays of the two largest sizes, as long texts leave it.</summary>
+    private static void CrowdWithLargerArrays()
+    {
+        static void Crowd<T>()
+        {
+            List<T[]> held = [];
+            for (int i = 0; i < 8; i++)
+            {
+                held.Add(ScratchArray.Rent<T>(ScratchArray.PoolLimit));
+                held.Add(ScratchArray.Rent<T>(ScratchArray.PoolLimit / 2));
+            }
+
+            foreach (T[] array in held)
+            {
+                ScratchArray.Return(array);
+            }
+        }
+
+        Crowd<int>();
+        Crowd<double>();
+        Crowd<bool>();
+        Crowd<byte>();
+        Crowd<Pdfwright.Unicode.BidiClass>();
+        Crowd<Pdfwright.Unicode.CharacterInfo>();
+        Crowd<Pdfwright.Unicode.LineBreakClass>();
+        Crowd<Pdfwright.Unicode.LineBreakKind>();
+        Crowd<Pdfwright.Text.ShapingFont.ShapedWord>();
+    }
+
     private void AssertWithin(Func<FontCollection, PdfDocument> build, int expectedPages, long? target, long guard)
     {
         using MemoryStream stream = new();
