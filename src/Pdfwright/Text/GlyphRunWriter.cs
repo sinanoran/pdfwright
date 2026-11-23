@@ -60,10 +60,15 @@ internal static class GlyphRunWriter
 
         double scale = size / font.Font.UnitsPerEm;
         int count = glyphs.Length;
-        double[] x = ArrayPool<double>.Shared.Rent(count);
-        long[] keys = ArrayPool<long>.Shared.Rent(count);
+
+        // The two working arrays are on the stack for a run of usual length (a cell, a line), and rented from the pool only for a longer one, so that the common case uses no pool at all: an array pool
+        // of these element types is a generic of the framework that is compiled at run time on first use even in a ReadyToRun build.
+        double[]? rentedX = count > StackGlyphs ? ArrayPool<double>.Shared.Rent(count) : null;
+        long[]? rentedKeys = count > StackGlyphs ? ArrayPool<long>.Shared.Rent(count) : null;
         try
         {
+            Span<double> x = rentedX is null ? stackalloc double[count] : rentedX.AsSpan(0, count);
+            Span<long> keys = rentedKeys is null ? stackalloc long[count] : rentedKeys.AsSpan(0, count);
             double pen = originX;
             for (int i = 0; i < count; i++)
             {
@@ -74,13 +79,19 @@ internal static class GlyphRunWriter
             // Logical order: clusters ascending (a right-to-left run lists them downwards), the glyphs of one cluster in the order the shaper lists them, which for a right-to-left run puts the base first (the glyph that carries the text).
             // A stable sort by cluster of the run's glyphs, taken backwards when it is right to left: the key is the cluster over the position in that order, so a plain sort of the keys is stable.
             bool rightToLeft = run.IsRightToLeft;
+            bool ordered = true;
             for (int g = 0; g < count; g++)
             {
                 int position = rightToLeft ? count - 1 - g : g;
                 keys[g] = ((long)glyphs[g].Cluster << 32) | (uint)position;
+                ordered &= g == 0 || keys[g] > keys[g - 1];
             }
 
-            Array.Sort(keys, 0, count);
+            // A left-to-right run of simple text lists its clusters in ascending order already, and then the keys are sorted as they are made (a sort would leave them as they are).
+            if (!ordered)
+            {
+                keys.Sort();
+            }
 
             // The text of each cluster: from its value to the next greater one in the run, or the end of the run.
             int runEnd = run.Utf16Start + run.Utf16Length;
@@ -131,10 +142,20 @@ internal static class GlyphRunWriter
         }
         finally
         {
-            ArrayPool<double>.Shared.Return(x);
-            ArrayPool<long>.Shared.Return(keys);
+            if (rentedX is not null)
+            {
+                ArrayPool<double>.Shared.Return(rentedX);
+            }
+
+            if (rentedKeys is not null)
+            {
+                ArrayPool<long>.Shared.Return(rentedKeys);
+            }
         }
     }
+
+    /// <summary>The most glyphs of a run whose working arrays are on the stack (two arrays of eight bytes a glyph: 4 KB at most).</summary>
+    private const int StackGlyphs = 256;
 
     private static readonly string[] SingleChars = new string[256];
 
@@ -160,6 +181,11 @@ internal static class GlyphRunWriter
 
     private static bool EndsWithFormat(string text)
     {
+        if (IsOneAsciiCharacter(text))
+        {
+            return false; // ASCII has no format characters
+        }
+
         Rune last = default;
         foreach (Rune rune in text.EnumerateRunes())
         {
@@ -175,6 +201,11 @@ internal static class GlyphRunWriter
     /// </summary>
     private static bool NeedsItemOfItsOwn(string text)
     {
+        if (IsOneAsciiCharacter(text))
+        {
+            return false; // nor marks: the text of most glyphs of Latin text is one such character, which needs no lookup
+        }
+
         foreach (Rune rune in text.EnumerateRunes())
         {
             if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.NonSpacingMark)
@@ -185,4 +216,6 @@ internal static class GlyphRunWriter
 
         return EndsWithFormat(text);
     }
+
+    private static bool IsOneAsciiCharacter(string text) => text.Length == 1 && text[0] < 0x80;
 }
