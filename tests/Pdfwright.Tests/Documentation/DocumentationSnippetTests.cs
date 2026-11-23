@@ -810,4 +810,29 @@ public class DocumentationSnippetTests
         Assert.StartsWith("%PDF-", System.Text.Encoding.ASCII.GetString(pdf, 0, 5), StringComparison.Ordinal);
         DocumentTestKit.AssertValid(pdf, "documentation");
     }
+
+    [Fact]
+    public void A_warm_up_document_is_saved_and_thrown_away()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+
+        // <snippet guide-warm-up>
+        // At startup, before the first request: a small document in the fonts and the scripts of the reports, saved and thrown away.
+        PdfDocument warmUp = new(new PdfDocumentOptions
+        {
+            Fonts = fonts,
+            DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10) },
+        });
+        warmUp.Add(new Heading(1, "Warm-up"));
+        warmUp.Add(new Paragraph("Warm-up text in English, 1,234.50, and in Arabic: مرحبا بالعالم"));
+        warmUp.Add(new Table(
+            [new TableColumn(), new TableColumn { Alignment = TextAlignment.End }],
+            new TableRow("Customer", "Amount"),
+            [new TableRow("Warm-up", "1,234.50")]));
+        warmUp.Save(Stream.Null);
+        // </snippet>
+
+        Assert.Equal(1, warmUp.Diagnostics.PageCount);
+        Assert.Empty(warmUp.Diagnostics.MissingGlyphs);
+    }
 }

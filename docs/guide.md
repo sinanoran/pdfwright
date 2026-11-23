@@ -715,3 +715,24 @@ Measured with the benchmark program of the repository (`benchmarks/Pdfwright.Ben
 | nothing (the runtime starting) | 113 and 109 ms | 111 and 107 ms |
 
 ReadyToRun about doubles the size of the published DLLs (the benchmark's grew from 27 MB to 56 MB), and with tiered compilation (the default) the code it compiled ahead of time is recompiled by the JIT when it is hot, so a long-running service keeps its steady-state speed. Turning tiered PGO off for the process (`DOTNET_TieredPGO=0`) took about a tenth more off the first save with ReadyToRun and a fifth without, in the same measurement (the table: 343 and 331 ms with ReadyToRun, 479 and 461 ms without), at the cost of the profile-guided optimisation that a long-running process gains from; measure it on your own workload before you use it. What is left of the first save, the runtime starting and the work itself, is a matter of the application (keeping a process alive, for one), not of the library; native AOT has not been tried with Pdfwright and its native shaping library.
+
+A service can also pay for the first save before its first request: save a small document at startup and throw it away. It compiles the code of layout, shaping, subsetting and writing, and runs the checks that each font gets on its first use, so the first real report does not wait for them. Use the fonts and the scripts your reports use (a font that the warm-up did not use is still checked when a report first uses it), and a table if your reports have tables:
+
+<!-- snippet: guide-warm-up -->
+```csharp
+// At startup, before the first request: a small document in the fonts and the scripts of the reports, saved and thrown away.
+PdfDocument warmUp = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10) },
+});
+warmUp.Add(new Heading(1, "Warm-up"));
+warmUp.Add(new Paragraph("Warm-up text in English, 1,234.50, and in Arabic: مرحبا بالعالم"));
+warmUp.Add(new Table(
+    [new TableColumn(), new TableColumn { Alignment = TextAlignment.End }],
+    new TableRow("Customer", "Amount"),
+    [new TableRow("Warm-up", "1,234.50")]));
+warmUp.Save(Stream.Null);
+```
+
+This does not make the process start faster, only its first report; for a tool that starts a process per report it adds to the time, and ReadyToRun is the remedy there.

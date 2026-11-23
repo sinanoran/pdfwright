@@ -40,7 +40,7 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 - **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
 
-**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design leaves room for it), links on text,
+**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design leaves room for it; it is the next work, in a 0.1.x release before 0.2), links on text,
 hyphenation and justified text, table cell spans, floating images, pictures other than JPEG, PNG and WebP (no GIF, TIFF, SVG or animated WebP), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
@@ -164,9 +164,10 @@ extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwrigh
 
 The full list, with the reason for each, is in [docs/known-limitations.md](docs/known-limitations.md). The ones that matter most when choosing:
 
-- No tagged PDF, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet.
+- No tagged PDF yet, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet. Tagged PDF is the next work, in a 0.1.x release before 0.2.
 - CJK is not tested or claimed: OpenType fonts with CFF outlines (most CJK fonts, such as the `.otf` Noto Sans CJK) are refused; a CJK font with TrueType outlines is accepted, its text is shaped,
-  embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. No vertical text, emoji or colour fonts.
+  embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. CJK is planned for 0.2. No vertical text, emoji or colour fonts.
+- Arabic and Hindi tables take about 5 and 6 times the time of the same Latin table (the plan aims at 2 times); faster shaping for them is planned for 0.2.
 - No dictionary line breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
 - No links on text, no table cell spans, no nested tables or columns, no hyphenation, no justification, no widow or orphan control, no synthetic bold or italic.
 - A table's automatic column widths come from its header and first 100 rows; a table is never held whole, so give a column a width when later rows differ.
@@ -179,7 +180,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
-- [Draft plan for 0.2](docs/plan-0.2.md): a draft, not a commitment.
+- [Draft plan for 0.2](docs/plan-0.2.md): CJK and the performance work left over from 0.1; tagged PDF, first planned there, comes before 0.2. A draft, not a commitment.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 

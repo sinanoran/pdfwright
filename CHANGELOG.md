@@ -6,6 +6,14 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A guide note on warming up.** A service can save a small document at startup, in the fonts and scripts of its reports, so that its first real report does not pay for compiling the code and checking the fonts (section "Startup time", a tested snippet). The library is unchanged.
+
+### Changed
+
+- **The plans.** Tagged PDF comes next, in a 0.1.x release before 0.2; 0.2 is CJK and the performance work left over from 0.1 (the Arabic and Hindi tables, the 20-page report's first save, a CI job for speed regressions). The README and `docs/plan-0.2.md` say so.
+
 ## [0.1.5] - 2026-11-23
 
 ### Added

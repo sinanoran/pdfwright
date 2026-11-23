@@ -3,6 +3,12 @@
 > Written on 22 November 2026, before 0.1.0 was tagged. The maintainer decided that 0.1.0 ships without tested CJK and that 0.2 starts
 > right after the 0.1.0 tag, with CJK first and tagged (accessible) PDF after it. The 0.1 plan, its measurements and its decisions are in
 > [`plan-0.1.md`](plan-0.1.md); this plan only adds to it.
+>
+> **Changed on 23 November 2026 (the maintainer):** tagged PDF comes first and does not wait for 0.2: slices T1 and T2 are done in a 0.1.x
+> release before 0.2. 0.2 is CJK (C2 to C5) and the performance work left over from 0.1: the Arabic and Hindi tables (about 5 and 6 times the
+> Latin table's time against the 2 times aimed at; a word cache for scripts whose rules do not involve the space, checked for each script), a
+> measured first save of the 20-page report, and a CI job that fails on a speed regression against the last release. For the first save with the
+> default JIT, the guide's note on warming up (section "Startup time") is the answer; native AOT and ReadyToRun in the package are not planned.
 
 ## 0. The answer in one page
 
