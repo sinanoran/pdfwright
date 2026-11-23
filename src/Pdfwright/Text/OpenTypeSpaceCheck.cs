@@ -40,15 +40,17 @@ internal static class OpenTypeSpaceCheck
         private readonly long _budgetEnd = (16L * data.Length) + 4096;
         private long _reads;
         private readonly HashSet<int> _lookups = [];
+
         // The pairs (a subtable's type and offset, a rule set's or a rule's subtable and offset) are kept as one long each, the first number in the high half: a set of tuples hashes them with the
         // runtime's randomized seed, whose making is the first use of the system's random numbers in a process, and is generic code that a ReadyToRun build compiles at run time.
         private readonly HashSet<long> _subtables = [];
         private readonly HashSet<long> _sets = [];
         private readonly HashSet<long> _rules = [];
-
-        private static long Pair(int first, int second) => ((long)first << 32) | (uint)second;
         private readonly Dictionary<int, bool> _coverages = [];
         private readonly Dictionary<int, int> _classes = [];
+
+        /// <summary>Two numbers as the one long that the sets of pairs keep: the first in the high half, the second in the low half.</summary>
+        private static long Pair(int first, int second) => ((long)first << 32) | (uint)second;
 
         private void Spend()
         {
