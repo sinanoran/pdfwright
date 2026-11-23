@@ -10,6 +10,11 @@ internal static class Warm
     {
         "table" => fonts => ScenarioDocuments.Table(fonts),
         "report" => fonts => ScenarioDocuments.Report(fonts),
+        "report20" => fonts => ScenarioDocuments.Report20(fonts),
+        "stress" => fonts => ScenarioDocuments.Stress(fonts),
+        "table-arabic" => fonts => ScenarioDocuments.TableArabic(fonts),
+        "table-devanagari" => fonts => ScenarioDocuments.TableDevanagari(fonts),
+        "table10k" => fonts => ScenarioDocuments.Table(fonts, 10000),
         _ => null,
     };
 
