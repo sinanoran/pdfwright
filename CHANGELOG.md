@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The plan's other benchmark scenarios, and allocation budgets as tests.** The benchmark program builds a 20-page report, a 100-page stress document, the 1,000-row table in Arabic and in Hindi, and a 10,000-row table; the tests build the same documents and fail when a save allocates more than 25 percent over its budget (the plan's 20, 10 and 60 MB, and guards at today's allocation). Measured: the 20-page report 6.2 MB and 87 KB, the stress document 31.6 MB and 342 KB (both under the plan's targets), the Arabic and Hindi tables 43.2 and 37.9 MB (about twice the Latin table, which the plan wants the same). The library is unchanged.
+
 ## [0.1.4] - 2026-11-23
 
 ### Added
