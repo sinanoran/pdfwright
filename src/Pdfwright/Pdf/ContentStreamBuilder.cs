@@ -199,12 +199,17 @@ internal sealed class ContentStreamBuilder
         long targetY = (long)Math.Round(y * Unit, MidpointRounding.AwayFromZero);
         if (!_lineKnown)
         {
-            _ = Op("Tm\n"u8, 1, 0, 0, 1, targetX / Unit, targetY / Unit);
+            Ascii("1 0 0 1 "u8);
+            Scaled(targetX);
+            Scaled(targetY);
+            _ = Ascii("Tm\n"u8);
             _lineKnown = true;
         }
         else
         {
-            _ = Op("Td\n"u8, (targetX - _lineX) / Unit, (targetY - _lineY) / Unit);
+            Scaled(targetX - _lineX);
+            Scaled(targetY - _lineY);
+            _ = Ascii("Td\n"u8);
         }
 
         _lineX = targetX;
@@ -360,6 +365,15 @@ internal sealed class ContentStreamBuilder
     {
         Span<byte> span = _bytes.GetSpan(NumberRoom);
         _bytes.Advance(PdfReal.Write(value, span));
+    }
+
+    /// <summary>A count of hundred-thousandths as the number it is, and the space after it: what <see cref="Operand"/> writes for the count divided by 100000, without the slow custom format.</summary>
+    private void Scaled(long count)
+    {
+        Span<byte> span = _bytes.GetSpan(NumberRoom);
+        int length = PdfReal.WriteScaled(count, span);
+        span[length] = (byte)' ';
+        _bytes.Advance(length + 1);
     }
 
     private void Relative(double value)

@@ -96,6 +96,12 @@ internal sealed class PdfReal : PdfObject
             throw new ArgumentOutOfRangeException(nameof(value), value, "A PDF number is finite.");
         }
 
+        if (Math.Abs(value) < ExactLimit && value == Math.Floor(value))
+        {
+            // A whole number below 1e15 has at most 15 digits, which the custom format keeps exactly, so it is its own digits (and -0 is 0, as below).
+            return WriteWhole((long)value, destination);
+        }
+
         if (!value.TryFormat(destination, out int written, "0.#####", CultureInfo.InvariantCulture))
         {
             throw new ArgumentException("The destination is too small for the number.", nameof(destination));
@@ -108,6 +114,84 @@ internal sealed class PdfReal : PdfObject
         }
 
         return written;
+    }
+
+    /// <summary>
+    /// The count of hundred-thousandths below which <see cref="WriteScaled"/> and the whole-number path of <see cref="Write"/> need no custom format: the custom
+    /// format of a double keeps 15 significant digits and then rounds them to five decimals, and a decimal of at most 15 digits goes through a double and back
+    /// unchanged, so a count under 1e15 (at most 15 digits) is written as exactly its own digits.
+    /// </summary>
+    private const long ExactLimit = 1_000_000_000_000_000;
+
+    /// <summary>
+    /// Writes <paramref name="count"/> hundred-thousandths as <see cref="Write"/> writes <c>count / 100000.0</c>, byte for byte, without the slow custom format when
+    /// <paramref name="count"/> is under 1e15 in size (a value under 1e10, far beyond a page); beyond that it formats the double as <see cref="Write"/> does.
+    /// The destination must hold at least 400 bytes.
+    /// </summary>
+    internal static int WriteScaled(long count, Span<byte> destination)
+    {
+        if (count is <= -ExactLimit or >= ExactLimit)
+        {
+            return Write(count / 100000.0, destination);
+        }
+
+        int length = 0;
+        if (count < 0)
+        {
+            destination[length++] = (byte)'-';
+            count = -count;
+        }
+
+        length += WriteDigits(count / 100000, destination[length..]);
+        int fraction = (int)(count % 100000);
+        if (fraction != 0)
+        {
+            destination[length++] = (byte)'.';
+            int digits = 5;
+            while (fraction % 10 == 0)
+            {
+                fraction /= 10;
+                digits--;
+            }
+
+            for (int i = digits - 1; i >= 0; i--)
+            {
+                destination[length + i] = (byte)('0' + (fraction % 10));
+                fraction /= 10;
+            }
+
+            length += digits;
+        }
+
+        return length;
+    }
+
+    private static int WriteWhole(long value, Span<byte> destination)
+    {
+        if (value < 0)
+        {
+            destination[0] = (byte)'-';
+            return 1 + WriteDigits(-value, destination[1..]);
+        }
+
+        return WriteDigits(value, destination);
+    }
+
+    private static int WriteDigits(long value, Span<byte> destination)
+    {
+        int length = 1;
+        for (long rest = value; rest >= 10; rest /= 10)
+        {
+            length++;
+        }
+
+        for (int i = length - 1; i >= 0; i--)
+        {
+            destination[i] = (byte)('0' + (value % 10));
+            value /= 10;
+        }
+
+        return length;
     }
 
     private static readonly string[] FixedFormats = [.. Enumerable.Range(0, 21).Select(d => "F" + d.ToString(CultureInfo.InvariantCulture))];
