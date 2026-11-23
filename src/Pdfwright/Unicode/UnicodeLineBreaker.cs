@@ -108,7 +108,7 @@ internal static class UnicodeLineBreaker
     /// <summary>
     /// The same as <see cref="Breaks(ReadOnlySpan{int}, LineBreakKind[])"/> for a text of printable ASCII only (U+0020 to U+007E; <see cref="ArgumentException"/> for anything else). Such a text has no combining mark or joiner, so every character is a unit of its
     /// own, and no regional indicator, aksara or dotted circle, so the rules that ask about those never match. The classes and properties come from a table made once instead of a lookup for each character and the units need no arrays of their own,
-    /// but the decision for every boundary is made by the very same code (<c>Decide</c>) as in the general case, which is why the two cannot differ; the tests compare them on every printable ASCII text of up to four characters and on millions of longer ones.
+    /// but the decision for every boundary is made by the very same code (<c>Decide</c>) as in the general case, which is why the two cannot differ; the tests compare them on every printable ASCII text of up to three characters, on every text of up to five characters over one character of each kind, and on 30,000 random longer ones (and, run by hand, on every printable ASCII text of four characters).
     /// </summary>
     internal static void BreaksOfPrintableAscii(ReadOnlySpan<int> text, LineBreakKind[] breaks)
     {

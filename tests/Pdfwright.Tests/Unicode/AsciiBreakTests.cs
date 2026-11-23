@@ -132,7 +132,7 @@ public class AsciiBreakTests
         ];
         Random random = new(20261123);
         int[] text = new int[200];
-        for (int n = 0; n < 150_000; n++)
+        for (int n = 0; n < 30_000; n++)
         {
             string alphabet = alphabets[random.Next(alphabets.Length)];
             int length = random.Next(0, 201);

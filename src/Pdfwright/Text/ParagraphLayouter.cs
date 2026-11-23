@@ -243,7 +243,8 @@ internal static class ParagraphLayouter
             }
         }
 
-        int at = 0;
+        // A long, so that lengths that add up past int.MaxValue cannot wrap back to the length of the text and pass.
+        long at = 0;
         foreach (StyledSpan span in spans)
         {
             if (span.Start != at || span.Length < 0 || (uint)span.Style >= (uint)styles.Count)

@@ -554,7 +554,8 @@ internal static class TextShaper
     /// <summary>Whether the spans, in order, start at 0, each begins where the one before ends and none is of negative length, and together they cover exactly <paramref name="count"/> characters.</summary>
     private static bool TileOneAfterAnother(ShapeStyling styling, int count)
     {
-        int position = 0;
+        // A long, so that lengths that add up past int.MaxValue cannot wrap back to the count and pass for a tiling the general loop would read otherwise.
+        long position = 0;
         foreach (StyledSpan span in styling.Spans)
         {
             if (span.Start != position || span.Length < 0)

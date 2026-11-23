@@ -177,6 +177,10 @@ public class AsciiPathTests
         // Spans that overlap are accepted by the general loop (each character takes the first span that reaches it), so the filling by spans leaves them to it, and the result is the same.
         ShapeStyling overlapping = Styling([new StyledSpan(0, 4, 0), new StyledSpan(3, 3, 1)], [[0], [0]], [0, 1]);
         Same(() => Describe(TextShaper.Shape("abcdef", fonts, 0, null, null, overlapping)), "overlap");
+
+        // Spans whose lengths add up past int.MaxValue and wrap back to the length of the text: the sum must not wrap, so that they are left to the general loop as before.
+        ShapeStyling wrapping = Styling([new StyledSpan(0, int.MaxValue, 1), new StyledSpan(int.MaxValue, int.MaxValue, 1), new StyledSpan(-2, 8, 1)], [[0], [0]], [0, 1]);
+        Same(() => Describe(TextShaper.Shape("abcdef", fonts, 0, null, null, wrapping)), "wrapping");
     }
 
     [Fact]
@@ -290,6 +294,20 @@ public class AsciiPathTests
             };
             Same(() => Describe(ParagraphLayouter.Layout(text, fonts, options)), text);
         }
+    }
+
+    [Fact]
+    public void The_layouter_refuses_spans_whose_lengths_wrap_around_to_the_length_of_the_text()
+    {
+        ShapingFont[] fonts = LayoutTestKit.Fonts(LayoutTestKit.Latin);
+        ParagraphOptions options = new()
+        {
+            Size = 10,
+            Styles = [new RunStyle { FontOrder = [0], Size = 10 }],
+            Spans = [new StyledSpan(0, int.MaxValue, 0), new StyledSpan(int.MaxValue, int.MaxValue, 0), new StyledSpan(-2, 8, 0)],
+        };
+
+        Assert.Throws<ArgumentException>(() => ParagraphLayouter.Layout("abcdef", fonts, options));
     }
 
     [Fact]
