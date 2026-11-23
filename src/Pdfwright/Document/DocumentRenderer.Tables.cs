@@ -277,6 +277,9 @@ internal sealed partial class DocumentRenderer
         private readonly ResolvedStyle _headerStyle;
         private double[] _widths = [];
         private double[] _left = [];
+
+        // The columns in the order they stand on the page, left to right (the reverse of their order in a right-to-left table), made once with the positions: the fills and the borders of every row use it.
+        private int[] _leftToRight = [];
         private double _tableLeft;
         private double _tableWidth;
         private RowPlan[] _header = [];
@@ -461,6 +464,31 @@ internal sealed partial class DocumentRenderer
                 _left[i] = _rightToLeft ? _tableLeft + _tableWidth - x - _widths[i] : _tableLeft + x;
                 x += _widths[i];
             }
+
+            _leftToRight = LeftToRight(_left, n);
+        }
+
+        /// <summary>
+        /// The indices of the first <paramref name="count"/> columns ordered by their left edges, columns at the same place in the order of their indices: what a stable sort by the edge gives (the
+        /// <c>OrderBy</c> this replaces, which for a row of a few columns cost an iterator, a sorter and their code, compiled at run time even in a ReadyToRun build).
+        /// </summary>
+        private static int[] LeftToRight(double[] left, int count)
+        {
+            int[] order = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                // An insertion sort, stable: a column moves before those whose edge is greater only.
+                int at = i;
+                while (at > 0 && left[order[at - 1]].CompareTo(left[i]) > 0)
+                {
+                    order[at] = order[at - 1];
+                    at--;
+                }
+
+                order[at] = i;
+            }
+
+            return order;
         }
 
         private void Sample(TableRow row, bool header, double[] autoMin, double[] autoMax)
@@ -729,7 +757,7 @@ internal sealed partial class DocumentRenderer
             Color? ColourOf(int column) => row.Cells[column]?.Fill ?? row.RowFill ?? tableFill;
 
             // Columns in the order they stand on the page, neighbours of one colour joined into one rectangle so that no seam shows between them.
-            int[] order = [.. Enumerable.Range(0, n).OrderBy(i => _left[i])];
+            int[] order = n == _leftToRight.Length ? _leftToRight : LeftToRight(_left, n);
             ContentStreamBuilder content = _r._page!.Content;
             bool open = false;
             int s = 0;
@@ -782,7 +810,7 @@ internal sealed partial class DocumentRenderer
 
             if (b.OuterVertical is not null || b.InnerVertical is not null)
             {
-                int[] order = [.. Enumerable.Range(0, _widths.Length).OrderBy(i => _left[i])];
+                int[] order = _widths.Length == _leftToRight.Length ? _leftToRight : LeftToRight(_left, _widths.Length);
                 Line(content, b.OuterVertical, _tableLeft, PdfY(top), _tableLeft, PdfY(top + height));
                 Line(content, b.OuterVertical, right, PdfY(top), right, PdfY(top + height));
                 for (int k = 0; k + 1 < order.Length; k++)
