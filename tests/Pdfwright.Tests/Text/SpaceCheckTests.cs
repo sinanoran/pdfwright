@@ -133,6 +133,135 @@ public class SpaceCheckTests
         Assert.Null(OpenTypeSpaceCheck.Refusal(Table(5, Context2([], 0)), false, Space));
     }
 
+
+    /// <summary>A GSUB whose offsets are all shared (every lookup, subtable, rule set and rule is the same object), so that a table of a few KB has n^4 rules for a walk that follows every offset.</summary>
+    private static byte[] Amplifier(int n)
+    {
+        List<byte> b = [];
+        void W(int v)
+        {
+            b.Add((byte)(v >> 8));
+            b.Add((byte)v);
+        }
+
+        W(1);
+        W(0);
+        W(0);
+        W(0);
+        W(10);
+        W(n);
+        for (int i = 0; i < n; i++)
+        {
+            W(2 + (2 * n));
+        }
+
+        W(6);
+        W(0);
+        W(n);
+        for (int i = 0; i < n; i++)
+        {
+            W(6 + (2 * n));
+        }
+
+        int coverage = 12 + (2 * n) + 2 + (2 * n) + 8;
+        W(2);
+        W(coverage);
+        W(0);
+        W(0);
+        W(0);
+        W(n);
+        for (int i = 0; i < n; i++)
+        {
+            W(12 + (2 * n));
+        }
+
+        W(n);
+        for (int i = 0; i < n; i++)
+        {
+            W(2 + (2 * n));
+        }
+
+        W(0);
+        W(1);
+        W(0);
+        W(0);
+        W(1);
+        W(0);
+        return [.. b];
+    }
+
+    [Fact]
+    public void A_table_whose_offsets_are_all_shared_is_checked_in_linear_time()
+    {
+        foreach (int n in new[] { 80, 400, 3000 })
+        {
+            byte[] table = Amplifier(n);
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+            string? refusal = OpenTypeSpaceCheck.Refusal(table, false, Space);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"n={n} ({table.Length} bytes): {watch.Elapsed.TotalSeconds:F1} s");
+            Assert.Null(refusal);
+        }
+    }
+
+    [Fact]
+    public void A_table_that_needs_more_reads_than_its_size_allows_is_refused()
+    {
+        // Each of the subtables is a different object, so the visited sets do not help: they all point at one long rule set, which is a different (subtable, rule set) pair for each and is walked again, rule by rule. Only the budget stops it.
+        const int subtables = 100;
+        const int rules = 2000;
+        const int subSize = 20;
+        List<byte> b = [];
+        void W(int v)
+        {
+            b.Add((byte)(v >> 8));
+            b.Add((byte)v);
+        }
+
+        foreach (int v in new[] { 1, 0, 0, 0, 10, 1, 4, 6, 0, subtables })
+        {
+            W(v);
+        }
+
+        int subsStart = 14 + 6 + (2 * subtables);
+        for (int i = 0; i < subtables; i++)
+        {
+            W(6 + (2 * subtables) + (i * subSize));
+        }
+
+        int sharedAt = subsStart + (subtables * subSize);
+        for (int i = 0; i < subtables; i++)
+        {
+            foreach (int v in new[] { 2, 14, 0, 0, 0, 1, sharedAt - (subsStart + (i * subSize)), 1, 1, 10 })
+            {
+                W(v);
+            }
+        }
+
+        W(rules);
+        for (int i = 0; i < rules; i++)
+        {
+            W(2 + (2 * rules));
+        }
+
+        foreach (int v in new[] { 0, 1, 0, 0 })
+        {
+            W(v);
+        }
+
+        string? refusal = OpenTypeSpaceCheck.Refusal([.. b], false, Space);
+        Assert.NotNull(refusal);
+        Assert.Contains("more work", refusal);
+    }
+
+    [Fact]
+    public void A_pair_adjustment_with_reserved_value_format_bits_refuses_the_font()
+    {
+        byte[] sub = Pair2(0, 0);
+        BinaryPrimitives.WriteUInt16BigEndian(sub.AsSpan(4), 0x0104);
+        string? refusal = OpenTypeSpaceCheck.Refusal(Table(2, sub), true, Space);
+        Assert.NotNull(refusal);
+        Assert.Contains("reserved", refusal);
+    }
     [Fact]
     public void A_coverage_with_the_space_and_a_table_that_is_cut_short_refuse_the_font()
     {

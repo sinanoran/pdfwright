@@ -400,6 +400,30 @@ public class WordShapingTests
         }
     }
 
+    [Fact]
+    public void The_tables_of_the_languages_are_bounded_and_dropped_when_the_cache_is_cleared()
+    {
+        using ShapingFont font = Fresh("NotoSans-Regular.ttf");
+        ShapingFont[] fonts = [font];
+        for (int i = 0; i < 100; i++)
+        {
+            string text = "alpha beta";
+            string language = $"en-x-{i}";
+            Assert.Equal(WithoutFastPaths(() => D(TextShaper.Shape(text, fonts, Auto, language))), D(TextShaper.Shape(text, fonts, Auto, language)));
+        }
+
+        Assert.Equal(ShapingFont.WordTableLimit, font.WordTableCount);
+
+        // More words than the cache holds clear it, and the tables of the languages go with the words.
+        for (int i = 0; i < 5000; i++)
+        {
+            TextShaper.Shape($"w{i} x", fonts, Auto, "en-x-0");
+        }
+
+        Assert.InRange(font.WordTableCount, 0, 2);
+        Assert.InRange(font.WordCacheCount, 1, ShapingFont.WordCacheCapacity);
+    }
+
     private static PdfDocument Table(FontCollection fonts, int rows)
     {
         PdfDocument document = new(new PdfDocumentOptions

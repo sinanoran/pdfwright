@@ -4,7 +4,7 @@ namespace Pdfwright.Text;
 
 /// <summary>
 /// The part of the check for word-by-word shaping that the shaping engine's own list of glyphs cannot do: a rule that matches "every glyph that is not listed in a class definition" (class 0) can match the space glyph
-/// without the space being in any set that <c>hb_ot_layout_lookup_collect_glyphs</c> reports, because HarfBuzz reports only the glyphs a class definition lists. Two kinds of subtable do this:
+/// without the space being in any set that the shaper's own collection of the glyphs of a lookup reports, because that collection lists only the glyphs a class definition lists. Two kinds of subtable do this:
 /// a pair adjustment of format 2 (kerning by class) whose second class is 0 for the space, with a value in the column of that class, and a context or chaining context rule of format 2 (class based) that has the space's class in a
 /// backtrack, input (after the first glyph, which must be in the coverage) or lookahead position. This reads the GSUB or GPOS table itself, from its bytes, follows the extension lookups (GSUB type 7, GPOS type 9) to the real subtables,
 /// and refuses the font in either case. It also looks at every coverage table that a lookup names, as a second line beside the engine's list. A table that is cut short or points out of itself is refused.
@@ -35,9 +35,36 @@ internal static class OpenTypeSpaceCheck
 
     private sealed class Reader(byte[] data)
     {
-        private int U16(int at) => at < 0 || at + 2 > data.Length ? throw new FormatException("a read is outside the table") : BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(at));
+        // The work is bounded in two ways, because a hostile table can point all its offsets at one object and make every walk repeat: an object (a lookup, a subtable, a rule set, a rule, a coverage, a class definition) is looked at once, and the reads
+        // altogether may not pass a budget in proportion to the length of the table, past which the font is refused.
+        private readonly long _budgetEnd = (16L * data.Length) + 4096;
+        private long _reads;
+        private readonly HashSet<int> _lookups = [];
+        private readonly HashSet<(int Type, int Offset)> _subtables = [];
+        private readonly HashSet<(int Subtable, int Offset)> _sets = [];
+        private readonly HashSet<(int Subtable, int Offset)> _rules = [];
+        private readonly Dictionary<int, bool> _coverages = [];
+        private readonly Dictionary<int, int> _classes = [];
 
-        private int U32(int at) => at < 0 || at + 4 > data.Length ? throw new FormatException("a read is outside the table") : checked((int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(at)));
+        private void Spend()
+        {
+            if (++_reads > _budgetEnd)
+            {
+                throw new FormatException("it takes more work to read than a table of its size should");
+            }
+        }
+
+        private int U16(int at)
+        {
+            Spend();
+            return at < 0 || at + 2 > data.Length ? throw new FormatException("a read is outside the table") : BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(at));
+        }
+
+        private int U32(int at)
+        {
+            Spend();
+            return at < 0 || at + 4 > data.Length ? throw new FormatException("a read is outside the table") : checked((int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(at)));
+        }
 
         internal string? CheckTable(bool gpos, string name, int space)
         {
@@ -62,6 +89,11 @@ internal static class OpenTypeSpaceCheck
             for (int l = 0; l < lookupCount; l++)
             {
                 int lookup = lookupList + U16(lookupList + 2 + (2 * l));
+                if (!_lookups.Add(lookup))
+                {
+                    continue;
+                }
+
                 int type = U16(lookup);
                 int subCount = U16(lookup + 4);
                 for (int s = 0; s < subCount; s++)
@@ -82,6 +114,11 @@ internal static class OpenTypeSpaceCheck
                         }
 
                         sub += U32(sub + 4);
+                    }
+
+                    if (!_subtables.Add((subType, sub)))
+                    {
+                        continue;
                     }
 
                     string? reason = CheckSubtable(gpos, subType, sub, space);
@@ -157,6 +194,12 @@ internal static class OpenTypeSpaceCheck
                 throw new FormatException("a class is beyond the class count");
             }
 
+            // A shaper sizes a value record by all the bits of its format; the bits above 0xFF are reserved, and a table that sets them is not read here.
+            if (((valueFormat1 | valueFormat2) & 0xFF00) != 0)
+            {
+                return "a pair adjustment of format 2 has value format bits that are reserved";
+            }
+
             int recordSize = 2 * (System.Numerics.BitOperations.PopCount((uint)(valueFormat1 & 0xFF)) + System.Numerics.BitOperations.PopCount((uint)(valueFormat2 & 0xFF)));
             for (int c1 = 0; c1 < class1Count; c1++)
             {
@@ -193,10 +236,20 @@ internal static class OpenTypeSpaceCheck
                         }
 
                         int set = sub + setOffset;
+                        if (!_sets.Add((sub, set)))
+                        {
+                            continue;
+                        }
+
                         int ruleCount = U16(set);
                         for (int r = 0; r < ruleCount; r++)
                         {
                             int rule = set + U16(set + 2 + (2 * r));
+                            if (!_rules.Add((sub, rule)))
+                            {
+                                continue;
+                            }
+
                             int glyphCount = U16(rule);
                             if (glyphCount == 0)
                             {
@@ -256,10 +309,20 @@ internal static class OpenTypeSpaceCheck
                         }
 
                         int set = sub + setOffset;
+                        if (!_sets.Add((sub, set)))
+                        {
+                            continue;
+                        }
+
                         int ruleCount = U16(set);
                         for (int r = 0; r < ruleCount; r++)
                         {
                             int at = set + U16(set + 2 + (2 * r));
+                            if (!_rules.Add((sub, at)))
+                            {
+                                continue;
+                            }
+
                             int backtrack = U16(at);
                             if (HasClass(at + 2, backtrack, backtrackSpace))
                             {
@@ -354,7 +417,19 @@ internal static class OpenTypeSpaceCheck
             return false;
         }
 
+        /// <summary>Whether the coverage table at <paramref name="at"/> has the glyph; the answer for a table is kept (the glyph is always the space), so a table that many lookups name is read once.</summary>
         private bool CoverageHas(int at, int glyph)
+        {
+            if (!_coverages.TryGetValue(at, out bool has))
+            {
+                has = ReadCoverageHas(at, glyph);
+                _coverages[at] = has;
+            }
+
+            return has;
+        }
+
+        private bool ReadCoverageHas(int at, int glyph)
         {
             int format = U16(at);
             int count = U16(at + 2);
@@ -395,6 +470,18 @@ internal static class OpenTypeSpaceCheck
             {
                 return 0;
             }
+
+            if (!_classes.TryGetValue(at, out int cached))
+            {
+                cached = ReadClassOf(at, glyph);
+                _classes[at] = cached;
+            }
+
+            return cached;
+        }
+
+        private int ReadClassOf(int at, int glyph)
+        {
 
             int format = U16(at);
             if (format == 1)

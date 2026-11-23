@@ -86,12 +86,18 @@ internal sealed class ShapingFont : IDisposable
     /// <summary>The longest word (or stretch of spaces) that is cached; a longer one is shaped every time, which is rare in running text, and costs more to hold than it saves.</summary>
     internal const int WordCacheLength = 64;
 
+    /// <summary>The most tables of words (scripts and languages) a font keeps.</summary>
+    internal const int WordTableLimit = 64;
+
     /// <summary>A word as it was shaped on its own: its glyphs (clusters from 0) and whether every one is a base glyph, the condition for using it in word-by-word shaping. Never changed after it is made.</summary>
     internal sealed record ShapedWord(ShapedGlyph[] Glyphs, bool AllBase);
 
     // One table of words for each script and language. The tables are found without a lock and never removed (a clear empties them), so a caller may keep the table it got for the whole run.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Script, string? Language), WordTable> _tables = new();
     private int _wordCount;
+
+    /// <summary>How many tables of words (scripts and languages) the font holds now. For tests.</summary>
+    internal int WordTableCount => _tables.Count;
 
     /// <summary>How many words the word cache holds now (counted, not the approximate count that bounds it). For tests.</summary>
     internal int WordCacheCount => _tables.Values.Sum(t => t.Count);
@@ -109,25 +115,33 @@ internal sealed class ShapingFont : IDisposable
     internal WordTable GetWordTable(string script, string? language)
     {
         (string, string?) key = (script, language);
-        return _tables.TryGetValue(key, out WordTable? table) ? table : _tables.GetOrAdd(key, _ => new WordTable(this));
+        if (_tables.TryGetValue(key, out WordTable? table))
+        {
+            return table;
+        }
+
+        // The number of languages is bounded too (a program that sets a different language tag for every text would otherwise make a table for each): past the limit new languages are shaped without a cache.
+        return _tables.Count >= WordTableLimit ? new WordTable(this, kept: false) : _tables.GetOrAdd(key, _ => new WordTable(this, kept: true));
     }
 
     /// <summary>
     /// The words of one script and language in a font, read without a lock (a <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey, TValue}"/>, read with a span of the text on .NET 9 and later). Two threads that shape the same
     /// new word both add it and one add wins; both made the same glyphs from the same text, and a word is never changed, so it does not matter which stays. The bound is kept by an approximate count of the words added by all the tables of the font:
-    /// when it passes the capacity every table is emptied, and threads racing with the clear may add a few words more or lose a few that were just added, which only costs a second shaping of them and keeps the memory within the capacity plus a few words for each thread.
+    /// when it passes the capacity every table is dropped, and threads racing with the clear may add a few words more or lose a few that were just added, which only costs a second shaping of them and keeps the memory within the capacity plus a few words for each thread.
     /// </summary>
     internal sealed class WordTable
     {
         private readonly ShapingFont _owner;
+        private readonly bool _kept;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord> _words = new(StringComparer.Ordinal);
 #if NET9_0_OR_GREATER
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShapedWord>.AlternateLookup<ReadOnlySpan<char>> _lookup;
 #endif
 
-        internal WordTable(ShapingFont owner)
+        internal WordTable(ShapingFont owner, bool kept)
         {
             _owner = owner;
+            _kept = kept;
 #if NET9_0_OR_GREATER
             _lookup = _words.GetAlternateLookup<ReadOnlySpan<char>>();
 #endif
@@ -135,12 +149,10 @@ internal sealed class ShapingFont : IDisposable
 
         internal int Count => _words.Count;
 
-        internal void Clear() => _words.Clear();
-
         /// <summary>The word shaped earlier for <c>text[start .. start + length]</c> (left to right, with no context), or <see langword="null"/>.</summary>
         internal ShapedWord? Get(string text, int start, int length)
         {
-            if (length > WordCacheLength)
+            if (!_kept || length > WordCacheLength)
             {
                 return null;
             }
@@ -155,17 +167,15 @@ internal sealed class ShapingFont : IDisposable
         /// <summary>Keeps a word for <see cref="Get"/>; one longer than <see cref="WordCacheLength"/> is not kept.</summary>
         internal void Add(string word, ShapedWord shaped)
         {
-            if (word.Length > WordCacheLength || !_words.TryAdd(word, shaped))
+            if (!_kept || word.Length > WordCacheLength || !_words.TryAdd(word, shaped))
             {
                 return;
             }
 
             if (Interlocked.Increment(ref _owner._wordCount) > WordCacheCapacity)
             {
-                foreach (WordTable table in _owner._tables.Values)
-                {
-                    table.Clear();
-                }
+                // The tables themselves go too, not only their words, so that the languages of old texts do not stay; a thread that holds a table finishes its run with it, and what it adds to it is lost with it.
+                _owner._tables.Clear();
 
                 Interlocked.Exchange(ref _owner._wordCount, 0);
             }
