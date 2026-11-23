@@ -88,7 +88,7 @@ internal sealed class HarfBuzzShaper : IShaper
     }
 }
 
-/// <summary>A font for HarfBuzz: the blob, face and font over one copy of the font's bytes in native memory. After <see cref="Dispose"/> (which may be called again) every use throws <see cref="ObjectDisposedException"/>.</summary>
+/// <summary>A font for HarfBuzz: the blob, face and font over the font's bytes, the very array the TrueType reader reads, pinned for as long as HarfBuzz holds the blob. After <see cref="Dispose"/> (which may be called again) every use throws <see cref="ObjectDisposedException"/>.</summary>
 internal sealed class HarfBuzzFont : ShaperFont
 {
     private readonly Blob _blob;
@@ -99,10 +99,19 @@ internal sealed class HarfBuzzFont : ShaperFont
 
     internal HarfBuzzFont(byte[] bytes, int unitsPerEm)
     {
-        // The bytes are copied to native memory that HarfBuzz owns until it releases the blob: a managed buffer it did not pin could move.
-        IntPtr native = Marshal.AllocHGlobal(bytes.Length);
-        Marshal.Copy(bytes, 0, native, bytes.Length);
-        _blob = new Blob(native, bytes.Length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(native));
+        // HarfBuzz reads the managed array in place, pinned so that it cannot move, and lets go of it when it releases the blob (after the font, the face and anything else of HarfBuzz that refers to it):
+        // the release unpins it. A copy in native memory kept every font twice, as the TrueType reader keeps the array (600 KB for a Noto Sans). The blob is read-only, and nothing changes the array
+        // after it is parsed, so the readers of both sides may read it at once from any thread.
+        GCHandle pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+        try
+        {
+            _blob = new Blob(pin.AddrOfPinnedObject(), bytes.Length, MemoryMode.ReadOnly, () => pin.Free());
+        }
+        catch
+        {
+            pin.Free();
+            throw;
+        }
         _face = new Face(_blob, 0);
         _font = new HarfBuzzSharp.Font(_face);
         _font.SetScale(unitsPerEm, unitsPerEm);

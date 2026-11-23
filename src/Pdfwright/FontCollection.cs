@@ -14,7 +14,7 @@ namespace Pdfwright;
 /// (OS/2 <c>fsType</c> restricted, no subsetting, or bitmap only) are refused with <see cref="FontNotEmbeddableException"/>.
 /// A font is chosen for each run by family, then weight and style, then by coverage: when the first font cannot draw a character, the
 /// rest of the collection is tried (the fonts of the same family first), so a Latin family and an Arabic family can share a paragraph.
-/// A collection holds a native copy of every font for the shaping engine, which is released by <see cref="Dispose"/>: it is meant to live long (for the life of the application, or of
+/// A collection holds a copy of every font, which the shaping engine reads in place, and native resources of the engine for each, which are released by <see cref="Dispose"/>: it is meant to live long (for the life of the application, or of
 /// a service), shared by every document, and not to be made for each document. After it is disposed, adding a font, measuring with it and saving a document made with it throw
 /// <see cref="ObjectDisposedException"/>; do not dispose it while a document is being saved with it.
 /// </remarks>
@@ -27,7 +27,12 @@ public sealed class FontCollection : IDisposable
     /// <summary>The number of fonts in the collection.</summary>
     public int Count => _snapshot.Entries.Length;
 
-    /// <summary>Releases the native copies of the fonts. The collection cannot be used afterwards; calling this again does nothing.</summary>
+    /// <summary>Releases what the shaping engine holds for the fonts. The collection cannot be used afterwards; calling this again does nothing.</summary>
+    /// <remarks>
+    /// The shaping engine reads each font's bytes in place and holds them pinned until it is released here, so a collection that is not disposed may keep the bytes of its fonts for the life of the
+    /// process, even when nothing refers to the collection any more, as it kept the native copies of them before the engine read the bytes in place. The bytes are on the pinned object heap, so they
+    /// do not hold back the compaction of the rest of the heap. Dispose a collection that is done with.
+    /// </remarks>
     public void Dispose()
     {
         lock (_gate)
@@ -70,7 +75,12 @@ public sealed class FontCollection : IDisposable
         TrueTypeFont font;
         try
         {
-            font = TrueTypeFont.Parse(fontData.ToArray());
+            // The one copy of the font is made on the pinned object heap and given to the parser, which keeps it without copying it again: the shaping engine reads this same array in place for the
+            // life of the collection, pinned, and an array that is pinned where it was allocated does not hold the garbage collector back from compacting the heap around it, which a small font pinned on
+            // the ordinary heap would.
+            byte[] copy = GC.AllocateUninitializedArray<byte>(fontData.Length, pinned: true);
+            fontData.Span.CopyTo(copy);
+            font = TrueTypeFont.ParseOwned(copy);
         }
         catch (Exception error) when (error is InvalidDataException or NotSupportedException)
         {
