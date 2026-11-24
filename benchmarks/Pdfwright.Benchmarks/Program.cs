@@ -10,8 +10,8 @@ using Pdfwright.Benchmarks.Scenarios;
 //   warm <scenario> [--runs N] [--warmup W]   the scenario N times in one process, after W unmeasured runs
 //   start                                the runtime baseline: starts, prints its own time and peak working set, does nothing
 //   bench [BenchmarkDotNet args]         warm time and allocations of the scenarios (BenchmarkDotNet)
-//   scenarios: table, report (ten pages), report20, stress, table-arabic, table-devanagari, table10k
-const string scenarios = "table|report|report20|stress|table-arabic|table-devanagari|table10k";
+//   scenarios: table, report (ten pages), report20, stress, table-arabic, table-devanagari, table10k, and each as <name>-tagged (a tagged PDF)
+const string scenarios = "table|report|report20|stress|table-arabic|table-devanagari|table10k, each also as <name>-tagged";
 string verb = args.Length > 0 ? args[0] : "help";
 switch (verb)
 {

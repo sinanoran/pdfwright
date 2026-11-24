@@ -15,6 +15,13 @@ internal static class Warm
         "table-arabic" => fonts => ScenarioDocuments.TableArabic(fonts),
         "table-devanagari" => fonts => ScenarioDocuments.TableDevanagari(fonts),
         "table10k" => fonts => ScenarioDocuments.Table(fonts, 10000),
+        "table-tagged" => fonts => ScenarioDocuments.Table(fonts, tagged: true),
+        "report-tagged" => fonts => ScenarioDocuments.Report(fonts).WithTagged(true),
+        "report20-tagged" => fonts => ScenarioDocuments.Report20(fonts).WithTagged(true),
+        "stress-tagged" => fonts => ScenarioDocuments.Stress(fonts).WithTagged(true),
+        "table-arabic-tagged" => fonts => ScenarioDocuments.TableArabic(fonts).WithTagged(true),
+        "table-devanagari-tagged" => fonts => ScenarioDocuments.TableDevanagari(fonts).WithTagged(true),
+        "table10k-tagged" => fonts => ScenarioDocuments.Table(fonts, 10000, tagged: true),
         _ => null,
     };
 
