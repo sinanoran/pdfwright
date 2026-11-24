@@ -7,7 +7,7 @@ namespace Pdfwright.Tests.Conformance;
 /// <summary>
 /// The long pages of the corpus are not golden files, so these pin what they wrote before the content stream was written without allocating: the
 /// SHA-256 of each uncompressed file, taken from the implementation that built the strings. The writing of the content may change how it makes the
-/// bytes and never which bytes.
+/// bytes and never which bytes. The files are untagged (<c>Tagged = false</c>), as they were written then; the tagged long pages are pinned by <c>TaggedOutputEquivalenceTests</c>.
 /// </summary>
 public class LongPageBytesTests
 {
@@ -25,7 +25,11 @@ public class LongPageBytesTests
     public void The_long_page_of_a_script_is_the_bytes_the_string_writer_made(string group, string sha256)
     {
         PageCorpus corpus = PageCorpus.LoadAll().Single(c => c.Group == group);
-        PageCorpus.Built built = corpus.Build(isLong: true, o => o.Compress = false);
+        PageCorpus.Built built = corpus.Build(isLong: true, o =>
+        {
+            o.Compress = false;
+            o.Tagged = false;
+        });
 
         byte[] pdf = DocumentTestKit.Save(built.Document);
 

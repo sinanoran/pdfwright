@@ -26,6 +26,8 @@ public class ReportSampleTests
         Assert.True(pages.Length >= 3, "The report runs over several pages.");
         Assert.Empty(document.Diagnostics.MissingGlyphs);
         Assert.Empty(document.Diagnostics.MissingFamilies);
+        Assert.True(document.Diagnostics.IsPdfUA, string.Join("; ", document.Diagnostics.AccessibilityIssues));
+        Assert.Empty(document.Diagnostics.AccessibilityIssues);
         Assert.Contains("Monthly report", pages[0]);
         Assert.Contains("Revenue", pages[0]);
         Assert.Contains("Oct", pages[0]);

@@ -150,29 +150,27 @@ public sealed class PdfDocumentOptions
     public bool Compress { get; init; } = true;
 
     /// <summary>
-    /// Whether the document is written as a tagged PDF: a structure tree of its content (<c>Document</c>, headings, paragraphs, callouts and columns as
-    /// <c>Div</c>, lists, figures with their alternative text, tables), every piece of text in the marked content of its element, and the header, the
-    /// footer, decoration and pictures without alternative text as artifacts. A tagged document with no accessibility issue claims PDF/UA-1
-    /// (<see cref="DocumentDiagnostics.IsPdfUA"/>). Internal and off until the option is made public; with it off the file is the one it always was.
+    /// Whether the document is written as a tagged PDF, which a screen reader reads in order. On by default. A tagged file has a structure tree of its
+    /// content in reading order: a <c>Document</c> element; <c>H1</c> to <c>H6</c> for headings and <c>P</c> for paragraphs; <c>Div</c> for a callout, for
+    /// columns and for each column; <c>L</c>, <c>LI</c>, <c>Lbl</c> and <c>LBody</c> for lists; <c>Table</c>, <c>THead</c>, <c>TBody</c>, <c>TR</c>,
+    /// <c>TH</c> (with <c>/Scope /Column</c>) and <c>TD</c> for tables; and <c>Figure</c> for an <see cref="Image"/> or a <see cref="Drawing"/> with alternative
+    /// text, which is the figure's <c>/Alt</c>. Every piece of text is in the marked content of its element, and an element or a run in another language than
+    /// the document's carries its own <c>/Lang</c> (text drawn on a <see cref="DrawingCanvas"/> does not: it is part of its figure, which its <c>/Alt</c> stands for, or of an artifact).
+    /// What is not content is an artifact, which a screen reader skips: the header and the footer, table fills and
+    /// borders, callout boxes, a table's header rows repeated on later pages, and an image or a drawing without alternative text (decorative).
+    /// <para>
+    /// A tagged document claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its metadata) only when the save found no accessibility issue. A document without a
+    /// <see cref="Title"/> or a <see cref="Language"/>, with a character no font has a glyph for, or with headings out of order is written tagged all the same,
+    /// without the claim, and the save lists what is in the way in <see cref="DocumentDiagnostics.AccessibilityIssues"/>; <see cref="DocumentDiagnostics.IsPdfUA"/>
+    /// says whether the claim was written. Tagging changes nothing that is drawn; it makes the file larger (about 1.2 to 2.5 times the untagged file of the benchmark documents), so a
+    /// <see cref="DocumentLimits.MaxBytes"/> chosen for untagged files may need raising.
+    /// </para>
+    /// <para>
+    /// <see langword="false"/> writes an untagged file, byte for byte the output of 0.1.5, the last version before tagged PDF: no structure tree,
+    /// no claim, and no accessibility issue checked or reported.
+    /// </para>
     /// </summary>
-    internal bool Tagged
-    {
-        get => _tagged;
-        init => _tagged = value;
-    }
-
-    private bool _tagged;
-
-    /// <summary>
-    /// A copy of these options with <see cref="Tagged"/> set to <paramref name="tagged"/>, everything else the same: the tests validate documents whose
-    /// options are made elsewhere (the sample report, the benchmark scenarios) as tagged PDF while the option is internal.
-    /// </summary>
-    internal PdfDocumentOptions WithTagged(bool tagged)
-    {
-        PdfDocumentOptions copy = (PdfDocumentOptions)MemberwiseClone();
-        copy._tagged = tagged;
-        return copy;
-    }
+    public bool Tagged { get; init; } = true;
 
     /// <summary>Limits that stop a runaway document with a <see cref="PdfLimitExceededException"/>. None by default.</summary>
     /// <exception cref="ArgumentNullException">The value is <see langword="null"/>.</exception>
@@ -202,6 +200,8 @@ public sealed class DocumentLimits
     /// The most bytes the file may have, or <see langword="null"/> for no limit. The size is checked after every page, to stop early, and once more when the file is complete (the fonts are
     /// written last), so a file over the limit is never returned: <see cref="PdfLimitExceededException"/> is thrown and nothing at all has been written to the caller's stream.
     /// The file is built in memory before it is written to the stream.
+    /// A tagged file (<see cref="PdfDocumentOptions.Tagged"/>, the default since 0.1.6) is larger than the untagged file of the same document (about 1.2 to 2.5 times for the
+    /// benchmark documents), so a limit chosen for the files of 0.1.5 can now be exceeded: raise it, or set <see cref="PdfDocumentOptions.Tagged"/> to <see langword="false"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is less than 1.</exception>
     public long? MaxBytes
@@ -282,8 +282,8 @@ public sealed record MissingGlyph
     public override string ToString() => $"U+{CodePoint:X4} (language {Language ?? "none"}, page {Page})";
 }
 
-/// <summary>What keeps a tagged document from being PDF/UA-1. Internal until the diagnostics API is public (slice T1f of the tagged PDF plan).</summary>
-internal enum AccessibilityIssueKind
+/// <summary>The kind of an <see cref="AccessibilityIssue"/>: what keeps a tagged document from being PDF/UA-1. Later versions may add kinds.</summary>
+public enum AccessibilityIssueKind
 {
     /// <summary>The document has no title (<see cref="PdfDocumentOptions.Title"/>): PDF/UA-1 7.1 asks for <c>dc:title</c> in the metadata.</summary>
     MissingTitle,
@@ -307,8 +307,12 @@ internal enum AccessibilityIssueKind
     SkippedHeadingLevel,
 }
 
-/// <summary>One accessibility issue a save found in a tagged document: its kind, the page it is on when it is on one, and what it is in words.</summary>
-internal sealed record AccessibilityIssue
+/// <summary>
+/// Something PDF/UA-1 asks for that a tagged document (<see cref="PdfDocumentOptions.Tagged"/>) does not have, found by its save: no title, no language, a
+/// character drawn without a glyph, a heading out of order. The document is written tagged all the same, but it does not claim PDF/UA-1
+/// (<see cref="DocumentDiagnostics.IsPdfUA"/> is <see langword="false"/>); once no issue is left, the next save claims it.
+/// </summary>
+public sealed record AccessibilityIssue
 {
     internal AccessibilityIssue(AccessibilityIssueKind kind, int? page, string message)
     {
@@ -318,13 +322,13 @@ internal sealed record AccessibilityIssue
     }
 
     /// <summary>What the issue is.</summary>
-    internal AccessibilityIssueKind Kind { get; }
+    public AccessibilityIssueKind Kind { get; }
 
-    /// <summary>The page, from 1, or <see langword="null"/> for an issue of the whole document (no title, no language).</summary>
-    internal int? Page { get; }
+    /// <summary>The page it is on, from 1, or <see langword="null"/> for an issue of the whole document (no title, no language, a document language that is not a language tag).</summary>
+    public int? Page { get; }
 
-    /// <summary>The issue in words.</summary>
-    internal string Message { get; }
+    /// <summary>The issue in words (English), for a log or a message.</summary>
+    public string Message { get; }
 
     /// <inheritdoc />
     public override string ToString() => Page is { } page ? $"{Kind} on page {page}: {Message}" : $"{Kind}: {Message}";
@@ -396,11 +400,16 @@ public sealed class DocumentDiagnostics
     public long ByteCount { get; }
 
     /// <summary>
-    /// What keeps a tagged document from being PDF/UA-1, in the order found: no title, no language, a missing glyph, a heading out of order. Empty for
-    /// an untagged document, which is not checked. Internal until slice T1f of the tagged PDF plan makes it public.
+    /// What keeps a tagged document from being PDF/UA-1, in the order found: no title, no language or one that is not a language tag, a character drawn
+    /// without a glyph (one issue for each page that has any, however many characters; its message names the first such character when it was found missing
+    /// from every font), a heading out of order. Empty when the file claims PDF/UA-1 (<see cref="IsPdfUA"/>), and empty for
+    /// an untagged document (<see cref="PdfDocumentOptions.Tagged"/> set to <see langword="false"/>), which is not checked.
     /// </summary>
-    internal IReadOnlyList<AccessibilityIssue> AccessibilityIssues { get; }
+    public IReadOnlyList<AccessibilityIssue> AccessibilityIssues { get; }
 
-    /// <summary>Whether the file claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its metadata): it is tagged and no accessibility issue was found.</summary>
-    internal bool IsPdfUA { get; }
+    /// <summary>
+    /// Whether the file claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its XMP metadata). The claim is written when the document is tagged and the save found no
+    /// accessibility issue (<see cref="AccessibilityIssues"/> is empty); it is <see langword="false"/> for an untagged document and for a tagged one with an issue.
+    /// </summary>
+    public bool IsPdfUA { get; }
 }

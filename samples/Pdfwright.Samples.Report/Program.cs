@@ -14,10 +14,15 @@ await using (FileStream file = File.Create(output))
 }
 
 DocumentDiagnostics report = document.Diagnostics;
-await Console.Out.WriteLineAsync($"{output}: {report.PageCount} pages, {report.ByteCount} bytes.");
+await Console.Out.WriteLineAsync($"{output}: {report.PageCount} pages, {report.ByteCount} bytes, {(report.IsPdfUA ? "tagged, PDF/UA-1" : "not PDF/UA-1")}.");
 foreach (MissingGlyph glyph in report.MissingGlyphs)
 {
     await Console.Error.WriteLineAsync($"No font has {glyph.Character} (U+{glyph.CodePoint:X4}), page {glyph.Page}.");
 }
 
-return report.MissingGlyphs.Count == 0 ? 0 : 1;
+foreach (AccessibilityIssue issue in report.AccessibilityIssues)
+{
+    await Console.Error.WriteLineAsync($"Accessibility: {issue}");
+}
+
+return report.MissingGlyphs.Count == 0 && report.IsPdfUA ? 0 : 1;

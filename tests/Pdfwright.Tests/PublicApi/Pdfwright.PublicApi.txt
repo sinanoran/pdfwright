@@ -1,3 +1,21 @@
+sealed class AccessibilityIssue : IEquatable<AccessibilityIssue>
+  method Boolean Equals(AccessibilityIssue? other)
+  method Boolean Equals(Object? obj)
+  method Int32 GetHashCode()
+  method String ToString()
+  operator static Boolean op_Equality(AccessibilityIssue? left, AccessibilityIssue? right)
+  operator static Boolean op_Inequality(AccessibilityIssue? left, AccessibilityIssue? right)
+  property AccessibilityIssueKind Kind { get; }
+  property Int32? Page { get; }
+  property String Message { get; }
+enum AccessibilityIssueKind : IComparable, IConvertible, IFormattable, ISpanFormattable
+  FirstHeadingNotH1 = 4
+  InvalidLanguage = 2
+  MissingGlyph = 3
+  MissingLanguage = 1
+  MissingTitle = 0
+  SkippedHeadingLevel = 5
+  field Int32 value__
 abstract class Block : IEquatable<Block>
   ctor(Block original)
   method Boolean Equals(Block? other)
@@ -112,6 +130,8 @@ sealed class Columns : Block, IEquatable<Block>, IEquatable<Columns>
   property TextDirection? Direction { get; init; }
   property Type EqualityContract { get; }
 sealed class DocumentDiagnostics
+  property Boolean IsPdfUA { get; }
+  property IReadOnlyList<AccessibilityIssue> AccessibilityIssues { get; }
   property IReadOnlyList<MissingGlyph> MissingGlyphs { get; }
   property IReadOnlyList<String> MissingFamilies { get; }
   property IReadOnlyList<TruncatedTable> TruncatedTables { get; }
@@ -408,6 +428,7 @@ sealed class PdfDocumentOptions
   ctor()
   property Boolean Compress { get; init; }
   property Boolean Deterministic { get; init; }
+  property Boolean Tagged { get; init; }
   property DateTimeOffset? Creation { get; init; }
   property DocumentLimits Limits { get; init; }
   property FontCollection Fonts { get; init; }
