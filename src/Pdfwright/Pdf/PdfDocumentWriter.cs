@@ -36,6 +36,12 @@ internal sealed class PdfWriterOptions
     /// <c>/MarkInfo</c> on the catalog. Off by default, and a document written with it off is the same file it always was.
     /// </summary>
     internal bool Tagged { get; init; }
+
+    /// <summary>
+    /// The buffer the file is written into, when the output is that buffer and nothing else (behind streams that only pass the bytes on): the document's <c>/ID</c> is then hashed from it once
+    /// the file is written (<see cref="Pdfwright.Document.SaveBuffer.Sha256(long, long)"/>), instead of as each byte is written. <see langword="null"/> for any other output.
+    /// </summary>
+    internal Pdfwright.Document.SaveBuffer? WrittenTo { get; init; }
 }
 
 /// <summary>A rectangle in the page's own space (origin bottom left, y up), for an annotation.</summary>
@@ -62,7 +68,7 @@ internal sealed class PdfDocumentWriter : IDisposable
     {
         _options = options;
         // A tagged document has an object for each structure element: compressed, they go into object streams (an untagged file stays as it was).
-        _file = new PdfFile(output, options.Compression, objectStreams: options.Tagged);
+        _file = new PdfFile(output, options.Compression, objectStreams: options.Tagged, writtenTo: options.WrittenTo);
         _pagesRoot = _file.Allocate();
         if (options.Tagged)
         {
@@ -183,23 +189,17 @@ internal sealed class PdfDocumentWriter : IDisposable
     }
 
     /// <summary>
-    /// The buffer of the content stream of the last page that was written, emptied, for the next page to use: a page's content grows its buffer by doubling (and a dense one passes the
-    /// large object heap's threshold), which every page of a long table would repeat. It belongs to this writer, which is one save, so it is never shared between documents or threads.
+    /// The content builder of the last page that was written, emptied (its chunks given back to the pool), for the next page to use. It belongs to this writer, which is one save, so it is
+    /// never shared between documents or threads.
     /// </summary>
     private ContentStreamBuilder? _spareContent;
 
-    /// <summary>The largest buffer kept for the next page: a page with a lot of drawing does not make the rest of the save carry its buffer.</summary>
-    private const int SpareContentLimit = 1 << 20;
-
-    /// <summary>Takes the content builder of a page whose content stream is written, empties it and keeps it for the next page when it is not large.</summary>
+    /// <summary>Takes the content builder of a page whose content stream is written, empties it and keeps it for the next page.</summary>
     private void RecycleContent(PdfPageWriter page)
     {
         ContentStreamBuilder content = page.DropBody();
-        if (content.Capacity <= SpareContentLimit)
-        {
-            content.Clear();
-            _spareContent = content;
-        }
+        content.Clear();
+        _spareContent = content;
     }
 
     /// <summary>Writes the page: its content stream first, then its dictionary, so nothing of it stays in memory.</summary>
@@ -211,7 +211,7 @@ internal sealed class PdfDocumentWriter : IDisposable
         }
 
         CheckBalanced(page.Content, "body");
-        PdfReference contents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
+        PdfReference contents = _file.AddContent(page.Content);
         RecycleContent(page);
         PdfReference pageReference = page.Reference ?? _file.Allocate();
         WriteParentTreeEntry(page);
@@ -232,7 +232,7 @@ internal sealed class PdfDocumentWriter : IDisposable
         }
 
         CheckBalanced(page.Content, "body");
-        page.BodyContents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
+        page.BodyContents = _file.AddContent(page.Content);
         RecycleContent(page);
         page.Reference ??= _file.Allocate();
         WriteParentTreeEntry(page);
@@ -256,14 +256,16 @@ internal sealed class PdfDocumentWriter : IDisposable
         PdfArray contents = new();
         if (page.HeaderContents is { } headerReference)
         {
-            _file.Write(headerReference, new PdfStream(new PdfDictionary(), page.HeaderContent.ToMemory()));
+            _file.WriteContent(headerReference, page.HeaderContent);
+            page.HeaderContent.Release();
             contents.Add(headerReference);
         }
 
         contents.Add(page.BodyContents);
         if (page.FooterContents is { } footerReference)
         {
-            _file.Write(footerReference, new PdfStream(new PdfDictionary(), page.FooterContent.ToMemory()));
+            _file.WriteContent(footerReference, page.FooterContent);
+            page.FooterContent.Release();
             contents.Add(footerReference);
         }
 

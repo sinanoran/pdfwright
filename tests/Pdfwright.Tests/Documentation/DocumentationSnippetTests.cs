@@ -120,11 +120,11 @@ public class DocumentationSnippetTests
         byte[] fontBytes = [1, 2, 3];
 
         // <snippet guide-fonts>
-        // One collection for the whole application: it parses each font once and keeps a native copy of it.
+        // One collection for the whole application: it parses each font once and keeps one copy of it, into which AddFile reads the file.
         FontCollection fonts = new();
-        fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Regular.ttf")));
-        fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Bold.ttf")));
-        fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf")));
+        fonts.AddFile(Path.Combine(fontDirectory, "NotoSans-Regular.ttf"));
+        fonts.AddFile(Path.Combine(fontDirectory, "NotoSans-Bold.ttf"));
+        fonts.AddFile(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf"));
 
         string families = string.Join(", ", fonts.Families); // Noto Sans, Noto Sans Arabic
 

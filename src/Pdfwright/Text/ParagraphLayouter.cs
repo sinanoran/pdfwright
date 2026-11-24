@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Pdfwright.Fonts;
 using Pdfwright.Unicode;
 
@@ -70,8 +71,21 @@ internal static class ParagraphLayouter
     /// <summary>The lines of a paragraph that is shaped: breaks it, builds and aligns the lines. The caller gives the paragraph's arrays back afterwards.</summary>
     private static ParagraphLayout LayOutShaped(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles, ShapedParagraph paragraph)
     {
-        using State state = new(text, paragraph, fonts, options, styles);
-        List<Raw> raws = [];
+        State state = State.Take(text, paragraph, fonts, options, styles);
+        try
+        {
+            return LayOutLines(text, fonts, options, styles, paragraph, state);
+        }
+        finally
+        {
+            state.GiveBack();
+        }
+    }
+
+    /// <summary>The lines of a paragraph, broken and built with <paramref name="state"/>, which holds the lines before alignment and their pieces.</summary>
+    private static ParagraphLayout LayOutLines(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles, ShapedParagraph paragraph, State state)
+    {
+        List<Raw> raws = state.Raws;
         int start = 0;
         int candidate = 0;
         do
@@ -109,10 +123,10 @@ internal static class ParagraphLayouter
         {
             Raw raw = raws[l];
             double offset = Offset(options.Alignment, rightToLeft, box, raw.Width);
-            PlacedRun[] runs = new PlacedRun[raw.Runs.Count];
+            PlacedRun[] runs = new PlacedRun[raw.PieceCount];
             for (int r = 0; r < runs.Length; r++)
             {
-                Placement placement = raw.Runs[r];
+                Placement placement = state.Pieces[raw.FirstPiece + r];
                 runs[r] = new PlacedRun(placement.Run, offset + (placement.X - raw.ContentLeft), placement.Width, placement.IsTrailingSpace);
             }
 
@@ -205,6 +219,13 @@ internal static class ParagraphLayouter
         return widest;
     }
 
+    /// <summary>The shaping groups of a paragraph in one style: group 0. Shared and never changed.</summary>
+    private static readonly int[] OneShapeKey = [0];
+
+    /// <summary>The styling of a paragraph in one style, one for each thread (see <see cref="Styling"/>).</summary>
+    [ThreadStatic]
+    private static ShapeStyling? t_oneStyling;
+
     /// <summary>The styles of the paragraph and what the shaper needs to set it in them: with no styles in the options, one style of the options' size and language over every font.</summary>
     private static (IReadOnlyList<RunStyle> Styles, ShapeStyling? Styling) Styling(string text, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options)
     {
@@ -215,8 +236,14 @@ internal static class ParagraphLayouter
 
         if (styles.Count == 1 && options.Spans is { Count: 1 } oneSpan && oneSpan[0] is var onlySpan && onlySpan.Start == 0 && onlySpan.Length == text.Length && onlySpan.Style == 0 && IsValid(styles[0], fonts.Count))
         {
-            // The usual cell: one style over the whole text. The same styling as the general code below makes (one shaping group), without its lists and its table of groups.
-            return (styles, new ShapeStyling { Spans = options.Spans, FontOrders = [styles[0].FontOrder], Languages = [styles[0].Language], ShapeKeys = [0] });
+            // The usual cell: one style over the whole text. The same styling as the general code below makes (one shaping group), without its lists and its table of groups: the lists of one item are the style's own, made once,
+            // and the styling is the thread's, filled anew (the shaper reads it while it shapes the paragraph, and nothing keeps it).
+            ShapeStyling one = t_oneStyling ??= new ShapeStyling { Spans = oneSpan, FontOrders = styles[0].FontOrders, Languages = styles[0].Languages, ShapeKeys = OneShapeKey };
+            one.Spans = oneSpan;
+            one.FontOrders = styles[0].FontOrders;
+            one.Languages = styles[0].Languages;
+            one.ShapeKeys = OneShapeKey;
+            return (styles, one);
         }
 
         if (styles.Count == 0)
@@ -331,10 +358,11 @@ internal static class ParagraphLayouter
 
     /// <summary>A line before alignment: its runs are at x positions measured from the left edge of the line's own sequence of runs.</summary>
     /// <remarks><paramref name="FirstFont"/> is the font of the first run of the content in logical order, or -1 for a line with nothing visible; <paramref name="FirstStyle"/> is that run's style.</remarks>
-    private sealed record Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, int FirstFont, int FirstStyle, List<Placement> Runs);
+    /// <remarks>Its runs are the <paramref name="PieceCount"/> pieces of the state's list (<see cref="State.Pieces"/>) from <paramref name="FirstPiece"/> on.</remarks>
+    private readonly record struct Raw(int Start, int Length, double Width, double ContentLeft, double Ascent, double Descent, int FirstFont, int FirstStyle, int FirstPiece, int PieceCount);
 
     /// <summary>A run on a line while the line is being built: <see cref="X"/> is first its place in the row of runs and then, after alignment, its place from the paragraph's left edge.</summary>
-    private sealed class Placement(ShapedRun run, double width, bool isTrailingSpace)
+    private struct Placement(ShapedRun run, double width, bool isTrailingSpace)
     {
         internal ShapedRun Run { get; } = run;
 
@@ -345,24 +373,90 @@ internal static class ParagraphLayouter
         internal double X { get; set; }
     }
 
-    /// <summary>What the line breaker and the line builder share for one paragraph.</summary>
-    private sealed class State : IDisposable
+    /// <summary>
+    /// What the line breaker and the line builder share for one paragraph. A thread keeps one, with its lists of lines and pieces, and fills it again for each paragraph it lays out (<see cref="Take"/> and
+    /// <see cref="GiveBack"/>), so that the cells of a table do not each make one; nothing the layout returns refers to it.
+    /// </summary>
+    private sealed class State
     {
-        private readonly ShapedParagraph _paragraph;
-        private readonly IReadOnlyList<ShapingFont> _fonts;
-        private readonly ParagraphOptions _options;
-        private readonly IReadOnlyList<RunStyle> _styles;
-        private readonly double[] _prefix;
-        private readonly bool[] _boundary;
-        private readonly int[] _codePointOf;
-        private readonly bool[] _mandatory;
-        private readonly int[] _candidateIndex;
-        private readonly GlyphOrder[] _glyphOrder;
-        private readonly bool[] _anywhere;
+        /// <summary>The most lines, pieces or runs whose lists and arrays a kept state keeps: a longer paragraph's are dropped with it, so no thread keeps memory in proportion to the longest text it laid out.</summary>
+        private const int KeptLimit = 256;
+
+        [ThreadStatic]
+        private static State? t_kept;
+
+        private ShapedParagraph _paragraph = null!;
+        private IReadOnlyList<ShapingFont> _fonts = null!;
+        private ParagraphOptions _options = null!;
+        private IReadOnlyList<RunStyle> _styles = null!;
+        private double[] _prefix = null!;
+        private bool[] _boundary = null!;
+        private int[] _codePointOf = null!;
+        private bool[] _mandatory = null!;
+        private int[] _candidateIndex = null!;
+        private GlyphOrder[] _glyphOrder = [];
+        private bool[] _anywhere = null!;
         private bool _disposed;
 
-        internal State(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles)
+        /// <summary>The lines built so far, before alignment.</summary>
+        internal List<Raw> Raws { get; } = [];
+
+        /// <summary>The pieces of the lines built so far, the pieces of each line one after another.</summary>
+        internal List<Placement> Pieces { get; } = [];
+
+        /// <summary>The state of this thread, or a new one when it is in use, filled for a paragraph. Give it back with <see cref="GiveBack"/> when its lines are built.</summary>
+        internal static State Take(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles)
         {
+            State state = t_kept ?? new State();
+            t_kept = null;
+            try
+            {
+                state.Fill(text, paragraph, fonts, options, styles);
+            }
+            catch
+            {
+                state.GiveBack();
+                throw;
+            }
+
+            return state;
+        }
+
+        /// <summary>Gives the arrays back to the pool and keeps the state for the thread's next paragraph. The state must not be used afterwards; calling it twice does no harm.</summary>
+        internal void GiveBack()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            ReturnArrays();
+            _paragraph = null!;
+            _fonts = null!;
+            _options = null!;
+            _styles = null!;
+            bool small = Raws.Count <= KeptLimit && Pieces.Count <= KeptLimit && _glyphOrder.Length <= KeptLimit;
+            Raws.Clear();
+
+            // Cleared, not only emptied: a piece holds a run, which holds its glyphs.
+            Pieces.Clear();
+            if (small)
+            {
+                t_kept = this;
+            }
+        }
+
+        private void Fill(string text, ShapedParagraph paragraph, IReadOnlyList<ShapingFont> fonts, ParagraphOptions options, IReadOnlyList<RunStyle> styles)
+        {
+            _disposed = false;
+            CandidateCount = 0;
+            _prefix = null!;
+            _boundary = null!;
+            _codePointOf = null!;
+            _anywhere = null!;
+            _candidateIndex = null!;
+            _mandatory = null!;
             _paragraph = paragraph;
             _fonts = fonts;
             _options = options;
@@ -372,7 +466,7 @@ internal static class ParagraphLayouter
 
             // The width of everything left of each UTF-16 index: a glyph's advance sits at its cluster, so the width of a text range is
             // the difference of two prefix sums, and a range that does not start and end on cluster boundaries is never asked for.
-            // The arrays are rented (see ScratchArray) and given back by Dispose, which Layout calls once the lines are built: a State lives for one layout. Up to 4,096 elements an array comes from the shared pool,
+            // The arrays are rented (see ScratchArray) and given back by GiveBack, which Layout calls once the lines are built: a State is filled for one layout at a time. Up to 4,096 elements an array comes from the shared pool,
             // which may keep it until the runtime trims the pool; a longer one is allocated and left to the garbage collector, so a very long text leaves nothing behind in the pool. A rented array may be longer than
             // asked for and holds what it was left with: what is read is cleared or written first. It also accepts an index past the end of the text that a new array of the exact length would refuse, hence the asserts.
             double[] advanceAt = ScratchArray.Rent<double>(Count + 1);
@@ -381,7 +475,11 @@ internal static class ParagraphLayouter
             Array.Clear(_boundary, 0, Count + 1);
             _boundary[0] = true;
             _boundary[Count] = true;
-            _glyphOrder = new GlyphOrder[paragraph.Runs.Count];
+            if (_glyphOrder.Length < paragraph.Runs.Count)
+            {
+                _glyphOrder = new GlyphOrder[paragraph.Runs.Count];
+            }
+
             for (int r = 0; r < paragraph.Runs.Count; r++)
             {
                 ShapedRun run = paragraph.Runs[r];
@@ -483,25 +581,28 @@ internal static class ParagraphLayouter
             }
         }
 
-        /// <summary>Gives the arrays back to the pool. The State must not be used afterwards; calling it twice does no harm.</summary>
-        public void Dispose()
+        /// <summary>Gives the rented arrays back to the pool, those that were rented (a state whose filling failed has only some of them).</summary>
+        private void ReturnArrays()
         {
-            if (_disposed)
-            {
-                return;
-            }
+            Return(ref _prefix);
+            Return(ref _boundary);
+            Return(ref _codePointOf);
+            Return(ref _anywhere);
+            Return(ref _candidateIndex);
+            Return(ref _mandatory);
 
-            _disposed = true;
-            ScratchArray.Return(_prefix);
-            ScratchArray.Return(_boundary);
-            ScratchArray.Return(_codePointOf);
-            ScratchArray.Return(_anywhere);
-            ScratchArray.Return(_candidateIndex);
-            ScratchArray.Return(_mandatory);
+            static void Return<T>(ref T[] array)
+            {
+                if (array is not null)
+                {
+                    ScratchArray.Return(array);
+                    array = null!;
+                }
+            }
         }
 
         /// <summary>The length of the text in UTF-16 units.</summary>
-        internal int Count { get; }
+        internal int Count { get; private set; }
 
         /// <summary>The number of places a line may end.</summary>
         internal int CandidateCount { get; private set; }
@@ -621,7 +722,7 @@ internal static class ParagraphLayouter
             levels = levels[..levelCount];
             UnicodeBidi.LineLevelsInto(_paragraph.Bidi, firstCp, endCp, levels);
 
-            List<Placement> pieces = [];
+            int firstPiece = Pieces.Count;
             for (int runIndex = FirstRunEndingAfter(start); runIndex < _paragraph.Runs.Count; runIndex++)
             {
                 ShapedRun run = _paragraph.Runs[runIndex];
@@ -655,15 +756,18 @@ internal static class ParagraphLayouter
                     }
 
                     Placement? piece = Piece(runIndex, run, runEnd, utf16[groupStart], utf16[cp], level, trailing);
-                    if (piece is not null)
+                    if (piece is { } made)
                     {
-                        pieces.Add(piece);
+                        Pieces.Add(made);
                     }
                 }
             }
 
+            // The line's pieces, in the list of the paragraph's, where their places are set.
+            Span<Placement> pieces = CollectionsMarshal.AsSpan(Pieces)[firstPiece..];
+
             // Left to right: rule L2 over the pieces, which are stretches of one level, so reversing whole pieces is reversing their characters.
-            if (pieces.Count == 1)
+            if (pieces.Length == 1)
             {
                 pieces[0].X = 0; // one piece is in its own order, at the start
             }
@@ -671,7 +775,7 @@ internal static class ParagraphLayouter
             {
                 // Pieces of level 0 only (the usual line, which may end in a piece of white space) are already in visual order: rule L2 reverses nothing above level 0.
                 double x = 0;
-                for (int i = 0; i < pieces.Count; i++)
+                for (int i = 0; i < pieces.Length; i++)
                 {
                     pieces[i].X = x;
                     x += pieces[i].Width;
@@ -679,7 +783,7 @@ internal static class ParagraphLayouter
             }
             else
             {
-                byte[] pieceLevels = new byte[pieces.Count];
+                byte[] pieceLevels = new byte[pieces.Length];
                 for (int i = 0; i < pieceLevels.Length; i++)
                 {
                     pieceLevels[i] = pieces[i].Run.Level;
@@ -729,13 +833,13 @@ internal static class ParagraphLayouter
                 contentLeft = (_paragraph.ParagraphLevel & 1) == 1 ? trailingWidth : 0;
             }
 
-            return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, firstStyle, pieces);
+            return new Raw(start, end - start, width, contentLeft, ascent, descent, firstFont, firstStyle, firstPiece, pieces.Length);
         }
 
         /// <summary>Whether every piece is of level 0, so that the visual order of the pieces is their logical order.</summary>
-        private static bool AllLeftToRight(List<Placement> pieces)
+        private static bool AllLeftToRight(Span<Placement> pieces)
         {
-            for (int i = 0; i < pieces.Count; i++)
+            for (int i = 0; i < pieces.Length; i++)
             {
                 if (pieces[i].Run.Level != 0)
                 {

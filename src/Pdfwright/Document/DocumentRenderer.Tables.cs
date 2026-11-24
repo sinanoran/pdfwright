@@ -199,13 +199,16 @@ internal sealed partial class DocumentRenderer
             }
         }
 
-        internal double PadTop { get; init; }
+        internal double PadTop { get; set; }
 
-        internal double PadBottom { get; init; }
+        internal double PadBottom { get; set; }
 
-        internal double PadLeft { get; init; }
+        internal double PadLeft { get; set; }
 
-        internal Color? Fill { get; init; }
+        internal Color? Fill { get; set; }
+
+        /// <summary>Empties the cell's lines, keeping the list for the lines of the next row's cell (see <see cref="TableRun"/>'s recycled row plan).</summary>
+        internal void Clear() => _items?.Clear();
 
         /// <summary>The height of the lines from the item at <paramref name="from"/> to the item before <paramref name="to"/>, without padding.</summary>
         internal double Span(int from, int to) => Items[to - 1].Bottom - Items[from].Top;
@@ -213,16 +216,16 @@ internal sealed partial class DocumentRenderer
 
     private sealed class RowPlan
     {
-        internal required CellPlan?[] Cells { get; init; }
+        internal required CellPlan?[] Cells { get; set; }
 
-        internal Color? RowFill { get; init; }
+        internal Color? RowFill { get; set; }
 
-        internal bool IsHeader { get; init; }
+        internal bool IsHeader { get; set; }
 
-        internal int BodyIndex { get; init; }
+        internal int BodyIndex { get; set; }
 
         /// <summary>The row's structure elements when the document is tagged, or <see langword="null"/>.</summary>
-        internal RowTags? Tags { get; init; }
+        internal RowTags? Tags { get; set; }
 
         internal bool IsDone(int[] cursor)
         {
@@ -430,6 +433,7 @@ internal sealed partial class DocumentRenderer
                 }
 
                 PlaceRow(pending);
+                RecycleRow(pending);
                 drewAnything = true;
                 count++;
                 pending = NextRow(count);
@@ -585,7 +589,11 @@ internal sealed partial class DocumentRenderer
         private RowPlan Layout(TableRow row, bool header, int bodyIndex)
         {
             int n = _table.Columns.Count;
-            CellPlan?[] cells = new CellPlan?[n];
+
+            // A body row is laid out in the plan of the body row placed before, which nothing refers to any more (see RecycleRow).
+            RowPlan? reused = header ? null : _spareRow;
+            _spareRow = null;
+            CellPlan?[] cells = reused?.Cells is { } spareCells && spareCells.Length == n ? spareCells : new CellPlan?[n];
             PdfStructureElement? rowTag = null;
             PdfStructureElement?[]? cellTags = null;
             RowTags? spare = null;
@@ -621,13 +629,12 @@ internal sealed partial class DocumentRenderer
             {
                 TableCell cell = row.Cells[i];
                 Margins pad = cell.Padding ?? _table.CellPadding;
-                CellPlan plan = new()
-                {
-                    PadTop = pad.Top.Points,
-                    PadBottom = pad.Bottom.Points,
-                    PadLeft = pad.Left.Points,
-                    Fill = cell.Fill,
-                };
+                CellPlan plan = cells[i] ?? new CellPlan();
+                plan.Clear();
+                plan.PadTop = pad.Top.Points;
+                plan.PadBottom = pad.Bottom.Points;
+                plan.PadLeft = pad.Left.Points;
+                plan.Fill = cell.Fill;
                 double inner = Math.Max(1, _widths[i] - pad.Left.Points - pad.Right.Points);
                 ResolvedStyle style = (header ? _headerStyle : _tableStyle).Apply(cell.Style);
                 TextAlignment alignment = cell.Alignment ?? _table.Columns[i].Alignment;
@@ -676,6 +683,8 @@ internal sealed partial class DocumentRenderer
                 cells[i] = plan;
             }
 
+            // A row with fewer cells than the table has columns has no plan for the others.
+            Array.Clear(cells, row.Cells.Count, n - row.Cells.Count);
             RowTags? tags = null;
             if (rowTag is not null)
             {
@@ -689,7 +698,13 @@ internal sealed partial class DocumentRenderer
                 tags = spare ?? new RowTags(rowTag, cellTags!);
             }
 
-            return new RowPlan { Cells = cells, RowFill = row.Fill, IsHeader = header, BodyIndex = bodyIndex, Tags = tags };
+            RowPlan rowPlan = reused ?? new RowPlan { Cells = cells };
+            rowPlan.Cells = cells;
+            rowPlan.RowFill = row.Fill;
+            rowPlan.IsHeader = header;
+            rowPlan.BodyIndex = bodyIndex;
+            rowPlan.Tags = tags;
+            return rowPlan;
         }
 
         /// <summary>
@@ -748,6 +763,30 @@ internal sealed partial class DocumentRenderer
             _unrepeatedHeaderOnPage = false;
         }
 
+        /// <summary>
+        /// The plan of the body row placed last, kept for the next body row to be laid out in (<see cref="Layout"/>): a placed body row is drawn and nothing refers to its plan, so a long table makes one
+        /// plan and one plan of each cell, and not one for each row. Its cells' lines are let go of (<see cref="RecycleRow"/>), so that what they drew is not kept alive. A header row's plan is drawn again
+        /// on later pages and is never given back.
+        /// </summary>
+        private RowPlan? _spareRow;
+
+        /// <summary>Keeps the plan of a body row that is placed for the next body row, its cells emptied.</summary>
+        private void RecycleRow(RowPlan row)
+        {
+            if (row.IsHeader)
+            {
+                return;
+            }
+
+            foreach (CellPlan? cell in row.Cells)
+            {
+                cell?.Clear();
+            }
+
+            row.Tags = null;
+            _spareRow = row;
+        }
+
         /// <summary>Places one row, in one piece on this page, or on the next, or in pieces between lines when it is taller than a page.</summary>
         private void PlaceRow(RowPlan row)
         {
@@ -764,9 +803,20 @@ internal sealed partial class DocumentRenderer
             }
         }
 
+        // The cursors of the row being placed (how many lines of each cell are drawn), and the lines of each cell a fragment draws: kept from one row to the next. A row is placed and a fragment drawn
+        // one at a time (a header drawn again at the top of a page has cursors of its own).
+        private int[] _cursor = [];
+        private int[] _take = [];
+
         private void PlaceRowPieces(RowPlan row)
         {
-            int[] cursor = new int[row.Cells.Length];
+            if (_cursor.Length != row.Cells.Length)
+            {
+                _cursor = new int[row.Cells.Length];
+            }
+
+            int[] cursor = _cursor;
+            Array.Clear(cursor);
             while (true)
             {
                 _r._cancellation.ThrowIfCancellationRequested();
@@ -805,7 +855,13 @@ internal sealed partial class DocumentRenderer
         private void DrawFragment(RowPlan row, int[] cursor, double budget, bool repeated = false)
         {
             int n = row.Cells.Length;
-            int[] take = new int[n];
+            if (_take.Length != n)
+            {
+                _take = new int[n];
+            }
+
+            int[] take = _take;
+            Array.Clear(take);
             double height = 0;
             if (row.Remaining(cursor) <= budget + 1e-9)
             {

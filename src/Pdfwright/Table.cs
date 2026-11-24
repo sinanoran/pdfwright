@@ -105,7 +105,7 @@ public sealed record TableCell
     /// <summary>A cell with one paragraph.</summary>
     /// <param name="paragraph">The paragraph.</param>
     public TableCell(Paragraph paragraph)
-        : this([paragraph])
+        : this([paragraph], owned: true)
     {
     }
 
@@ -113,13 +113,20 @@ public sealed record TableCell
     /// <param name="paragraphs">The paragraphs; at least one.</param>
     /// <exception cref="ArgumentException">There is no paragraph, or one is null.</exception>
     public TableCell(IEnumerable<Paragraph> paragraphs)
+        : this(Check.Copy(paragraphs ?? throw new ArgumentNullException(nameof(paragraphs))), owned: true)
     {
-        ArgumentNullException.ThrowIfNull(paragraphs);
-        Paragraphs = new ReadOnlyCollection<Paragraph>([.. paragraphs]);
-        if (Paragraphs.Count == 0 || Paragraphs.Any(p => p is null))
+    }
+
+    /// <summary>A cell of the paragraphs of an array that is its own (a copy, or one made for it), which it keeps as its list of paragraphs.</summary>
+    private TableCell(Paragraph[] paragraphs, bool owned)
+    {
+        _ = owned;
+        if (paragraphs.Length == 0 || Check.AnyNull(paragraphs))
         {
             throw new ArgumentException("A cell has at least one paragraph, and none of them is null.", nameof(paragraphs));
         }
+
+        Paragraphs = new ReadOnlyCollection<Paragraph>(paragraphs);
     }
 
     /// <summary>The paragraphs of the cell.</summary>
@@ -182,13 +189,8 @@ public sealed record TableRow
     /// <param name="cells">The cells, at least one.</param>
     /// <exception cref="ArgumentException">There is no cell, or one is null.</exception>
     public TableRow(IEnumerable<TableCell> cells)
+        : this(Check.Copy(cells ?? throw new ArgumentNullException(nameof(cells))), owned: true)
     {
-        ArgumentNullException.ThrowIfNull(cells);
-        Cells = new ReadOnlyCollection<TableCell>([.. cells]);
-        if (Cells.Count == 0 || Cells.Any(c => c is null))
-        {
-            throw new ArgumentException("A row has at least one cell, and none of them is null.", nameof(cells));
-        }
     }
 
     /// <summary>A row of the given cells.</summary>
@@ -204,8 +206,20 @@ public sealed record TableRow
     /// <exception cref="ArgumentException">There is no text.</exception>
     /// <exception cref="ArgumentNullException">A text is null.</exception>
     public TableRow(params string[] texts)
-        : this(Texts(texts))
+        : this(Texts(texts), owned: true)
     {
+    }
+
+    /// <summary>A row of the cells of an array that is its own (a copy, or one made for it), which it keeps as its list of cells.</summary>
+    private TableRow(TableCell[] cells, bool owned)
+    {
+        _ = owned;
+        if (cells.Length == 0 || Check.AnyNull(cells))
+        {
+            throw new ArgumentException("A row has at least one cell, and none of them is null.", nameof(cells));
+        }
+
+        Cells = new ReadOnlyCollection<TableCell>(cells);
     }
 
     /// <summary>The cells of the row.</summary>
@@ -232,7 +246,8 @@ public sealed record TableRow
         return hash.ToHashCode();
     }
 
-    private static IEnumerable<TableCell> Texts(string[] texts)
+    /// <summary>A cell of one paragraph for each text, in an array of their number.</summary>
+    private static TableCell[] Texts(string[] texts)
     {
         ArgumentNullException.ThrowIfNull(texts);
         if (texts.Length == 0)
@@ -240,7 +255,13 @@ public sealed record TableRow
             throw new ArgumentException("A row has at least one cell.", nameof(texts));
         }
 
-        return texts.Select(t => new TableCell(t ?? throw new ArgumentNullException(nameof(texts), "A text is null.")));
+        TableCell[] cells = new TableCell[texts.Length];
+        for (int i = 0; i < texts.Length; i++)
+        {
+            cells[i] = new TableCell(texts[i] ?? throw new ArgumentNullException(nameof(texts), "A text is null."));
+        }
+
+        return cells;
     }
 }
 

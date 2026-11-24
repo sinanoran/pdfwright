@@ -217,6 +217,8 @@ sealed class FontCollection : IDisposable
   ctor()
   method FontCollection Add(Byte[] fontData)
   method FontCollection Add(ReadOnlyMemory<Byte> fontData)
+  method FontCollection Add(Stream stream)
+  method FontCollection AddFile(String path)
   method Void Dispose()
   property IReadOnlyList<String> Families { get; }
   property Int32 Count { get; }

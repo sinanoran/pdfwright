@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using Pdfwright.Fonts;
 
@@ -315,18 +314,26 @@ internal sealed class PdfEmbeddedFont
     /// Six capital letters (ISO 32000-1, 9.6.4) that tell two subsets of one font apart, taken from a hash of the font and of
     /// the glyphs kept, so that the same document is the same file and different subsets do not collide.
     /// </summary>
-    private static byte[] BigEndian(int value) => [(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value];
-
+    /// <remarks>The hash is of the font's bytes, then for each code its number and its glyph (32-bit, big-endian), its text in UTF-8 and a zero byte. The font's bytes are hashed once for all its subsets (<see cref="TrueTypeFont.BytesHash"/>).</remarks>
     private string SubsetTag(CodeTable codes)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(_font.Bytes);
+        Sha256 hash = _font.BytesHash.Clone();
+        Span<byte> utf8 = stackalloc byte[256];
         for (int i = 0; i < codes.Count; i++)
         {
-            hash.AppendData(BigEndian(codes.Codes[i]));
-            hash.AppendData(BigEndian(codes.Glyphs[i]));
-            hash.AppendData(Encoding.UTF8.GetBytes(codes.Texts[i]));
-            hash.AppendData([0]);
+            hash.AppendBigEndian(codes.Codes[i]);
+            hash.AppendBigEndian(codes.Glyphs[i]);
+            string text = codes.Texts[i];
+            if (Encoding.UTF8.GetMaxByteCount(text.Length) <= utf8.Length)
+            {
+                hash.Append(utf8[..Encoding.UTF8.GetBytes(text, utf8)]);
+            }
+            else
+            {
+                hash.Append(Encoding.UTF8.GetBytes(text));
+            }
+
+            hash.Append(0);
         }
 
         byte[] digest = hash.GetHashAndReset();

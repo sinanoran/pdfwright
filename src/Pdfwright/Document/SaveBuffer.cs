@@ -82,6 +82,53 @@ internal sealed class SaveBuffer : Stream
 
     private int Used(int block) => block == _blocks.Count - 1 ? _filled : BlockSize;
 
+    /// <summary>
+    /// The size of file from which its SHA-256 (the document's <c>/ID</c>) is taken with the framework's hash instead of the library's own: the library's is managed code at about 200 MB/s, which
+    /// costs a file of this size about 10 ms, and the framework's runs at over 1 GB/s on the processor's SHA instructions but loads its cryptography assembly and the operating system's library
+    /// (about 1 MB of working set) into the process. A file of ordinary size never loads them; a large one (pictures, long uncompressed tables) does not pay the managed hash for every byte.
+    /// The two give the same digest, which the tests check.
+    /// </summary>
+    internal const long FrameworkHashThreshold = 2 * 1024 * 1024;
+
+    /// <summary>The SHA-256 of the first <paramref name="length"/> bytes held: with the library's hash below <paramref name="frameworkThreshold"/> bytes, the framework's from there on.</summary>
+    internal byte[] Sha256(long length, long frameworkThreshold = FrameworkHashThreshold)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(length, _length);
+        return length < frameworkThreshold ? ManagedSha256(length) : FrameworkSha256(length);
+    }
+
+    private byte[] ManagedSha256(long length)
+    {
+        Pdf.Sha256 hash = new();
+        long left = length;
+        for (int i = 0; left > 0; i++)
+        {
+            int take = (int)Math.Min(left, Used(i));
+            hash.Append(_blocks[i].AsSpan(0, take));
+            left -= take;
+        }
+
+        return hash.GetHashAndReset();
+    }
+
+    /// <summary>The framework's SHA-256, in a method of its own so that the cryptography assembly is loaded only when a file is large enough to use it.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private byte[] FrameworkSha256(long length)
+    {
+        using System.Security.Cryptography.IncrementalHash hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        long left = length;
+        for (int i = 0; left > 0; i++)
+        {
+            int take = (int)Math.Min(left, Used(i));
+            hash.AppendData(_blocks[i].AsSpan(0, take));
+            left -= take;
+        }
+
+        return hash.GetHashAndReset();
+    }
+
     public override void Flush()
     {
     }

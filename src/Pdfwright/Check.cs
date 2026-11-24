@@ -66,4 +66,40 @@ internal static class Check
     /// <summary>A line spacing: finite and more than zero.</summary>
     internal static double LineSpacing(double value, string name) =>
         value > 0 && double.IsFinite(value) ? value : throw new ArgumentOutOfRangeException(name, value, "The line spacing is a positive, finite number.");
+
+    /// <summary>
+    /// A copy of <paramref name="items"/> as an array, made without a list in between when the items are a collection (an array, a list): a table builds a row,
+    /// its cells and their paragraphs and runs for every row of the document, so each of them keeps an array of what it holds and nothing more.
+    /// </summary>
+    internal static T[] Copy<T>(IEnumerable<T> items)
+    {
+        if (items is ICollection<T> collection)
+        {
+            if (collection.Count == 0)
+            {
+                return [];
+            }
+
+            T[] copy = new T[collection.Count];
+            collection.CopyTo(copy, 0);
+            return copy;
+        }
+
+        return [.. items];
+    }
+
+    /// <summary>Whether an item of <paramref name="items"/> is <see langword="null"/>: a loop over the array, with no enumerator and no delegate.</summary>
+    internal static bool AnyNull<T>(T[] items)
+        where T : class
+    {
+        foreach (T item in items)
+        {
+            if (item is null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

@@ -15,6 +15,12 @@ namespace Pdfwright.Pdf;
 /// <see cref="PdfReal.Write"/> and <see cref="PdfReal.WriteRelative"/>, which produce the same text as
 /// <see cref="PdfReal.Format"/> and the relative format of the tests' reference), operators are ASCII literals, and a
 /// glyph code is four hexadecimal digits written without an array. Writing an operator allocates nothing.
+/// <para>
+/// The bytes are held in chunks of <see cref="ChunkSize"/> bytes borrowed from <see cref="ArrayPool{T}.Shared"/> (a chunk for a longer piece is as long as the piece), never in one buffer
+/// that grows by doubling: a page of a long table is some 170 KB of content, and a buffer grown to hold it passed the large object heap's threshold at 128 KB and 256 KB in every
+/// save. The stream is the chunks' bytes one after another (<see cref="SegmentCount"/>, <see cref="Segment"/>); the chunks go back, cleared, when the builder is emptied
+/// (<see cref="Clear"/>) or let go of (<see cref="Release"/>) once its stream is written.
+/// </para>
 /// </remarks>
 internal sealed class ContentStreamBuilder
 {
@@ -23,23 +29,32 @@ internal sealed class ContentStreamBuilder
 
     private static ReadOnlySpan<byte> HexDigits => "0123456789ABCDEF"u8;
 
-    private readonly ArrayBufferWriter<byte> _bytes = new(4096);
+    /// <summary>The size of a chunk of the stream, under the large object heap's threshold.</summary>
+    internal const int ChunkSize = 16 * 1024;
+
+    private readonly Chunks _bytes = new();
 
     /// <summary>The font resource name and size the last <c>Tf</c> set, or <see langword="null"/> when none was written or a <c>Q</c> may have changed it.</summary>
     internal (string Name, double Size)? CurrentFont { get; private set; }
 
     internal int Length => _bytes.WrittenCount;
 
-    /// <summary>The size of the buffer, in bytes.</summary>
+    /// <summary>The bytes of the chunks the builder holds.</summary>
     internal int Capacity => _bytes.Capacity;
 
+    /// <summary>The number of pieces the stream is held in (see <see cref="Segment"/>).</summary>
+    internal int SegmentCount => _bytes.SegmentCount;
+
+    /// <summary>The piece of the stream at <paramref name="index"/>: the stream is the pieces one after another.</summary>
+    internal ReadOnlySpan<byte> Segment(int index) => _bytes.Segment(index);
+
     /// <summary>
-    /// Empties the builder to be written again, keeping its buffer: the bytes of the buffer are left as they are, and <see cref="ToMemory"/> covers only what is written after.
+    /// Empties the builder to be written again, giving its chunks back: <see cref="ToMemory"/> covers only what is written after.
     /// What the builder knows of the stream so far (the font and the running text position) is forgotten too, so that it writes what a new builder would.
     /// </summary>
     internal void Clear()
     {
-        _bytes.ResetWrittenCount();
+        _bytes.Reset();
         CurrentFont = null;
         MarkedContentDepth = 0;
         _mcidDepth = 0;
@@ -49,7 +64,11 @@ internal sealed class ContentStreamBuilder
         _lineY = 0;
     }
 
-    internal ReadOnlyMemory<byte> ToMemory() => _bytes.WrittenMemory;
+    /// <summary>Gives the chunks back once the stream is written and the builder will not be written again; it may be written again, as an empty builder.</summary>
+    internal void Release() => _bytes.Reset();
+
+    /// <summary>The bytes of the stream in one piece: the chunk itself when there is one, a copy of the pieces otherwise. The writer reads the pieces instead (<see cref="Segment"/>).</summary>
+    internal ReadOnlyMemory<byte> ToMemory() => _bytes.ToMemory();
 
     // ---- graphics state
 
@@ -584,6 +603,105 @@ internal sealed class ContentStreamBuilder
 
     private static ArgumentException NotPlain(string name) =>
         new($"'{name}' is not a plain name: use letters, digits, underscore, dot and hyphen.", nameof(name));
+
+    /// <summary>
+    /// The bytes of the stream in chunks borrowed from the shared array pool, written as <see cref="ArrayBufferWriter{T}"/> is (<see cref="GetSpan"/>, then <see cref="Advance"/>). A span asked for that does
+    /// not fit in the free end of the current chunk starts a new chunk, which leaves that end unused: the stream is the written part of each chunk, one after another.
+    /// </summary>
+    private sealed class Chunks
+    {
+        private readonly List<byte[]> _full = [];
+        private readonly List<int> _fullLengths = [];
+        private byte[]? _current;
+        private int _position;
+
+        internal int WrittenCount { get; private set; }
+
+        internal int Capacity
+        {
+            get
+            {
+                int bytes = _current?.Length ?? 0;
+                foreach (byte[] chunk in _full)
+                {
+                    bytes += chunk.Length;
+                }
+
+                return bytes;
+            }
+        }
+
+        internal int SegmentCount => _full.Count + (_position > 0 ? 1 : 0);
+
+        internal ReadOnlySpan<byte> Segment(int index) => index < _full.Count ? _full[index].AsSpan(0, _fullLengths[index]) : _current.AsSpan(0, _position);
+
+        internal Span<byte> GetSpan(int sizeHint)
+        {
+            if (_current is null || _current.Length - _position < sizeHint)
+            {
+                if (_current is not null && _position > 0)
+                {
+                    _full.Add(_current);
+                    _fullLengths.Add(_position);
+                }
+                else if (_current is not null)
+                {
+                    ArrayPool<byte>.Shared.Return(_current);
+                }
+
+                _current = ArrayPool<byte>.Shared.Rent(Math.Max(ChunkSize, sizeHint));
+                _position = 0;
+            }
+
+            return _current.AsSpan(_position);
+        }
+
+        internal void Advance(int count)
+        {
+            _position += count;
+            WrittenCount += count;
+        }
+
+        /// <summary>The written bytes in one piece: the current chunk's when it holds them all, a copy otherwise.</summary>
+        internal ReadOnlyMemory<byte> ToMemory()
+        {
+            if (_full.Count == 0)
+            {
+                return _current is null ? ReadOnlyMemory<byte>.Empty : _current.AsMemory(0, _position);
+            }
+
+            byte[] copy = new byte[WrittenCount];
+            int at = 0;
+            for (int i = 0; i < SegmentCount; i++)
+            {
+                ReadOnlySpan<byte> segment = Segment(i);
+                segment.CopyTo(copy.AsSpan(at));
+                at += segment.Length;
+            }
+
+            return copy;
+        }
+
+        /// <summary>Gives every chunk back, cleared (a content stream is a part of someone's document, and the pool is the whole process's), and empties the stream.</summary>
+        internal void Reset()
+        {
+            foreach (byte[] chunk in _full)
+            {
+                ArrayPool<byte>.Shared.Return(chunk, clearArray: true);
+            }
+
+            _full.Clear();
+            _fullLengths.Clear();
+            if (_current is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_current, clearArray: true);
+                _current = null;
+            }
+
+            _position = 0;
+            WrittenCount = 0;
+        }
+    }
 }
 
 /// <summary>Which running part of the page a pagination artifact is (ISO 32000-1, 14.8.2.2).</summary>

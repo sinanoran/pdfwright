@@ -315,6 +315,51 @@ public class PdfFileTests
         Assert.Throws<ArgumentException>(() => content.BeginMarkedContent(name, 0));
     }
 
+    /// <summary>
+    /// A content stream is held in chunks and written from them, and must be the file a stream of the same bytes in one piece makes, compressed or not: zlib does not write the same bytes for data given
+    /// in several writes, so the pieces of a compressed stream are given to it as one. Streams of many sizes around a chunk's edge are tried, and text longer than a chunk.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_content_stream_held_in_chunks_is_written_as_the_same_stream_in_one_piece(bool compressed)
+    {
+        PdfCompression compression = compressed ? PdfCompression.Flate : PdfCompression.None;
+        Random random = new(20261124);
+        foreach (int operators in new[] { 0, 1, 5, 300, 1500, 1600, 1700, 5000, 30000 })
+        {
+            ContentStreamBuilder content = new();
+            for (int i = 0; i < operators; i++)
+            {
+                _ = (i % 6) switch
+                {
+                    0 => content.MoveTo(random.NextDouble() * 600, random.NextDouble() * 800),
+                    1 => content.ShowCode(random.Next(65536)),
+                    2 => content.BeginActualText(new string('x', i % 997 == 2 ? ContentStreamBuilder.ChunkSize : random.Next(40))).EndMarkedContent(),
+                    3 => content.Transform(random.NextDouble(), 0, 0, 1, random.NextDouble() * 1e6, -random.NextDouble()),
+                    4 => content.Rectangle(random.Next(600), random.Next(800), random.NextDouble(), 1e-7),
+                    _ => content.FillRgb(random.NextDouble(), random.NextDouble(), random.NextDouble()),
+                };
+            }
+
+            byte[] whole = content.ToMemory().ToArray();
+            Assert.True(operators < 5000 || content.SegmentCount > 1, $"{operators} operators are held in {content.SegmentCount} piece(s)");
+            byte[] chunked = Build(file => file.Finish(Skeleton(file, file.AddContent(content)), null), compression);
+            byte[] single = Build(file => file.Finish(Skeleton(file, file.Add(new PdfStream(new PdfDictionary(), whole))), null), compression);
+            Assert.Equal(single, chunked);
+            content.Release();
+            Assert.Equal(0, content.Length);
+        }
+    }
+
+    /// <summary>A page tree and a catalog that refer to <paramref name="contents"/>, so that the stream is not an object nothing refers to.</summary>
+    private static PdfReference Skeleton(PdfFile file, PdfReference contents)
+    {
+        PdfReference pages = file.Allocate();
+        file.Write(pages, new PdfDictionary().Set("Type", "Pages").Set("Count", 0).Set("Kids", new PdfArray()).Set("Contents", contents));
+        return file.Add(new PdfDictionary().Set("Type", "Catalog").Set("Pages", pages));
+    }
+
     [Fact]
     public void The_content_stream_writes_the_operators_with_their_operands_in_the_order_the_format_has_them()
     {
