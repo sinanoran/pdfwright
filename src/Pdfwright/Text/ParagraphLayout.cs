@@ -7,7 +7,7 @@ namespace Pdfwright.Text;
 /// A <see cref="ShapedRun"/> restricted to one line, with the place it is drawn. Restricting cuts by cluster (a glyph belongs to the line
 /// that holds the characters it stands for) and never reshapes, so what was shaped across the whole paragraph stays as it was shaped.
 /// </summary>
-internal sealed class PlacedRun
+internal readonly struct PlacedRun
 {
     internal PlacedRun(ShapedRun run, double x, double width, bool isTrailingSpace)
     {
@@ -35,7 +35,7 @@ internal sealed class PlacedRun
 }
 
 /// <summary>One line of a laid out paragraph.</summary>
-internal sealed class LaidOutLine
+internal readonly struct LaidOutLine
 {
     /// <summary>The UTF-16 index in the paragraph's text where the line starts.</summary>
     internal required int Start { get; init; }

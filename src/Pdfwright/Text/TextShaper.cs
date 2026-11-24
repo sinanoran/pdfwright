@@ -412,8 +412,8 @@ internal sealed class ShapedParagraph
     private bool _released;
 
     /// <summary>
-    /// Gives the rented arrays back (a paragraph that is not <see cref="Pooled"/> has nothing to give back). The paragraph's code points, indices and bidi result must not be read afterwards, nor may anything hold them: the runs, the glyphs and the list of missing
-    /// characters are not rented and stay valid. Calling it twice does no harm.
+    /// Gives the rented arrays back (a paragraph that is not <see cref="Pooled"/> has nothing to give back). The paragraph's code points, indices and bidi result must not be read afterwards, nor may anything hold them, nor its
+    /// list of runs (the runs themselves and their glyphs are not rented and stay valid), nor its list of missing characters when it is empty (a list that holds some is left to whoever keeps it). Calling it twice does no harm.
     /// </summary>
     internal void Release()
     {
@@ -427,6 +427,39 @@ internal sealed class ShapedParagraph
         ScratchArray.Return(Utf16Index);
         ScratchArray.Return(Bidi.Levels);
         ScratchArray.Return(Bidi.Classes);
+        GiveList(ref SpareRuns, Runs);
+        if (Missing.Count == 0)
+        {
+            GiveList(ref SpareMissing, Missing);
+        }
+    }
+
+    /// <summary>The longest list of runs that is kept for the thread's next paragraph.</summary>
+    private const int KeptListLimit = 64;
+
+    // The lists of a pooled paragraph (see Release), one of each kind for each thread: a table cell's paragraph is shaped, laid out and released before the next, so the cells of a table share them.
+    [ThreadStatic]
+    internal static List<ShapedRun>? SpareRuns;
+
+    [ThreadStatic]
+    internal static List<int>? SpareMissing;
+
+    /// <summary>The list kept in <paramref name="spare"/>, empty, or a new one.</summary>
+    internal static List<T> TakeList<T>(ref List<T>? spare)
+    {
+        List<T> list = spare ?? [];
+        spare = null;
+        return list;
+    }
+
+    /// <summary>Keeps <paramref name="list"/>, emptied (and so holding nothing alive), in <paramref name="spare"/> when it is not long.</summary>
+    private static void GiveList<T>(ref List<T>? spare, List<T> list)
+    {
+        if (list.Count <= KeptListLimit)
+        {
+            list.Clear();
+            spare = list;
+        }
     }
 }
 
@@ -528,14 +561,14 @@ internal static class TextShaper
                 }
             }
 
-            List<int> missing = [];
+            List<int> missing = rented ? ShapedParagraph.TakeList(ref ShapedParagraph.SpareMissing) : [];
             styleOf = ScratchArray.Rent<int>(count);
             StyleOfCodePoints(styleOf, count, utf16Index, text.Length, styling, simple);
             fontOf = ScratchArray.Rent<int>(count);
             ChooseFonts(fontOf, codePoints, count, utf16Index, fonts, styling, styleOf, missing, simple);
 
             // A run ends where the level, the script, the font or what shaping depends on in the style (the font order, the size, the language) changes: a change of colour alone does not end it, so that a word that is partly coloured is still shaped as one.
-            List<ShapedRun> runs = [];
+            List<ShapedRun> runs = rented ? ShapedParagraph.TakeList(ref ShapedParagraph.SpareRuns) : [];
             int runStart = 0;
             for (int i = 1; i <= count; i++)
             {
@@ -619,8 +652,9 @@ internal static class TextShaper
 
         if (indexIsPosition && TileOneAfterAnother(styling, count))
         {
-            foreach (StyledSpan filled in styling.Spans)
+            for (int s = 0; s < styling.Spans.Count; s++)
             {
+                StyledSpan filled = styling.Spans[s];
                 if (filled.Style != 0)
                 {
                     Array.Fill(styleOf, filled.Style, filled.Start, filled.Length);
@@ -653,8 +687,9 @@ internal static class TextShaper
     {
         // A long, so that lengths that add up past int.MaxValue cannot wrap back to the count and pass for a tiling the general loop would read otherwise.
         long position = 0;
-        foreach (StyledSpan span in styling.Spans)
+        for (int s = 0; s < styling.Spans.Count; s++)
         {
+            StyledSpan span = styling.Spans[s];
             if (span.Start != position || span.Length < 0)
             {
                 return false;
@@ -1071,14 +1106,14 @@ internal static class TextShaper
 internal sealed class ShapeStyling
 {
     /// <summary>The stretches of the text, in order, that tile it (UTF-16 indices).</summary>
-    internal required IReadOnlyList<StyledSpan> Spans { get; init; }
+    internal required IReadOnlyList<StyledSpan> Spans { get; set; }
 
     /// <summary>For each style, the fonts that may draw it, in order of preference; never empty.</summary>
-    internal required IReadOnlyList<int[]> FontOrders { get; init; }
+    internal required IReadOnlyList<int[]> FontOrders { get; set; }
 
     /// <summary>For each style, the shaping group it belongs to: styles with the same font order, size and language have the same number, and a run may span them.</summary>
-    internal required IReadOnlyList<int> ShapeKeys { get; init; }
+    internal required IReadOnlyList<int> ShapeKeys { get; set; }
 
     /// <summary>For each style, its BCP 47 language or <see langword="null"/>.</summary>
-    internal required IReadOnlyList<string?> Languages { get; init; }
+    internal required IReadOnlyList<string?> Languages { get; set; }
 }

@@ -114,14 +114,29 @@ internal static class BlockText
         TextDirection direction,
         double lineSpacing)
     {
+        // The usual paragraph, a table cell's above all: one run in the paragraph's own style. Its lists of styles and spans are shared lists of one item (the style's, and a span of the text's length), so that
+        // it builds no list of its own; they hold what the general loop below builds for it (the one style, and one span over the text).
+        if (runs.Count == 1)
+        {
+            TextRun run = runs[0];
+            string chunk = TextNormalizer.Normalize(run.Text);
+            if (chunk.Length > 0 && (run.Style is null || baseStyle.Apply(run.Style).Equals(baseStyle)))
+            {
+                IReadOnlyList<StyledSpan> whole = StyledSpan.Whole(chunk.Length);
+                ParagraphLayout single = LayOut(chunk, fonts, baseStyle.Size, width, alignment, direction, lineSpacing, fonts.RunStyleOf(baseStyle).Alone, whole);
+                return new StyledLayout { Layout = single, Styles = Alone(baseStyle), Spans = whole };
+            }
+        }
+
         // The text is joined from the runs' chunks; a paragraph of one chunk (a table cell) is that string, with no builder.
         string? only = null;
         StringBuilder? text = null;
         int length = 0;
         List<ResolvedStyle> styles = [baseStyle];
         List<StyledSpan> spans = [];
-        foreach (TextRun run in runs)
+        for (int r = 0; r < runs.Count; r++)
         {
+            TextRun run = runs[r];
             string chunk = TextNormalizer.Normalize(run.Text);
             if (chunk.Length == 0)
             {
@@ -167,24 +182,60 @@ internal static class BlockText
             runStyles[i] = fonts.RunStyleOf(styles[i]);
         }
 
-        ParagraphLayout layout = ParagraphLayouter.Layout(
-            only ?? text?.ToString() ?? string.Empty,
-            fonts.Shaping,
-            new ParagraphOptions
-            {
-                Size = baseStyle.Size,
-                MaxWidth = width,
-                Alignment = alignment,
-                LineSpacing = lineSpacing,
-                ParagraphLevel = direction switch
-                {
-                    TextDirection.LeftToRight => 0,
-                    TextDirection.RightToLeft => 1,
-                    _ => UnicodeBidi.AutoLevel,
-                },
-                Styles = runStyles,
-                Spans = spans,
-            });
+        ParagraphLayout layout = LayOut(only ?? text?.ToString() ?? string.Empty, fonts, baseStyle.Size, width, alignment, direction, lineSpacing, runStyles, spans);
         return new StyledLayout { Layout = layout, Styles = styles, Spans = spans };
+    }
+
+    /// <summary>
+    /// The options of a layout, one object for each thread that is filled anew for every paragraph: the layouter reads them while it lays the paragraph out and keeps none of them but the spans, which are
+    /// not the options' own, so a table does not make an object of options for each of its cells. A layout never starts another on the same thread before it is done.
+    /// </summary>
+    [ThreadStatic]
+    private static ParagraphOptions? t_options;
+
+    private static ParagraphLayout LayOut(string text, FontCollection.Snapshot fonts, double size, double? width, TextAlignment alignment, TextDirection direction, double lineSpacing, IReadOnlyList<RunStyle> styles, IReadOnlyList<StyledSpan> spans)
+    {
+        ParagraphOptions options = t_options ?? new ParagraphOptions { Size = size };
+        t_options = null;
+        try
+        {
+            options.Size = size;
+            options.MaxWidth = width;
+            options.Alignment = alignment;
+            options.LineSpacing = lineSpacing;
+            options.ParagraphLevel = direction switch
+            {
+                TextDirection.LeftToRight => 0,
+                TextDirection.RightToLeft => 1,
+                _ => UnicodeBidi.AutoLevel,
+            };
+            options.Language = null;
+            options.Styles = styles;
+            options.Spans = spans;
+            return ParagraphLayouter.Layout(text, fonts.Shaping, options);
+        }
+        finally
+        {
+            options.Styles = null;
+            options.Spans = null;
+            t_options = options;
+        }
+    }
+
+    /// <summary>The list of styles of a paragraph in one style: the last one made on this thread when it is of the same style, which is what the cells of a table ask for, one after another.</summary>
+    [ThreadStatic]
+    private static ResolvedStyle[]? t_alone;
+
+    private static ResolvedStyle[] Alone(ResolvedStyle style)
+    {
+        ResolvedStyle[]? last = t_alone;
+        if (last is not null && ReferenceEquals(last[0], style))
+        {
+            return last;
+        }
+
+        last = [style];
+        t_alone = last;
+        return last;
     }
 }
