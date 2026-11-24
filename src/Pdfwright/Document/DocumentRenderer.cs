@@ -672,11 +672,12 @@ internal sealed partial class DocumentRenderer
     /// <summary>The embedded form of a font of the collection in this document, made on first use and kept (the document keeps one for each font, see <see cref="PdfDocumentWriter.GetOrAddShared"/>).</summary>
     private PdfEmbeddedFont EmbeddedFont(int index)
     {
-        if (_embeddedFonts[index] is { } known)
-        {
-            return known;
-        }
+        return _embeddedFonts[index] ?? MakeEmbeddedFont(index);
+    }
 
+    /// <summary>The embedded font of the font at <paramref name="index"/> the first time it is asked for, apart from <see cref="EmbeddedFont"/> so that the closure it makes is made only then and not at every glyph run.</summary>
+    private PdfEmbeddedFont MakeEmbeddedFont(int index)
+    {
         TrueTypeFont font = _fonts.Entries[index].Font;
         PdfEmbeddedFont made = _writer.GetOrAddShared(font, () => new PdfEmbeddedFont(_writer, font));
         _embeddedFonts[index] = made;
