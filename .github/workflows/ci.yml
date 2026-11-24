@@ -37,8 +37,8 @@ jobs:
       - name: Install qpdf
         shell: bash
         run: |
-          # The package feeds fail now and then (a Chocolatey 5xx failed a run without failing this step): try three times,
-          # and fail here, with the reason, if qpdf is still not on the path.
+          # The package feeds fail now and then. Chocolatey can answer a feed's 5xx with "installed 0/0 packages" and exit 0, so
+          # an attempt counts as done only when qpdf is there: try three times, and fail here, with the reason, if it is still missing.
           install() {
             case "$RUNNER_OS" in
               Linux) sudo apt-get update && sudo apt-get install -y qpdf ;;
@@ -46,16 +46,22 @@ jobs:
               Windows) choco install qpdf -y --no-progress ;;
             esac
           }
+          installed() {
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              # Chocolatey puts the shim on the machine path, which this shell does not see until the next step.
+              ls "/c/ProgramData/chocolatey/bin/qpdf.exe" >/dev/null 2>&1 || ls "/c/Program Files"/qpdf*/bin/qpdf.exe >/dev/null 2>&1
+            else
+              command -v qpdf >/dev/null
+            fi
+          }
+          # The step's shell runs with -e, so a failed install must not end it before the next attempt.
           for attempt in 1 2 3; do
-            install && break
-            echo "qpdf install attempt $attempt failed"; sleep $((attempt * 15))
+            install || true
+            if installed; then break; fi
+            echo "qpdf install attempt $attempt failed"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 15)); fi
           done
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            # Chocolatey puts the shim on the machine path, which this shell does not see until the next step.
-            ls "/c/ProgramData/chocolatey/bin/qpdf.exe" >/dev/null 2>&1 || ls /c/Program Files/qpdf*/bin/qpdf.exe >/dev/null 2>&1 || { echo "qpdf was not installed"; exit 1; }
-          else
-            command -v qpdf >/dev/null || { echo "qpdf was not installed"; exit 1; }
-          fi
+          installed || { echo "qpdf was not installed"; exit 1; }
 
       # veraPDF validates the tagged documents against PDF/UA-1 (tests/Pdfwright.Tests/Document/PdfUAValidationTests.cs). It is a Java program and a
       # test-time tool, run on this leg only: the goldens already prove that the bytes are the same on every system.
