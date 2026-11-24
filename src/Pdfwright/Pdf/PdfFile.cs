@@ -83,7 +83,8 @@ internal sealed class PdfFile : IDisposable
         long start = _output.Position;
         try
         {
-            PdfSerializer.Ascii(_output, reference.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) + " 0 obj\n");
+            PdfSerializer.Integer(_output, reference.Number);
+            _output.Write(" 0 obj\n"u8);
             if (value is PdfStream stream)
             {
                 WriteStreamBody(stream);

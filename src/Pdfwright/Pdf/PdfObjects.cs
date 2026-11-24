@@ -315,16 +315,18 @@ internal sealed class PdfDictionary : PdfObject
 
     internal PdfDictionary Set(string key, PdfObject value)
     {
-        int at = _entries.FindIndex(e => e.Key == key);
-        if (at >= 0)
+        // A loop, not FindIndex with a lambda: a dictionary is made for every object of the file (every structure element of a tagged table), and the
+        // lambda's closure would be allocated for every key.
+        for (int i = 0; i < _entries.Count; i++)
         {
-            _entries[at] = new KeyValuePair<string, PdfObject>(key, value);
-        }
-        else
-        {
-            _entries.Add(new KeyValuePair<string, PdfObject>(key, value));
+            if (_entries[i].Key == key)
+            {
+                _entries[i] = new KeyValuePair<string, PdfObject>(key, value);
+                return this;
+            }
         }
 
+        _entries.Add(new KeyValuePair<string, PdfObject>(key, value));
         return this;
     }
 
