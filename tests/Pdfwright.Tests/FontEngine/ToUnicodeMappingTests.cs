@@ -10,10 +10,10 @@ namespace Pdfwright.Tests.FontEngine;
 /// <summary>The <c>ToUnicode</c> map of an embedded font: one text per code, the cluster's text on the glyph that carries it, a joiner on the rest.</summary>
 public class ToUnicodeMappingTests
 {
-    private static string ToUnicodeOf(Action<PdfEmbeddedFont, PdfPageWriter> draw)
+    private static string ToUnicodeOf(Action<PdfEmbeddedFont, PdfPageWriter> draw, bool tagged = false)
     {
         using MemoryStream stream = new();
-        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None }))
+        using (PdfDocumentWriter document = new(stream, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = tagged }))
         {
             PdfEmbeddedFont font = new(document, TrueTypeFont.Parse(File.ReadAllBytes(TestPaths.Font("NotoSans-Regular.ttf"))));
             PdfPageWriter page = document.BeginPage(200, 200);
@@ -92,5 +92,25 @@ public class ToUnicodeMappingTests
         Assert.True(joiners >= 1, "a continuation glyph maps to the joiner");
         Assert.Equal(Text.Length, letters);
         Assert.Equal(entries.Count, entries.Select(m => m.Groups[1].Value).Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_tagged_document_maps_no_code_to_the_byte_order_mark_or_its_noncharacter_and_an_untagged_one_is_as_it_was(bool tagged)
+    {
+        int bom = 0;
+        int non = 0;
+        string map = ToUnicodeOf(
+            (font, _) =>
+            {
+                bom = font.UseGlyph(font.Font.GlyphForCodePoint('a'), "a\uFEFF");
+                non = font.UseGlyph(font.Font.GlyphForCodePoint('b'), "\uFFFE");
+            },
+            tagged);
+
+        // PDF/UA-1 7.21.7 forbids U+FEFF and U+FFFE in ToUnicode: tagged, U+FEFF is the word joiner that took its meaning and U+FFFE the replacement character.
+        Assert.Contains(tagged ? $"<{Hex(bom)}> <00612060>" : $"<{Hex(bom)}> <0061FEFF>", map, StringComparison.Ordinal);
+        Assert.Contains(tagged ? $"<{Hex(non)}> <FFFD>" : $"<{Hex(non)}> <FFFE>", map, StringComparison.Ordinal);
     }
 }
