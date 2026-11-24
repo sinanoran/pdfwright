@@ -80,7 +80,8 @@ public class TaggedOutputEquivalenceTests
         Assert.Equal(Expected.Count, actual.Count);
     }
 
-    private static IEnumerable<(string Name, Func<PdfDocument> Build)> Documents()
+    /// <summary>The documents whose files are pinned, each uncompressed and deterministic; the tests of object streams write the tagged ones compressed too.</summary>
+    internal static IEnumerable<(string Name, Func<PdfDocument> Build)> Documents()
     {
         foreach (PageCorpus corpus in PageCorpus.LoadAll())
         {

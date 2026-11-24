@@ -10,7 +10,10 @@ namespace Pdfwright.Tests.Pdf;
 /// says with what was meant: the element tree in order, each element's kids (marked content on its own page, marked-content references to another
 /// page, child elements), the parent tree and each page's <c>/StructParents</c>, and the <c>MCID</c>s of the content streams.
 /// </summary>
-/// <remarks>The content streams are read as they are, so the file is written with <c>PdfCompression.None</c>.</remarks>
+/// <remarks>
+/// The file may be uncompressed or compressed: a content stream with <c>/FlateDecode</c> is inflated here, and the structure elements of a compressed
+/// tagged file, which are in object streams, are counted in the inflated object streams.
+/// </remarks>
 internal sealed partial class StructureTreeReader
 {
     private readonly UglyToad.PdfPig.PdfDocument _document;
@@ -78,9 +81,35 @@ internal sealed partial class StructureTreeReader
         StructureTreeReader reader = new(document);
         reader.ReadAll();
 
-        // The file is uncompressed and has no object streams, so every element's dictionary is in the bytes as written.
-        reader.StructElemObjects = StructElemPattern().Count(Encoding.Latin1.GetString(pdf));
+        // Every element's dictionary is in the bytes as written, or in an object stream, inflated here from the file's bytes (not through PdfPig).
+        string file = Encoding.Latin1.GetString(pdf);
+        reader.StructElemObjects = StructElemPattern().Count(file) + ObjectStreams(pdf).Sum(data => StructElemPattern().Count(Encoding.Latin1.GetString(data)));
         return reader;
+    }
+
+    /// <summary>The data of each object stream (<c>/Type /ObjStm</c>) of a file of this writer, inflated: the objects it holds, after their numbers.</summary>
+    internal static List<byte[]> ObjectStreams(byte[] pdf)
+    {
+        string file = Encoding.Latin1.GetString(pdf);
+        List<byte[]> streams = [];
+        foreach (Match match in ObjectStreamPattern().Matches(file))
+        {
+            int start = match.Index + match.Length;
+            int length = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            streams.Add(match.Value.Contains("/FlateDecode", StringComparison.Ordinal) ? Inflate(pdf.AsSpan(start, length)) : pdf.AsSpan(start, length).ToArray());
+        }
+
+        return streams;
+    }
+
+    /// <summary>Zlib data inflated.</summary>
+    internal static byte[] Inflate(ReadOnlySpan<byte> data)
+    {
+        using MemoryStream input = new(data.ToArray());
+        using System.IO.Compression.ZLibStream zlib = new(input, System.IO.Compression.CompressionMode.Decompress);
+        using MemoryStream output = new();
+        zlib.CopyTo(output);
+        return output.ToArray();
     }
 
     private void ReadAll()
@@ -172,8 +201,15 @@ internal sealed partial class StructureTreeReader
         foreach (IToken stream in streams)
         {
             StreamToken token = Resolve<StreamToken>(stream);
-            Assert.False(token.StreamDictionary.Data.ContainsKey("Filter"), "the reader takes uncompressed content streams");
-            each.Add(Encoding.Latin1.GetString(token.Data.Span));
+            byte[] data = token.Data.ToArray();
+            if (token.StreamDictionary.Data.TryGetValue("Filter", out IToken? filter))
+            {
+                Assert.Equal("FlateDecode", Assert.IsType<NameToken>(filter).Data);
+                Assert.False(token.StreamDictionary.Data.ContainsKey("DecodeParms"), "a content stream is deflated with no predictor");
+                data = Inflate(data);
+            }
+
+            each.Add(Encoding.Latin1.GetString(data));
             text.Append(each[^1]);
         }
 
@@ -397,4 +433,8 @@ internal sealed partial class StructureTreeReader
 
     [GeneratedRegex(@"/Type /StructElem\b")]
     private static partial Regex StructElemPattern();
+
+    // An object stream's dictionary as the serializer writes it, up to the start of its data.
+    [GeneratedRegex(@"<<\n/Type /ObjStm\n[^>]*?/Length (\d+)\n>>\nstream\n")]
+    private static partial Regex ObjectStreamPattern();
 }
