@@ -202,9 +202,25 @@ public partial class TaggedTableTests
             int repeated = Regex.Count(tree.ContentText[page], @"/Artifact <</Type /Pagination>> BDC");
             Assert.Equal(repeat ? 1 : 0, repeated);
             Assert.Equal(repeat ? "NameValue" : "", artifacts[page]);
+            AssertRepeatedHeaderHasNoStructure(tree.ContentText[page], repeat ? 1 : 0);
         }
 
         DocumentTestKit.AssertValid(pdf, $"tagged-table-repeated-header-{repeat}");
+    }
+
+    /// <summary>
+    /// The page begins with <paramref name="rows"/> pagination artifacts, one for each header row drawn again, then the body's cells; nothing inside
+    /// such an artifact is marked content of the structure (no <c>MCID</c>, nested at any depth), so a reader reads the header once.
+    /// </summary>
+    private static void AssertRepeatedHeaderHasNoStructure(string content, int rows)
+    {
+        List<(string Begin, string Body)> repeated = [.. Sequences(content).Where(s => s.Begin.Contains("/Type /Pagination>>", StringComparison.Ordinal))];
+        Assert.Equal(rows, repeated.Count);
+        Assert.All(repeated, s => Assert.DoesNotContain("/MCID", s.Body, StringComparison.Ordinal));
+        Assert.All(repeated, s => Assert.Matches(@"T[Jj]\n", s.Body));
+        List<string> marks = Marks(content);
+        Assert.Equal(Enumerable.Repeat("R", rows), marks.TakeWhile(m => m == "R"));
+        Assert.Equal("TD", marks.SkipWhile(m => m is "R" or "A").First());
     }
 
     [Fact]
@@ -263,6 +279,122 @@ public partial class TaggedTableTests
         DocumentTestKit.AssertValid(pdf, $"tagged-table-split-row-{longColumn}");
     }
 
+    /// <summary>A table with a header and no rows is a <c>THead</c> and no <c>TBody</c>; a table with neither draws nothing and is not in the structure.</summary>
+    [Fact]
+    public void A_table_with_only_a_header_has_no_body_and_an_empty_table_is_not_in_the_structure()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Paragraph("Before."));
+        document.Add(new Table(Columns(2), new TableRow("A", "B"), []) { Borders = Borders.All });
+        document.Add(new Table(Columns(2), []) { Borders = Borders.All });
+        document.Add(new Paragraph("After."));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[P,Table[THead[TR[TH,TH]]],P]", tree.Root.Outline());
+        Assert.Equal(["A", "B"], ElementTexts(pdf, tree).Where(e => e.Type == "TH").Select(e => e.Text));
+        DocumentTestKit.AssertValid(pdf, "tagged-table-header-only");
+    }
+
+    /// <summary>A table without a header that runs over several pages: every cell is a <c>TD</c> of the body, and no page has a repeated header.</summary>
+    [Fact]
+    public void A_table_without_a_header_over_several_pages_is_a_body_of_cells()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Table(Columns(2), Enumerable.Range(0, 150).Select(i => new TableRow($"Row {i}", $"{i}"))) { Borders = Borders.Horizontal, ZebraFill = Color.Gray(0.95) });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.True(tree.ContentStreams.Count >= 3, $"{tree.ContentStreams.Count} pages");
+        Assert.Equal("Document[" + TableOutline(2, 0, 150) + "]", tree.Root.Outline());
+        Assert.DoesNotContain(tree.Root.Descendants(), e => e.Type == "TH");
+        Assert.All(tree.ContentText, t => Assert.DoesNotContain("/Type /Pagination>>", t, StringComparison.Ordinal));
+        Assert.All(tree.ContentMcids, page => Assert.All(page, m => Assert.Equal("TD", m.Tag)));
+        Assert.Equal(Enumerable.Range(0, 150).Select(i => $"Row{i}"), ElementTexts(pdf, tree).Where(e => e.Type == "TD").Where((_, i) => i % 2 == 0).Select(e => e.Text));
+        DocumentTestKit.AssertValid(pdf, "tagged-table-no-header");
+    }
+
+    /// <summary>
+    /// A header of two rows, one of whose cells has two paragraphs, the second blank: the blank one has no element, so the cell is a <c>TH</c> with one
+    /// <c>P</c>. On every later page the two rows are drawn again as two pagination artifacts, with no marked content of the structure in them.
+    /// </summary>
+    [Fact]
+    public void A_header_of_two_rows_is_repeated_on_later_pages_as_artifacts()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Table(
+            Columns(2),
+            [new TableRow(new TableCell([new Paragraph("Group"), new Paragraph(" ")]), new TableCell("Total")), new TableRow("Name", "Value")],
+            Enumerable.Range(0, 120).Select(i => new TableRow($"Row {i}", $"{i}")))
+        {
+            HeaderFill = Color.Gray(0.9),
+            Borders = Borders.All,
+        });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.True(tree.ContentStreams.Count >= 3, $"{tree.ContentStreams.Count} pages");
+        Assert.Equal("Document[Table[THead[TR[TH[P],TH],TR[TH,TH]],TBody[" + string.Join(",", Enumerable.Repeat("TR[TD,TD]", 120)) + "]]]", tree.Root.Outline());
+        Assert.Equal(
+            [("TH", ""), ("P", "Group"), ("TH", "Total"), ("TH", "Name"), ("TH", "Value")],
+            ElementTexts(pdf, tree).Where(e => e.Type is "TH" or "P"));
+        Assert.DoesNotContain("/Type /Pagination>>", tree.ContentText[0], StringComparison.Ordinal);
+        string[] artifacts = TaggedFlowTests.ArtifactTexts(pdf);
+        for (int page = 1; page < tree.ContentStreams.Count; page++)
+        {
+            AssertRepeatedHeaderHasNoStructure(tree.ContentText[page], 2);
+            Assert.Equal("GroupTotalNameValue", artifacts[page]);
+        }
+
+        DocumentTestKit.AssertValid(pdf, "tagged-table-two-row-header");
+    }
+
+    /// <summary>
+    /// A right-to-left row split over several pages, with a cell of two paragraphs whose second is long in the first column and a long cell in the
+    /// second: one <c>TR</c>, the cells in logical order, the long paragraph and the long cell each with marked content on every page they reach.
+    /// </summary>
+    [Fact]
+    public void A_right_to_left_row_split_over_several_pages_keeps_its_cells_and_paragraphs()
+    {
+        string longParagraph = DocumentTestKit.LongText(900, "para");
+        string longCell = DocumentTestKit.LongText(1500, "cell");
+        PdfDocument document = new(Tagged());
+        document.Add(new Table(
+            Columns(2),
+            new TableRow("First", "Second"),
+            [new TableRow(new TableCell([new Paragraph("Opening"), new Paragraph(longParagraph)]), new TableCell(longCell)), new TableRow("Next", "Row")])
+        {
+            Direction = TextDirection.RightToLeft,
+            Borders = Borders.All,
+        });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.True(tree.ContentStreams.Count >= 3, $"{tree.ContentStreams.Count} pages");
+        Assert.Equal("Document[Table[THead[TR[TH,TH]],TBody[TR[TD[P,P],TD],TR[TD,TD]]]]", tree.Root.Outline());
+        StructureTreeReader.Element row = tree.Root.Descendants().Where(e => e.Type == "TR").ElementAt(1);
+        StructureTreeReader.Element first = row.Children.ElementAt(0);
+        StructureTreeReader.Element second = row.Children.ElementAt(1);
+        List<StructureTreeReader.ContentKid> paragraphParts = [.. first.Children.ElementAt(1).Kids.OfType<StructureTreeReader.ContentKid>()];
+        List<StructureTreeReader.ContentKid> cellParts = [.. second.Kids.OfType<StructureTreeReader.ContentKid>()];
+        Assert.True(paragraphParts.Count >= 2 && cellParts.Count >= 3, $"{paragraphParts.Count} and {cellParts.Count} parts");
+        Assert.Equal(Enumerable.Range(0, cellParts.Count), cellParts.Select(p => p.Page));
+        Assert.Equal(Enumerable.Range(paragraphParts[0].Page, paragraphParts.Count), paragraphParts.Select(p => p.Page));
+        Assert.All(cellParts.Skip(1), p => Assert.True(p.Reference));
+        Assert.Equal(
+            [DocumentTestKit.Strip("Opening"), DocumentTestKit.Strip(longParagraph), DocumentTestKit.Strip(longCell), "Next", "Row"],
+            ElementTexts(pdf, tree).Where(e => e.Type == "P" || (e.Type == "TD" && e.Text.Length > 0)).Select(e => e.Text));
+
+        // The first column stands on the right.
+        Dictionary<int, double> lefts = Lefts(pdf, 0);
+        Assert.True(lefts[0] > lefts[1], "the first header is on the right");
+        DocumentTestKit.AssertValid(pdf, "tagged-table-split-row-rtl");
+    }
+
     /// <summary>
     /// The fills (header, zebra, row and cell) are an artifact drawn before a row's text and the borders one drawn after it, the closing rule of each page
     /// too: no path is painted inside a cell's marked content, and the artifacts have no text.
@@ -292,14 +424,17 @@ public partial class TaggedTableTests
         Assert.True(tree.ContentStreams.Count >= 2);
         foreach (string content in tree.ContentText)
         {
-            foreach (Match cell in CellContentPattern().Matches(content))
+            foreach ((string begin, string body) in Sequences(content))
             {
-                Assert.DoesNotMatch(PathPaintingPattern(), cell.Groups[2].Value);
+                if (begin.Contains("/MCID", StringComparison.Ordinal))
+                {
+                    Assert.DoesNotMatch(PathPaintingPattern(), body);
+                }
             }
         }
 
         // Header: fills, two headers, borders; row 0: no fill; row 1: the zebra; row 2: the row's fill; row 3: the cell's fill.
-        List<string> marks = [.. MarkPattern().Matches(tree.ContentText[0]).Select(m => m.Groups[1].Success ? m.Groups[1].Value : "A")];
+        List<string> marks = Marks(tree.ContentText[0]);
         Assert.Equal(["A", "TH", "TH", "A", "TD", "TD", "A", "A", "TD", "TD", "A", "A", "TD", "TD", "A", "A", "TD", "TD", "A"], marks.Take(19));
         Assert.Equal("A", marks[^1]); // the closing rule of the page
         Assert.Equal("", TaggedFlowTests.ArtifactTexts(pdf)[0]);
@@ -397,15 +532,44 @@ public partial class TaggedTableTests
         DocumentTestKit.AssertValid(pdf, "tagged-table-10000");
     }
 
-    // A cell's marked content: its tag, then what is between its BDC and its EMC (a cell has no span inside it in these tests).
-    [GeneratedRegex(@"/(TD|TH|P) <</MCID \d+>> BDC\n(.*?)EMC\n", RegexOptions.Singleline)]
-    private static partial Regex CellContentPattern();
+    /// <summary>
+    /// Each marked-content sequence of a content stream, in the order they end: the line that begins it and everything up to its own <c>EMC</c>, the
+    /// sequences inside it included (a language span in a cell, the text of a repeated header row), matched by depth rather than to the first <c>EMC</c>.
+    /// </summary>
+    private static List<(string Begin, string Body)> Sequences(string content)
+    {
+        List<(string, string)> found = [];
+        Stack<(string Begin, int Start)> open = new();
+        foreach (Match operation in MarkedContentLinePattern().Matches(content))
+        {
+            if (operation.Value == "EMC\n")
+            {
+                (string begin, int start) = open.Pop();
+                found.Add((begin, content[start..operation.Index]));
+            }
+            else
+            {
+                open.Push((operation.Value, operation.Index + operation.Length));
+            }
+        }
+
+        Assert.Empty(open);
+        return found;
+    }
+
+    /// <summary>The marked content of a content stream in order: <c>A</c> for an artifact, <c>R</c> for a pagination artifact (a repeated header row), or the tag of a sequence with an <c>MCID</c>.</summary>
+    private static List<string> Marks(string content) =>
+        [.. MarkPattern().Matches(content).Select(m => m.Groups["tag"].Success ? m.Groups["tag"].Value : m.Groups["pagination"].Success ? "R" : "A")];
+
+    // A line that begins or ends marked content: a BDC or a BMC with its operands, or an EMC. Glyphs are hexadecimal strings, so no text drawn matches.
+    [GeneratedRegex(@"(?m)^(/[^\n]*\b(BDC|BMC)|EMC)\n")]
+    private static partial Regex MarkedContentLinePattern();
 
     // A path painted: a rectangle, a line, a fill or a stroke.
     [GeneratedRegex(@"(^|\s)(re|l|f|S)\n")]
     private static partial Regex PathPaintingPattern();
 
-    // Marked content in order: an artifact, or a sequence with an MCID and its tag.
-    [GeneratedRegex(@"/Artifact BMC\n|/(TD|TH) <</MCID \d+>> BDC\n")]
+    // Marked content in order: an artifact, a pagination artifact (with its property list), or a sequence with an MCID and its tag. Language spans are not counted.
+    [GeneratedRegex(@"/Artifact BMC\n|(?<pagination>/Artifact <<[^\n]*>> BDC\n)|/(?<tag>TD|TH|P) <</MCID \d+>> BDC\n")]
     private static partial Regex MarkPattern();
 }
