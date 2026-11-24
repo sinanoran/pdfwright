@@ -159,8 +159,14 @@ internal sealed partial class DocumentRenderer
             return null;
         }
 
+        return _writer.Structure!.Create(parent, type, language: ElementLanguage(style));
+    }
+
+    /// <summary>The <c>/Lang</c> of an element of text in <paramref name="style"/>: its language when that is set and not the document's, otherwise none.</summary>
+    private string? ElementLanguage(ResolvedStyle style)
+    {
         string? language = TaggedLanguage(style.Language);
-        return _writer.Structure!.Create(parent, type, language: string.Equals(language, _documentLanguage, StringComparison.OrdinalIgnoreCase) ? null : language);
+        return string.Equals(language, _documentLanguage, StringComparison.OrdinalIgnoreCase) ? null : language;
     }
 
     private Stack BuildStack(IReadOnlyList<Block> blocks, double width, double maxHeight, TextDirection direction) =>

@@ -269,7 +269,8 @@ public class TaggedWriterTests
             .BeginLanguageSpan("x(y)\\").EndMarkedContent()
             .BeginLanguageSpan("xé").EndMarkedContent()
             .BeginArtifact().EndMarkedContent()
-            .BeginPaginationArtifact(PdfPaginationArtifact.Header).EndMarkedContent();
+            .BeginPaginationArtifact(PdfPaginationArtifact.Header).EndMarkedContent()
+            .BeginPaginationArtifact(PdfPaginationArtifact.Repeated).EndMarkedContent();
 
         Assert.Equal(
             "/P <</MCID 12>> BDC\nEMC\n"
@@ -277,7 +278,8 @@ public class TaggedWriterTests
             + "/Span <</Lang (x\\(y\\)\\\\)>> BDC\nEMC\n"
             + "/Span <</Lang <FEFF007800E9>>> BDC\nEMC\n"
             + "/Artifact BMC\nEMC\n"
-            + "/Artifact <</Type /Pagination /Subtype /Header>> BDC\nEMC\n",
+            + "/Artifact <</Type /Pagination /Subtype /Header>> BDC\nEMC\n"
+            + "/Artifact <</Type /Pagination>> BDC\nEMC\n",
             Encoding.ASCII.GetString(content.ToMemory().Span));
         Assert.Throws<ArgumentOutOfRangeException>(() => content.BeginMarkedContent("P", -1));
         Assert.Throws<ArgumentException>(() => PdfStructureTree.CheckType("Not a name"));
@@ -357,6 +359,57 @@ public class TaggedWriterTests
         Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(1, 0, false)], elements[7].Kids);
         Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(1, 2, false)], elements[8].Kids);
         PdfTestKit.AssertQpdfAccepts(memory.ToArray(), "tagged-table");
+    }
+
+    /// <summary>
+    /// A row that keeps its cells open, as a table row split between pages does: the first cell takes content on the next page after the second cell's
+    /// on this one, a marked-content reference under the same element; the cells close with the row, and the next row opens as a sibling does.
+    /// </summary>
+    [Fact]
+    public void A_row_that_keeps_its_cells_open_returns_to_a_cell_on_the_next_page_and_closes_them_with_it()
+    {
+        MemoryStream memory = new();
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfStructureElement table = structure.Create(structure.Document, "Table");
+            PdfStructureElement row = structure.Create(table, "TR");
+            row.KeepsChildrenOpen = true;
+            PdfStructureElement first = structure.Create(row, "TD");
+            PdfStructureElement empty = structure.Create(row, "TD");
+            PdfStructureElement last = structure.Create(row, "TD");
+            PdfStructureElement next = structure.Create(table, "TR");
+            PdfStructureElement nextCell = structure.Create(next, "TD");
+
+            PdfPageWriter one = document.BeginPage(300, 300);
+            structure.Open(first);
+            structure.Open(empty);
+            structure.Open(last);
+            Mark(one, first);
+            Mark(one, last);
+            Assert.True(first.IsOpen && empty.IsOpen && last.IsOpen);
+            one.End();
+
+            PdfPageWriter two = document.BeginPage(300, 300);
+            Mark(two, first);
+            Mark(two, last);
+            structure.Close(row);
+            Assert.True(first.IsClosed && empty.IsClosed && last.IsClosed && row.IsClosed);
+            Assert.Throws<InvalidOperationException>(() => two.BeginMarkedContent(first));
+            Mark(two, nextCell);
+            two.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        Assert.Equal("Document[Table[TR[TD,TD,TD],TR[TD]]]", tree.Root.Outline());
+        List<StructureTreeReader.Element> cells = [.. tree.Root.Descendants().Where(e => e.Type == "TD")];
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(0, 0, false), new StructureTreeReader.ContentKid(1, 0, true)], cells[0].Kids);
+        Assert.Empty(cells[1].Kids);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(0, 1, false), new StructureTreeReader.ContentKid(1, 1, true)], cells[2].Kids);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(1, 2, false)], cells[3].Kids);
+        PdfTestKit.AssertQpdfAccepts(memory.ToArray(), "tagged-row-kept-open");
     }
 
     [Fact]

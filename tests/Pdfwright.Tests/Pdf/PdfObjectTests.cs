@@ -68,9 +68,35 @@ public class PdfObjectTests
     [InlineData("a(b)c", "/a#28b#29c")]
     [InlineData("a/b%c", "/a#2Fb#25c")]
     [InlineData("İ", "/#C4#B0")]
+    [InlineData("", "/")]
+    [InlineData("!~", "/!~")]
+    [InlineData("a\u007Fb", "/a#7Fb")]
+    [InlineData("a]b{c}", "/a#5Db#7Bc#7D")]
     public void A_name_escapes_what_is_not_a_regular_character(string name, string expected)
     {
         Assert.Equal(expected, Serialize(new PdfName(name)));
+    }
+
+    /// <summary>A regular name of up to 127 characters is written without the escaping loop; a longer one goes through it, and both write the same.</summary>
+    [Theory]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(300)]
+    public void A_long_regular_name_is_written_as_it_is(int length)
+    {
+        string name = new('N', length);
+        Assert.Equal("/" + name, Serialize(new PdfName(name)));
+    }
+
+    [Theory]
+    [InlineData(0, "0")]
+    [InlineData(-42, "-42")]
+    [InlineData(long.MaxValue, "9223372036854775807")]
+    [InlineData(long.MinValue, "-9223372036854775808")]
+    public void An_integer_and_a_reference_are_written_in_decimal(long value, string expected)
+    {
+        Assert.Equal(expected, Serialize(new PdfInteger(value)));
+        Assert.Equal("12345 0 R", Serialize(new PdfReference(12345)));
     }
 
     [Fact]

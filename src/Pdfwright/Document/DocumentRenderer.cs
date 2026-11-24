@@ -378,8 +378,11 @@ internal sealed partial class DocumentRenderer
 
     private void Draw(StyledLayout styled, int firstLine, int count) => Draw(styled, firstLine, count, _left, _y);
 
-    /// <summary>Draws lines of a laid out paragraph with the top left corner of the first at (<paramref name="x"/>, <paramref name="y"/>): x from the left edge of the page, y down from the top of the content area.</summary>
-    private void Draw(StyledLayout styled, int firstLine, int count, double x, double y)
+    /// <summary>
+    /// Draws lines of a laid out paragraph with the top left corner of the first at (<paramref name="x"/>, <paramref name="y"/>): x from the left edge of the page, y down from the top of the content area.
+    /// <paramref name="repeated"/> is text drawn again inside a pagination artifact (a table's header row on a later page): tagged, it is drawn without its element, which its first drawing has.
+    /// </summary>
+    private void Draw(StyledLayout styled, int firstLine, int count, double x, double y, bool repeated = false)
     {
         ParagraphLayout layout = styled.Layout;
         if (styled.List is { } placement)
@@ -425,12 +428,12 @@ internal sealed partial class DocumentRenderer
         }
 
         // Tagged, the lines are the marked content of their element (an MCID on this page; a paragraph split between pages has one on each), with a span
-        // around a run in another language than the paragraph's; text with no element (a table's, until tables are tagged) is an artifact.
+        // around a run in another language than the paragraph's; text with no element (blank text, a header or a footer) is an artifact.
         bool marked = false;
         bool artifact = false;
         if (_writer.Structure is not null)
         {
-            if (styled.Tag is { } element)
+            if (styled.Tag is { } element && !(repeated && _inArtifact))
             {
                 if (_inArtifact)
                 {
@@ -461,8 +464,8 @@ internal sealed partial class DocumentRenderer
     private PdfStructureElement? _tagParent;
 
     /// <summary>
-    /// The content drawn now is inside an artifact (a header or a footer, a table's fragment): drawing does not begin another, and text with an element
-    /// is refused there (<see cref="Draw(StyledLayout, int, int, double, double)"/>).
+    /// The content drawn now is inside an artifact (a header or a footer, a table's header row repeated on a later page): drawing does not begin another,
+    /// and text with an element is refused there unless it is drawn again (<see cref="Draw(StyledLayout, int, int, double, double, bool)"/>).
     /// </summary>
     private bool _inArtifact;
 
@@ -489,7 +492,23 @@ internal sealed partial class DocumentRenderer
         return true;
     }
 
-    /// <summary>Ends the artifact <see cref="BeginArtifact"/> began, when it began one.</summary>
+    /// <summary>
+    /// Begins a pagination artifact with no subtype when the document is tagged and no artifact is open, for content drawn again because the page broke
+    /// (a table's header rows at the top of a later page); returns whether it began one, for <see cref="EndArtifact"/>.
+    /// </summary>
+    private bool BeginRepeatedArtifact()
+    {
+        if (_writer.Structure is null || _inArtifact)
+        {
+            return false;
+        }
+
+        _ = _page!.Content.BeginPaginationArtifact(PdfPaginationArtifact.Repeated);
+        _inArtifact = true;
+        return true;
+    }
+
+    /// <summary>Ends the artifact <see cref="BeginArtifact"/> or <see cref="BeginRepeatedArtifact"/> began, when it began one.</summary>
     private void EndArtifact(bool began)
     {
         if (began)

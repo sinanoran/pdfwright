@@ -442,11 +442,11 @@ public partial class TaggedFlowTests
     }
 
     /// <summary>
-    /// Tables are not tagged in this slice, and images and drawings without alternative text are decorative: they are artifacts, in the flow, in a
-    /// callout, in columns and in a header, and the file stays consistent around them and around the lists, which are tagged (except in the header).
+    /// Images and drawings without alternative text are decorative: they are artifacts, in the flow, in a callout, in columns and in a header, and the
+    /// file stays consistent around them and around the lists and the table, which are tagged (except in the header).
     /// </summary>
     [Fact]
-    public void Tables_and_pictures_without_alternative_text_are_artifacts_and_the_file_stays_consistent()
+    public void Pictures_without_alternative_text_are_artifacts_and_the_file_stays_consistent_around_lists_and_tables()
     {
         PdfImage png = PdfImage.FromBytes(ImageTestKit.Png(16, 16, 8, 6));
         DrawingBlock drawing = new(Length.Mm(40), Length.Mm(20), canvas =>
@@ -477,19 +477,21 @@ public partial class TaggedFlowTests
 
         StructureTreeReader tree = Read(pdf);
         Assert.Equal(
-            "Document[H1,L[LI[Lbl,LBody[P]],LI[Lbl,LBody[P]]],P,Div[P,L[LI[Lbl,LBody[P]]]],Div[Div[L[LI[Lbl,LBody[P]]]],Div[P]],P]",
+            "Document[H1,L[LI[Lbl,LBody[P]],LI[Lbl,LBody[P]]],P," + TaggedTableTests.TableOutline(2, 1, 80)
+            + ",Div[P,L[LI[Lbl,LBody[P]]]],Div[Div[L[LI[Lbl,LBody[P]]]],Div[P]],P]",
             tree.Root.Outline());
         Assert.Equal(
             ["Mixed", "Firstitem", "Seconditem", "Between.", "Inthecallout.", "Calloutitem", "Columnitem", "Caption", "Theend."],
             ElementTexts(pdf, tree).Where(e => e.Type == "P" || e.Type.StartsWith('H')).Select(e => e.Text));
+        Assert.Equal(["Row79", "79"], ElementTexts(pdf, tree).Where(e => e.Type == "TD").TakeLast(2).Select(e => e.Text));
         Assert.DoesNotContain(tree.Root.Descendants(), e => e.Type == "Figure");
         string artifacts = string.Concat(ArtifactTexts(pdf));
-        foreach (string text in new[] { "Row79", "Canvastext", "Headeritem" })
+        foreach (string text in new[] { "Canvastext", "Headeritem" })
         {
             Assert.Contains(text, artifacts, StringComparison.Ordinal);
         }
 
-        foreach (string text in new[] { "Firstitem", "Calloutitem", "Columnitem" })
+        foreach (string text in new[] { "Firstitem", "Calloutitem", "Columnitem", "Row79" })
         {
             Assert.DoesNotContain(text, artifacts, StringComparison.Ordinal);
         }
@@ -507,7 +509,7 @@ public partial class TaggedFlowTests
         }));
 
         StructureTreeReader tree = Read(pdf);
-        Assert.Equal("Document[H1,P,Div[Div[Div[P],Div[P],Div[P]]],H2,H2,Figure,Figure]", tree.Root.Outline());
+        Assert.Equal("Document[H1,P,Div[Div[Div[P],Div[P],Div[P]]],H2," + TaggedTableTests.TableOutline(3, 1, 70) + ",H2,Figure,Figure]", tree.Root.Outline());
         Assert.Equal(["Bar chart of sales by month", "Logo"], tree.Root.Children.Where(e => e.Type == "Figure").Select(e => e.Alt));
         Assert.Equal("Monthlyreport", ElementTexts(pdf, tree)[0].Text);
         DocumentTestKit.AssertValid(pdf, "tagged-readme-report");
@@ -525,7 +527,10 @@ public partial class TaggedFlowTests
         return data;
     }
 
-    /// <summary>The pages of the corpus, every script, tagged: the headings and paragraphs are elements with the text they were given, in order.</summary>
+    /// <summary>
+    /// The pages of the corpus, every script, tagged: the headings and paragraphs are elements with the text they were given, in order, and so are the
+    /// header and body cells of the long page's table, each once (the header repeated on a later page is an artifact).
+    /// </summary>
     [Theory]
     [MemberData(nameof(CorpusPages))]
     public void A_corpus_page_tagged_is_consistent_and_valid(string group, bool isLong)
@@ -541,9 +546,17 @@ public partial class TaggedFlowTests
 
         StructureTreeReader tree = Read(pdf);
         List<PageCorpus.Item> flow = [.. corpus.Items.Where(i => i.Page == (isLong ? "long" : "short") && i.Kind is "heading" or "heading2" or "para")];
-        List<(string Type, string Text)> elements = ElementTexts(pdf, tree);
-        Assert.Equal(flow.Select(i => i.Kind switch { "heading" => "H1", "heading2" => "H2", _ => "P" }), elements.Select(e => e.Type));
-        Assert.Equal(flow.Select(i => Canonical(DocumentTestKit.Strip(i.Cells[0]))), elements.Select(e => Canonical(e.Text)));
+        List<(string Type, string Text)> elements = [.. ElementTexts(pdf, tree).Where(e => e.Type is not ("Table" or "THead" or "TBody" or "TR"))];
+        List<string> types = [.. flow.Select(i => i.Kind switch { "heading" => "H1", "heading2" => "H2", _ => "P" })];
+        if (built.HasTable)
+        {
+            types.AddRange(built.Header.Select(_ => "TH"));
+            types.AddRange(Enumerable.Repeat("TD", built.Expected.Count - flow.Count - built.Header.Length));
+        }
+
+        Assert.Equal(built.HasTable, isLong);
+        Assert.Equal(types, elements.Select(e => e.Type));
+        Assert.Equal(built.Expected.Select(t => Canonical(DocumentTestKit.Strip(t))), elements.Select(e => Canonical(e.Text)));
         DocumentTestKit.AssertValid(pdf, $"tagged-corpus-{group}-{(isLong ? "long" : "short")}");
     }
 

@@ -7,6 +7,10 @@ internal static class PdfSerializer
 {
     private static readonly byte[] Newline = [(byte)'\n'];
 
+    /// <summary>The characters <see cref="IsRegular"/> accepts, for the search of a name that has none other.</summary>
+    private static readonly System.Buffers.SearchValues<char> RegularNameCharacters =
+        System.Buffers.SearchValues.Create([.. Enumerable.Range('!', 0x7F - '!').Select(c => (char)c).Where(c => IsRegular((byte)c))]);
+
     internal static void Write(PdfObject value, Stream output)
     {
         switch (value)
@@ -18,7 +22,7 @@ internal static class PdfSerializer
                 Ascii(output, boolean.Value ? "true" : "false");
                 break;
             case PdfInteger integer:
-                Ascii(output, integer.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                Integer(output, integer.Value);
                 break;
             case PdfReal real:
                 Ascii(output, PdfReal.Format(real.Value));
@@ -47,7 +51,8 @@ internal static class PdfSerializer
                 WriteDictionary(dictionary, output);
                 break;
             case PdfReference reference:
-                Ascii(output, reference.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) + " 0 R");
+                Integer(output, reference.Number);
+                output.Write(" 0 R"u8);
                 break;
             case PdfStream:
                 throw new InvalidOperationException("A stream is an indirect object: write it with PdfFile.Write.");
@@ -77,12 +82,24 @@ internal static class PdfSerializer
     /// </summary>
     internal static void WriteName(string name, Stream output)
     {
+        // Nearly every name is short and regular (/Type, /StructElem, /F1): written as it is, with nothing allocated.
+        if (name.Length <= 127 && name.AsSpan().IndexOfAnyExcept(RegularNameCharacters) < 0)
+        {
+            Span<byte> plain = stackalloc byte[name.Length + 1];
+            plain[0] = (byte)'/';
+            for (int i = 0; i < name.Length; i++)
+            {
+                plain[i + 1] = (byte)name[i];
+            }
+
+            output.Write(plain);
+            return;
+        }
+
         StringBuilder text = new("/");
         foreach (byte b in Encoding.UTF8.GetBytes(name))
         {
-            bool regular = b is > (byte)' ' and < 0x7F
-                && b is not ((byte)'#' or (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']' or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%');
-            if (regular)
+            if (IsRegular(b))
             {
                 text.Append((char)b);
             }
@@ -93,6 +110,19 @@ internal static class PdfSerializer
         }
 
         Ascii(output, text.ToString());
+    }
+
+    /// <summary>A byte of a name that is written as it is: printable ASCII other than the delimiters and <c>#</c>.</summary>
+    private static bool IsRegular(byte b) =>
+        b is > (byte)' ' and < 0x7F
+        && b is not ((byte)'#' or (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']' or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%');
+
+    /// <summary>An integer in decimal, as <see cref="long.ToString(IFormatProvider)"/> writes it in the invariant culture, without making a string.</summary>
+    internal static void Integer(Stream output, long value)
+    {
+        Span<byte> digits = stackalloc byte[20];
+        _ = value.TryFormat(digits, out int written, default, System.Globalization.CultureInfo.InvariantCulture);
+        output.Write(digits[..written]);
     }
 
     private static void WriteString(PdfString text, Stream output)
