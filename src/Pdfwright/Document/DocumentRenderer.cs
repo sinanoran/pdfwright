@@ -221,6 +221,31 @@ internal sealed partial class DocumentRenderer
     /// <summary>The level of the last heading drawn, 0 before the first.</summary>
     private int _headingLevel;
 
+    /// <summary>The <see cref="PdfDocumentWriter.NotdefDrawn"/> count the last <see cref="NoteNotdef"/> saw.</summary>
+    private long _notdefSeen;
+
+    /// <summary>
+    /// Notes a <c>.notdef</c> glyph drawn on a page since the last call, whatever drew it (the body, a header, a footer, a canvas) and whatever the
+    /// character: one that no font has is reported with its code point as it is drawn, but a character the shaper leaves to the font's glyph 0 (a Hangul
+    /// filler, which HarfBuzz does not hide) is found only here. Called when the page's body ends and when its header and footer are drawn.
+    /// </summary>
+    private void NoteNotdef(int pageNumber)
+    {
+        if (_accessibility is null || _writer.NotdefDrawn == _notdefSeen)
+        {
+            return;
+        }
+
+        _notdefSeen = _writer.NotdefDrawn;
+        if ((_glyphIssuePages ??= []).Add(pageNumber))
+        {
+            _accessibility.Add(new AccessibilityIssue(
+                AccessibilityIssueKind.MissingGlyph,
+                pageNumber,
+                "A character is drawn as the font's .notdef glyph, which PDF/UA-1 forbids (7.21.8)."));
+        }
+    }
+
     /// <summary>The issues of the document as a whole: PDF/UA-1 asks for a title (7.1, shown by the viewer as <c>DisplayDocTitle</c> says) and a language (7.2).</summary>
     private void NoteDocumentIssues(PdfDocumentOptions options)
     {
@@ -729,6 +754,7 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
+        NoteNotdef(_page.Index + 1);
         if (_overlay)
         {
             _page.EndBody(_options.Header is not null, _options.Footer is not null);

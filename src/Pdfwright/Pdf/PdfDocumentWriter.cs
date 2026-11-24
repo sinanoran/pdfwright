@@ -99,6 +99,13 @@ internal sealed class PdfDocumentWriter : IDisposable
 
     private bool _claimsPdfUA;
 
+    /// <summary>
+    /// How many times an embedded font has drawn its glyph 0, the <c>.notdef</c> (<see cref="PdfEmbeddedFont.UseGlyph"/> counts them): a character drawn
+    /// with no glyph of its own, which PDF/UA-1 forbids anywhere in the content, artifacts included (7.21.8). It is counted whatever the reason the
+    /// glyph is missing, so that a claim never rests on a list of characters.
+    /// </summary>
+    internal long NotdefDrawn { get; set; }
+
     /// <summary>Writes an object of the document that pages refer to (a font, an image) and returns its reference.</summary>
     internal PdfReference AddObject(PdfObject value) => _file.Add(value);
 

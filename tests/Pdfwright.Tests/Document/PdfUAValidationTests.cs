@@ -308,6 +308,104 @@ public class PdfUAValidationTests
             $"{results[e.Key]}\n  expected the rules {string.Join(", ", e.Value)}"));
     }
 
+    /// <summary>
+    /// Characters the shaper leaves to the font's glyph 0 though they are not missing from the character map's point of view: the Hangul fillers,
+    /// which HarfBuzz does not hide, and U+180F. Wherever a .notdef is drawn (the body, a header, a footer, a figure's canvas), the page has an issue
+    /// and the document no claim, and veraPDF agrees (7.21.8).
+    /// </summary>
+    [Fact]
+    public void A_character_drawn_as_the_notdef_glyph_is_an_issue_wherever_it_is_drawn()
+    {
+        _ = VeraPdf.Require();
+        List<Saved> files = [];
+        int[] codePoints = [0x115F, 0x1160, 0x3164, 0xFFA0, 0x180F];
+        foreach (int codePoint in codePoints)
+        {
+            PdfDocument body = new(Tagged());
+            body.Add(new Heading(1, "Fillers")).Add(new Paragraph($"Text {char.ConvertFromUtf32(codePoint)} end."));
+            files.Add(Save($"notdef-{codePoint:X4}", body));
+        }
+
+        string filler = char.ConvertFromUtf32(0x3164);
+        PdfDocument header = new(Tagged(o => o.Header = page => page.IsFirst ? null : new Paragraph("Header 一")));
+        header.Add(new Paragraph("Text.")).Add(new PageBreak()).Add(new Paragraph("More text."));
+        files.Add(Save("notdef-in-header", header));
+
+        PdfDocument footer = new(Tagged(o => o.Footer = page => new Paragraph($"Footer {filler}")));
+        footer.Add(new Paragraph("Text."));
+        files.Add(Save("notdef-in-footer", footer));
+
+        PdfDocument canvas = new(Tagged());
+        canvas.Add(new Paragraph("Text."));
+        canvas.Add(new DrawingBlock(Length.Mm(40), Length.Mm(10), c => c.DrawText($"Label {filler}", 0, 10)) { AltText = "A label" });
+        files.Add(Save("notdef-in-figure", canvas));
+
+        PdfDocument decoration = new(Tagged());
+        decoration.Add(new Paragraph("Text."));
+        decoration.Add(new DrawingBlock(Length.Mm(40), Length.Mm(10), c => c.DrawText($"Label {filler}", 0, 10)));
+        files.Add(Save("notdef-in-artifact", decoration));
+
+        foreach (Saved file in files)
+        {
+            AccessibilityIssue issue = Assert.Single(file.Diagnostics.AccessibilityIssues);
+            Assert.Equal(AccessibilityIssueKind.MissingGlyph, issue.Kind);
+            Assert.Equal(file.Name == "notdef-in-header" ? 2 : 1, issue.Page);
+            Assert.False(file.Diagnostics.IsPdfUA, file.Name);
+        }
+
+        IReadOnlyDictionary<string, VeraPdf.Result> results = ValidateAgreeing(files);
+        Assert.All(results.Values, r => Assert.True(
+            r.FailedIds.Order(StringComparer.Ordinal).SequenceEqual([VeraPdf.ClaimRule, "7.21.8-1"]),
+            $"{r}\n  expected the rules {VeraPdf.ClaimRule}, 7.21.8-1"));
+    }
+
+    /// <summary>Headings inside callouts and columns are in the order they are read, which is the order veraPDF checks (7.4.2).</summary>
+    [Fact]
+    public void Headings_in_callouts_and_columns_are_checked_in_reading_order()
+    {
+        _ = VeraPdf.Require();
+        PdfDocument ordered = new(Tagged());
+        ordered.Add(new Callout([new Heading(1, "In a callout"), new Paragraph("Text.")]));
+        ordered.Add(new Columns([[new Heading(2, "Left"), new Paragraph("Text.")], [new Heading(3, "Right"), new Paragraph("Text.")]]));
+        ordered.Add(new Columns([[new Heading(2, "Right to left first")], [new Heading(3, "Then")]]) { Direction = TextDirection.RightToLeft });
+
+        PdfDocument skipping = new(Tagged());
+        skipping.Add(new Heading(1, "Title"));
+        skipping.Add(new Columns([[new Heading(2, "Left")], [new Heading(4, "Right")]]));
+
+        PdfDocument calloutFirst = new(Tagged());
+        calloutFirst.Add(new Callout(new Heading(2, "A callout's heading first")));
+        calloutFirst.Add(new Heading(1, "Then the title"));
+
+        List<Saved> files = [Save("headings-ordered", ordered), Save("headings-skipping", skipping), Save("headings-callout-first", calloutFirst)];
+        Assert.Empty(files[0].Diagnostics.AccessibilityIssues);
+        Assert.Equal([AccessibilityIssueKind.SkippedHeadingLevel], files[1].Diagnostics.AccessibilityIssues.Select(i => i.Kind));
+        Assert.Equal([AccessibilityIssueKind.FirstHeadingNotH1], files[2].Diagnostics.AccessibilityIssues.Select(i => i.Kind));
+
+        IReadOnlyDictionary<string, VeraPdf.Result> results = ValidateAgreeing(files);
+        Assert.True(results["headings-ordered"].Compliant, results["headings-ordered"].ToString());
+        Assert.Contains("7.4.2-1", results["headings-skipping"].FailedIds);
+        Assert.Contains("7.4.2-1", results["headings-callout-first"].FailedIds);
+    }
+
+    /// <summary>The default style's language is the text's, not the document's: without <see cref="PdfDocumentOptions.Language"/> the catalog has no /Lang.</summary>
+    [Fact]
+    public void A_language_on_the_default_style_only_is_no_document_language()
+    {
+        _ = VeraPdf.Require();
+        PdfDocument document = new(Tagged(o =>
+        {
+            o.Language = null;
+            o.DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" };
+        }));
+        document.Add(new Heading(1, "Title")).Add(new Paragraph("Text."));
+        Saved saved = Save("default-style-language", document);
+        Assert.Equal([AccessibilityIssueKind.MissingLanguage], saved.Diagnostics.AccessibilityIssues.Select(i => i.Kind));
+
+        VeraPdf.Result result = ValidateAgreeing([saved])[saved.Name];
+        Assert.Contains("7.2-33", result.FailedIds);
+    }
+
     [Fact]
     public void An_untagged_document_has_no_claim_and_no_issue_and_a_tagged_one_with_none_has_the_claim()
     {

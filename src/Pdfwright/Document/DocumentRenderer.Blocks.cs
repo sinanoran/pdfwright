@@ -863,6 +863,7 @@ internal sealed partial class DocumentRenderer
                 DrawOverlay(item, _left, _pageHeight - footerOffset - height - _top, PdfPaginationArtifact.Footer);
             }
 
+            NoteNotdef(n + 1);
             _page = null;
             page.Finish();
             _pending[n] = null!;

@@ -29,6 +29,7 @@ internal sealed class PdfEmbeddedFont
     internal const string ContinuationText = "\u034F";
 
     private readonly TrueTypeFont _font;
+    private readonly PdfDocumentWriter _document;
 
     // The codes handed out, kept by glyph. A glyph's first code is its id, so the text it was first drawn for is all that is kept for it (null for a glyph not drawn yet), and the codes of a glyph drawn
     // for other texts are a short chain of their own. Every glyph drawn is looked up here (more than a hundred thousand times for a 1,000-row table), so these are plain arrays indexed by the glyph instead
@@ -83,6 +84,7 @@ internal sealed class PdfEmbeddedFont
         }
 
         _font = font;
+        _document = document;
         _nextExtra = font.GlyphCount;
         _pages = new GlyphPage?[Math.Max(1, (font.GlyphCount + PageSize - 1) / PageSize)];
         Reference = document.AllocateObject();
@@ -114,6 +116,12 @@ internal sealed class PdfEmbeddedFont
         if (glyph < 0 || glyph >= _font.GlyphCount)
         {
             throw new ArgumentOutOfRangeException(nameof(glyph), glyph, $"The font has {_font.GlyphCount} glyphs.");
+        }
+
+        if (glyph == 0)
+        {
+            // Glyph 0 is the font's .notdef: drawn, it is a character with no glyph, whatever the reason, which a tagged document reports (PDF/UA-1 7.21.8).
+            _document.NotdefDrawn++;
         }
 
         text ??= string.Empty;
