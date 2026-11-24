@@ -165,6 +165,7 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not the open one.");
         }
 
+        CheckBalanced(page.Content, "body");
         PdfReference contents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
         RecycleContent(page);
         PdfReference pageReference = page.Reference ?? _file.Allocate();
@@ -185,6 +186,7 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not the open one.");
         }
 
+        CheckBalanced(page.Content, "body");
         page.BodyContents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
         RecycleContent(page);
         page.Reference ??= _file.Allocate();
@@ -204,6 +206,8 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not waiting for its header and footer.");
         }
 
+        CheckBalanced(page.HeaderContent, "header");
+        CheckBalanced(page.FooterContent, "footer");
         PdfArray contents = new();
         if (page.HeaderContents is { } headerReference)
         {
@@ -221,6 +225,15 @@ internal sealed class PdfDocumentWriter : IDisposable
         _file.Write(page.Reference, BuildPage(page, contents));
         page.Finished = true;
         _unfinished--;
+    }
+
+    /// <summary>A content stream is written whole: every marked-content sequence, artifact and span it began is ended in it (ISO 32000-1, 14.6).</summary>
+    private static void CheckBalanced(ContentStreamBuilder content, string part)
+    {
+        if (content.MarkedContentDepth != 0)
+        {
+            throw new InvalidOperationException($"The page's {part} has {content.MarkedContentDepth} marked-content sequence(s) without their EMC.");
+        }
     }
 
     private PdfDictionary BuildPage(PdfPageWriter page, PdfObject contents)
@@ -557,6 +570,8 @@ internal sealed class PdfPageWriter
             throw new InvalidOperationException("The page's body is written: a header or a footer is an artifact, with no marked content of the structure.");
         }
 
+        // Nesting is checked before the tree records anything, so a refused call leaves the tree and the page as they were.
+        Content.CheckMarkedContentAllowed();
         _markedContentOwners ??= [];
         int mcid = _markedContentOwners.Count;
         structure.AddMarkedContent(element, Reference, mcid);

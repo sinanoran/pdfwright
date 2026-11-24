@@ -36,6 +36,12 @@ internal sealed partial class StructureTreeReader
     /// <summary>All of each page's content streams, one after another, as text.</summary>
     internal List<string> ContentText { get; } = [];
 
+    /// <summary>Each page's content streams (header, body, footer) as text, one by one: marked content must balance in each of them.</summary>
+    internal List<List<string>> ContentStreams { get; } = [];
+
+    /// <summary>How many objects of the file are structure elements (<c>/Type /StructElem</c>), counted in the file's bytes, not through the tree.</summary>
+    internal int StructElemObjects { get; private set; }
+
     /// <summary>The parent tree: key, then the object number of the element of each <c>MCID</c> of that page.</summary>
     internal SortedDictionary<int, List<long>> ParentTree { get; } = [];
 
@@ -71,6 +77,9 @@ internal sealed partial class StructureTreeReader
         using UglyToad.PdfPig.PdfDocument document = UglyToad.PdfPig.PdfDocument.Open(pdf);
         StructureTreeReader reader = new(document);
         reader.ReadAll();
+
+        // The file is uncompressed and has no object streams, so every element's dictionary is in the bytes as written.
+        reader.StructElemObjects = StructElemPattern().Count(Encoding.Latin1.GetString(pdf));
         return reader;
     }
 
@@ -159,13 +168,16 @@ internal sealed partial class StructureTreeReader
         IToken contents = page.Data["Contents"];
         IEnumerable<IToken> streams = contents is ArrayToken array ? array.Data : (Resolve<IToken>(contents) is ArrayToken resolved ? resolved.Data : [contents]);
         StringBuilder text = new();
+        List<string> each = [];
         foreach (IToken stream in streams)
         {
             StreamToken token = Resolve<StreamToken>(stream);
             Assert.False(token.StreamDictionary.Data.ContainsKey("Filter"), "the reader takes uncompressed content streams");
-            text.Append(Encoding.Latin1.GetString(token.Data.Span));
+            each.Add(Encoding.Latin1.GetString(token.Data.Span));
+            text.Append(each[^1]);
         }
 
+        ContentStreams.Add(each);
         ContentText.Add(text.ToString());
         ContentMcids.Add([.. McidPattern().Matches(text.ToString()).Select(m => (m.Groups[1].Value, int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)))]);
     }
@@ -198,13 +210,33 @@ internal sealed partial class StructureTreeReader
     /// <summary>
     /// Asserts what any tagged file of this writer must hold, whatever its content: every <c>MCID</c> of every page is drawn once in the page's
     /// content and is in the tree once, under the element the parent tree names for it, with the element's type as its tag; the parent tree has one
-    /// entry per page, under the page's <c>/StructParents</c>; <c>/ParentTreeNextKey</c> is past every key; every page has <c>/Tabs /S</c>.
+    /// entry per page, under the page's <c>/StructParents</c>; <c>/ParentTreeNextKey</c> is past every key; every page has <c>/Tabs /S</c>; each
+    /// structure element is one object, written once, and reached once from the root; marked content balances in every content stream.
     /// </summary>
     internal void AssertConsistent()
     {
         Assert.True(Marked, "/MarkInfo <</Marked true>>");
         Assert.Equal("Document", Root.Type);
         Assert.Equal(ParentTreeKeyOrder.Order(), ParentTreeKeyOrder);
+
+        List<long> elementObjects = [.. Root.Descendants().Select(e => e.Object)];
+        Assert.Equal(elementObjects.Count, elementObjects.Distinct().Count());
+        Assert.Equal(StructElemObjects, elementObjects.Count);
+
+        for (int page = 0; page < ContentStreams.Count; page++)
+        {
+            for (int stream = 0; stream < ContentStreams[page].Count; stream++)
+            {
+                int depth = 0;
+                foreach (Match op in MarkedContentOperatorPattern().Matches(ContentStreams[page][stream]))
+                {
+                    depth += op.Groups[1].Value == "EMC" ? -1 : 1;
+                    Assert.True(depth >= 0, $"an EMC without its BDC or BMC in stream {stream + 1} of page {page + 1}");
+                }
+
+                Assert.True(depth == 0, $"{depth} marked-content sequence(s) left open in stream {stream + 1} of page {page + 1}");
+            }
+        }
 
         Dictionary<(int Page, int Mcid), Element> owners = [];
         foreach (Element element in Root.Descendants())
@@ -240,4 +272,11 @@ internal sealed partial class StructureTreeReader
 
     [GeneratedRegex(@"/([A-Za-z0-9_.\-]+) <</MCID (\d+)>> BDC")]
     private static partial Regex McidPattern();
+
+    // The operators end their line in what this writer makes, and glyphs are hexadecimal strings, so an operator name is never text drawn.
+    [GeneratedRegex(@"(?<=[\s>]|^)(BDC|BMC|EMC)\n")]
+    private static partial Regex MarkedContentOperatorPattern();
+
+    [GeneratedRegex(@"/Type /StructElem\b")]
+    private static partial Regex StructElemPattern();
 }

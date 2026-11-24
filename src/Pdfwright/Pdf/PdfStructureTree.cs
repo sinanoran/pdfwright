@@ -84,6 +84,7 @@ internal sealed class PdfStructureTree
     private readonly List<PdfStructureElement> _stack = [];
     private readonly PdfArray _nums = new();
     private int _nextKey;
+    private int _lastEntryKey = -1;
     private bool _completed;
 
     internal PdfStructureTree(PdfDocumentWriter writer)
@@ -167,7 +168,7 @@ internal sealed class PdfStructureTree
             Open(parent);
             if (parent.OpenChild is { } previous)
             {
-                Close(previous);
+                CloseElement(previous);
             }
 
             element.Reference = _writer.AllocateObject();
@@ -184,11 +185,27 @@ internal sealed class PdfStructureTree
 
     /// <summary>
     /// Closes an element: its open child first, then its own object is written. An element that was never materialised stays out of the file; one
-    /// already closed is left as it is.
+    /// already closed is left as it is. The <c>Document</c> element is closed by <see cref="Complete"/> only: closed before, it would leave the
+    /// document's completion nothing to write the rest of the tree under, after the fonts and pages were written.
     /// </summary>
     internal void Close(PdfStructureElement element)
     {
         ArgumentNullException.ThrowIfNull(element);
+        if (!ReferenceEquals(element.Tree, this))
+        {
+            throw new ArgumentException("The element belongs to another document.", nameof(element));
+        }
+
+        if (ReferenceEquals(element, Document))
+        {
+            throw new InvalidOperationException("The Document element is closed when the document is completed, not before.");
+        }
+
+        CloseElement(element);
+    }
+
+    private void CloseElement(PdfStructureElement element)
+    {
         if (!element.IsOpen)
         {
             return;
@@ -196,7 +213,7 @@ internal sealed class PdfStructureTree
 
         if (element.OpenChild is { } child)
         {
-            Close(child);
+            CloseElement(child);
         }
 
         PdfDictionary dictionary = new PdfDictionary()
@@ -247,7 +264,7 @@ internal sealed class PdfStructureTree
         if (element.OpenChild is { } child)
         {
             // Content of the element itself after a child's content: the child is done.
-            Close(child);
+            CloseElement(child);
         }
 
         element.Page ??= page;
@@ -259,8 +276,21 @@ internal sealed class PdfStructureTree
     /// <summary>Gives a page its key in the parent tree (its <c>/StructParents</c>).</summary>
     internal int TakeKey() => _nextKey++;
 
-    /// <summary>Records the parent-tree entry of a page: the array, already written, of the elements of its <c>MCID</c>s.</summary>
-    internal void AddEntry(int key, PdfReference elements) => _nums.Add(new PdfInteger(key)).Add(elements);
+    /// <summary>
+    /// Records an entry of the parent tree: for a page, the array, already written, of the elements of its <c>MCID</c>s. A flat <c>/Nums</c> array
+    /// is sorted by key (ISO 32000-1, 7.9.7), so the keys must arrive in increasing order; one out of order is a defect of the caller, refused here
+    /// rather than written as a tree a reader searches wrongly.
+    /// </summary>
+    internal void AddEntry(int key, PdfReference elements)
+    {
+        if (key <= _lastEntryKey || key >= _nextKey)
+        {
+            throw new InvalidOperationException($"Parent-tree key {key} is out of order: the last one written is {_lastEntryKey} and the next to give is {_nextKey}.");
+        }
+
+        _lastEntryKey = key;
+        _nums.Add(new PdfInteger(key)).Add(elements);
+    }
 
     /// <summary>Closes every element still open (materialising the <c>Document</c> element if nothing was drawn) and writes the <c>StructTreeRoot</c>.</summary>
     internal void Complete()
@@ -272,7 +302,7 @@ internal sealed class PdfStructureTree
 
         _stack.Clear();
         Open(Document);
-        Close(Document);
+        CloseElement(Document);
         _completed = true;
         _writer.WriteObject(Root, new PdfDictionary()
             .Set("Type", "StructTreeRoot")

@@ -99,7 +99,8 @@ public class TaggedWriterTests
 
     [Fact]
     public void The_structure_tree_reads_back_in_drawing_order_with_its_content()
-    {        StructureTreeReader tree = StructureTreeReader.Read(Tagged(PdfCompression.None));
+    {
+        StructureTreeReader tree = StructureTreeReader.Read(Tagged(PdfCompression.None));
 
         tree.AssertConsistent();
         Assert.Equal("Document[H1,Div[P,P],Figure,P,Div]", tree.Root.Outline());
@@ -232,18 +233,270 @@ public class TaggedWriterTests
         ContentStreamBuilder content = new();
         content.BeginMarkedContent("P", 12).EndMarkedContent()
             .BeginLanguageSpan("tr-TR").EndMarkedContent()
-            .BeginLanguageSpan("x(y)").EndMarkedContent()
+            .BeginLanguageSpan("x(y)\\").EndMarkedContent()
+            .BeginLanguageSpan("xé").EndMarkedContent()
             .BeginArtifact().EndMarkedContent()
             .BeginPaginationArtifact(PdfPaginationArtifact.Header).EndMarkedContent();
 
         Assert.Equal(
             "/P <</MCID 12>> BDC\nEMC\n"
             + "/Span <</Lang (tr-TR)>> BDC\nEMC\n"
-            + "/Span <</Lang (x\\(y\\))>> BDC\nEMC\n"
+            + "/Span <</Lang (x\\(y\\)\\\\)>> BDC\nEMC\n"
+            + "/Span <</Lang <FEFF007800E9>>> BDC\nEMC\n"
             + "/Artifact BMC\nEMC\n"
             + "/Artifact <</Type /Pagination /Subtype /Header>> BDC\nEMC\n",
             Encoding.ASCII.GetString(content.ToMemory().Span));
         Assert.Throws<ArgumentOutOfRangeException>(() => content.BeginMarkedContent("P", -1));
         Assert.Throws<ArgumentException>(() => PdfStructureTree.CheckType("Not a name"));
+    }
+
+    [Fact]
+    public void The_language_span_is_written_as_the_serializer_writes_the_same_text_string()
+    {
+        foreach (string language in new[] { "en", "x(y)\\z", "sr-Latn-RS", "xé", "ال" })
+        {
+            ContentStreamBuilder content = new();
+            content.BeginLanguageSpan(language);
+            using MemoryStream serialized = new();
+            PdfSerializer.Write(PdfString.Text(language), serialized);
+
+            Assert.Equal(
+                "/Span <</Lang " + Encoding.Latin1.GetString(serialized.ToArray()) + ">> BDC\n",
+                Encoding.Latin1.GetString(content.ToMemory().Span));
+        }
+    }
+
+    // ---- the order of the tree
+
+    [Fact]
+    public void Ancestors_are_materialised_several_levels_deep_under_a_sibling_drawn_before_them()
+    {
+        MemoryStream memory = new();
+        PdfStructureElement[] made;
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfStructureElement before = structure.Create(structure.Document, "P");
+            PdfStructureElement table = structure.Create(structure.Document, "Table");
+            PdfStructureElement row1 = structure.Create(table, "TR");
+            PdfStructureElement cell1 = structure.Create(row1, "TD");
+            PdfStructureElement empty = structure.Create(row1, "TD");
+            PdfStructureElement row2 = structure.Create(table, "TR");
+            PdfStructureElement cell3 = structure.Create(row2, "TD");
+            PdfStructureElement after = structure.Create(structure.Document, "P");
+            made = [before, table, row1, cell1, empty, row2, cell3, after];
+
+            PdfPageWriter first = document.BeginPage(300, 300);
+            Mark(first, before);
+            Mark(first, cell1);
+            Assert.True(before.IsClosed);
+            Assert.True(table.IsOpen && row1.IsOpen && cell1.IsOpen);
+            structure.Open(empty);
+            Assert.True(cell1.IsClosed);
+            first.End();
+
+            PdfPageWriter second = document.BeginPage(300, 300);
+            Mark(second, cell3);
+            Assert.True(row1.IsClosed && empty.IsClosed);
+            Mark(second, table);
+            Assert.True(row2.IsClosed && cell3.IsClosed);
+            Mark(second, after);
+            Assert.True(table.IsClosed);
+            second.End();
+            document.Complete();
+        }
+
+        Assert.All(made, e => Assert.True(e.IsClosed));
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        Assert.Equal("Document[P,Table[TR[TD,TD],TR[TD]],P]", tree.Root.Outline());
+
+        List<StructureTreeReader.Element> elements = [.. tree.Root.Descendants()];
+        StructureTreeReader.Element table2 = elements[2];
+        Assert.Equal(1, table2.Page);
+        Assert.Equal(3, table2.Kids.Count);
+        Assert.IsType<StructureTreeReader.ChildKid>(table2.Kids[0]);
+        Assert.IsType<StructureTreeReader.ChildKid>(table2.Kids[1]);
+        Assert.Equal(new StructureTreeReader.ContentKid(1, 1, false), table2.Kids[2]);
+        Assert.Null(elements[3].Page);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(0, 1, false)], elements[4].Kids);
+        Assert.Empty(elements[5].Kids);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(1, 0, false)], elements[7].Kids);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(1, 2, false)], elements[8].Kids);
+        PdfTestKit.AssertQpdfAccepts(memory.ToArray(), "tagged-table");
+    }
+
+    [Fact]
+    public void Content_of_an_element_after_its_child_closes_the_child_and_keeps_the_order()
+    {
+        MemoryStream memory = new();
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfStructureElement division = structure.Create(structure.Document, "Div");
+            PdfStructureElement inner = structure.Create(division, "P");
+            PdfPageWriter page = document.BeginPage(300, 300);
+            Mark(page, division);
+            Mark(page, inner);
+            Mark(page, division);
+            Assert.True(inner.IsClosed);
+            Assert.Throws<InvalidOperationException>(() => page.BeginMarkedContent(inner));
+            page.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        StructureTreeReader.Element division2 = tree.Root.Children.Single();
+        Assert.Equal(3, division2.Kids.Count);
+        Assert.Equal(new StructureTreeReader.ContentKid(0, 0, false), division2.Kids[0]);
+        Assert.Equal("P", Assert.IsType<StructureTreeReader.ChildKid>(division2.Kids[1]).Element.Type);
+        Assert.Equal(new StructureTreeReader.ContentKid(0, 2, false), division2.Kids[2]);
+    }
+
+    private static void Mark(PdfPageWriter page, PdfStructureElement element)
+    {
+        page.BeginMarkedContent(element);
+        page.Content.FillGray(0).Rectangle(10, 10, 5, 5).Fill();
+        page.EndMarkedContent();
+    }
+
+    // ---- misuse that would leave a broken file
+
+    [Fact]
+    public void The_document_element_is_closed_only_by_completing_and_a_refused_close_writes_nothing()
+    {
+        MemoryStream memory = new();
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfPageWriter page = document.BeginPage(300, 300);
+            Mark(page, structure.BeginElement("P"));
+            long written = memory.Length;
+
+            Assert.Throws<InvalidOperationException>(() => structure.Close(structure.Document));
+            Assert.Equal(written, memory.Length);
+            Assert.True(structure.Document.IsOpen);
+
+            page.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        Assert.Equal("Document[P]", tree.Root.Outline());
+    }
+
+    [Fact]
+    public void Parent_tree_keys_are_refused_out_of_order()
+    {
+        using PdfDocumentWriter document = new(new MemoryStream(), new PdfWriterOptions { Tagged = true });
+        PdfStructureTree structure = document.Structure!;
+        PdfReference entry = document.AllocateObject();
+        Assert.Equal(0, structure.TakeKey());
+        Assert.Equal(1, structure.TakeKey());
+
+        structure.AddEntry(1, entry);
+        Assert.Throws<InvalidOperationException>(() => structure.AddEntry(0, entry));
+        Assert.Throws<InvalidOperationException>(() => structure.AddEntry(1, entry));
+        Assert.Throws<InvalidOperationException>(() => structure.AddEntry(2, entry));
+    }
+
+    [Fact]
+    public void An_EMC_without_its_BDC_is_refused()
+    {
+        ContentStreamBuilder content = new();
+        Assert.Throws<InvalidOperationException>(() => content.EndMarkedContent());
+        content.BeginArtifact().EndMarkedContent();
+        Assert.Throws<InvalidOperationException>(() => content.EndMarkedContent());
+        Assert.Equal("/Artifact BMC\nEMC\n", Encoding.ASCII.GetString(content.ToMemory().Span));
+    }
+
+    [Fact]
+    public void Marked_content_does_not_nest_in_marked_content_and_artifacts_do_not_mix_with_it()
+    {
+        ContentStreamBuilder content = new();
+        content.BeginMarkedContent("P", 0);
+        Assert.Throws<InvalidOperationException>(() => content.BeginMarkedContent("P", 1));
+        Assert.Throws<InvalidOperationException>(() => content.BeginArtifact());
+        Assert.Throws<InvalidOperationException>(() => content.BeginPaginationArtifact(PdfPaginationArtifact.Footer));
+
+        // A language span or an ActualText span inside the element's content is what they are for; inside them the rule still holds.
+        content.BeginLanguageSpan("de").BeginActualText("x");
+        Assert.Throws<InvalidOperationException>(() => content.BeginMarkedContent("P", 1));
+        content.EndMarkedContent().EndMarkedContent().EndMarkedContent();
+        Assert.Equal(0, content.MarkedContentDepth);
+
+        content.BeginArtifact().BeginArtifact().BeginLanguageSpan("de");
+        Assert.Throws<InvalidOperationException>(() => content.BeginMarkedContent("P", 1));
+        content.EndMarkedContent().EndMarkedContent();
+        Assert.Throws<InvalidOperationException>(() => content.BeginMarkedContent("P", 1));
+        content.EndMarkedContent();
+
+        // Both closed: marked content may begin again.
+        content.BeginMarkedContent("P", 1).EndMarkedContent();
+        Assert.Equal(0, content.MarkedContentDepth);
+    }
+
+    [Fact]
+    public void A_refused_nested_MCID_leaves_the_page_and_the_tree_as_they_were()
+    {
+        MemoryStream memory = new();
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfStructureElement first = structure.Create(structure.Document, "P");
+            PdfStructureElement second = structure.Create(structure.Document, "P");
+            PdfPageWriter page = document.BeginPage(300, 300);
+            page.BeginMarkedContent(first);
+            Assert.Throws<InvalidOperationException>(() => page.BeginMarkedContent(second));
+            Assert.Null(second.Reference);
+            Assert.True(first.IsOpen);
+            page.EndMarkedContent();
+
+            page.Content.BeginArtifact();
+            Assert.Throws<InvalidOperationException>(() => page.BeginMarkedContent(second));
+            page.EndMarkedContent();
+
+            Assert.Equal(1, page.BeginMarkedContent(second));
+            page.EndMarkedContent();
+            page.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        Assert.Equal("Document[P,P]", tree.Root.Outline());
+    }
+
+    [Fact]
+    public void A_page_part_with_marked_content_left_open_is_not_written()
+    {
+        using PdfDocumentWriter document = new(new MemoryStream(), new PdfWriterOptions { Tagged = true });
+        PdfPageWriter page = document.BeginPage(300, 300);
+        page.Content.BeginArtifact();
+        Assert.Throws<InvalidOperationException>(() => page.End());
+        Assert.Throws<InvalidOperationException>(() => page.EndBody(header: false, footer: true));
+        page.EndMarkedContent();
+
+        page.EndBody(header: false, footer: true);
+        page.UseFooter();
+        page.Content.BeginPaginationArtifact(PdfPaginationArtifact.Footer);
+        Assert.Throws<InvalidOperationException>(() => page.Finish());
+        page.EndMarkedContent();
+        page.Finish();
+        document.Complete();
+    }
+
+    [Fact]
+    public void An_untagged_page_with_marked_content_left_open_is_not_written_either()
+    {
+        using PdfDocumentWriter document = new(new MemoryStream(), new PdfWriterOptions());
+        PdfPageWriter page = document.BeginPage(300, 300);
+        page.Content.BeginActualText("x");
+        Assert.Throws<InvalidOperationException>(() => page.End());
+        page.Content.EndMarkedContent();
+        page.End();
+        document.Complete();
     }
 }
