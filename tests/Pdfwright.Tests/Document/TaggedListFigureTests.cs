@@ -374,6 +374,87 @@ public class TaggedListFigureTests
     }
 
     [Fact]
+    public void An_item_with_nothing_to_read_has_no_item_and_its_marker_is_an_artifact()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new ItemList(["", "Two", "  "]) { Marker = ListMarker.Decimal });
+        document.Add(new ItemList([string.Empty, " "]));
+        document.Add(new ItemList(
+        [
+            new ListItem([new Paragraph(string.Empty), new ItemList([string.Empty, " "])]),
+            new ListItem([new Paragraph(" "), new ItemList(["Nested"])]),
+        ]));
+        document.Add(new Paragraph("After."));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[L[LI[Lbl,LBody[P]]],L[LI[Lbl,LBody[L[LI[Lbl,LBody[P]]]]]],P]", tree.Root.Outline());
+        Assert.Equal(
+            [("Lbl", "2."), ("P", "Two"), ("Lbl", "•"), ("Lbl", "•"), ("P", "Nested"), ("P", "After.")],
+            ElementTexts(pdf, tree).Where(e => e.Type is "Lbl" or "P"));
+
+        // The markers of the items with nothing to read are drawn as artifacts: "1." and "3." of the first list, the two bullets of the second, the
+        // bullet of the third's first item and the two of its nested list.
+        Assert.Equal("1.3.•••••", TaggedFlowTests.ArtifactTexts(pdf)[0]);
+        DocumentTestKit.AssertValid(pdf, "tagged-list-blank-items");
+    }
+
+    [Fact]
+    public void A_list_item_label_and_paragraph_have_their_own_language()
+    {
+        PdfDocument document = new(Tagged());
+
+        // The list's language is the label's and the paragraph's.
+        document.Add(new ItemList(["Un"]) { Style = new TextStyle { Language = "fr" } });
+
+        // The paragraph's language is the label's too (the marker is set in the style of the item's first paragraph), unless the marker style sets another.
+        document.Add(new ItemList([new ListItem(new Paragraph("Eins") { Style = new TextStyle { Language = "de" } })]));
+        document.Add(new ItemList([new ListItem(new Paragraph("Zwei") { Style = new TextStyle { Language = "de" } })]) { MarkerStyle = new TextStyle { Language = "en" } });
+
+        // A marker style in another language than the text's.
+        document.Add(new ItemList(["English"]) { MarkerStyle = new TextStyle { Language = "fr" } });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal(
+            new (string, string?)[] { ("Lbl", "fr"), ("P", "fr"), ("Lbl", "de"), ("P", "de"), ("Lbl", null), ("P", "de"), ("Lbl", "fr"), ("P", null) },
+            tree.Root.Descendants().Where(e => e.Type is "Lbl" or "P").Select(e => (e.Type, e.Language)));
+        Assert.All(tree.Root.Descendants().Where(e => e.Type is "L" or "LI" or "LBody"), e => Assert.Null(e.Language));
+        DocumentTestKit.AssertValid(pdf, "tagged-list-language");
+    }
+
+    [Theory]
+    [InlineData("Diagramme des ventes — été 2026", true)]
+    [InlineData("Sales (net) and \\ (gross)", false)]
+    [InlineData("Umsatz (netto) ⟶ \\brutto", true)]
+    public void Alternative_text_is_written_as_a_text_string_and_reads_back_as_given(string alt, bool unicode)
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Image(Png) { Width = Length.Mm(20), AltText = alt });
+        document.Add(new DrawingBlock(Length.Mm(20), Length.Mm(10), canvas => canvas.DrawText("x", 1, 8)) { AltText = alt });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal([alt, alt], tree.Root.Children.Select(e => e.Alt));
+        string file = Encoding.Latin1.GetString(pdf);
+        if (unicode)
+        {
+            // UTF-16BE with its byte order mark, in hexadecimal.
+            Assert.Equal(2, Regex.Count(file, "/Alt <FEFF[0-9A-F]+>", RegexOptions.IgnoreCase));
+        }
+        else
+        {
+            // A literal string, its parentheses and backslash escaped.
+            Assert.Equal(2, Regex.Count(file, Regex.Escape(@"/Alt (Sales \(net\) and \\ \(gross\))")));
+        }
+
+        DocumentTestKit.AssertValid(pdf, $"tagged-figure-alt-{(unicode ? "unicode" : "escaped")}");
+    }
+
+    [Fact]
     public void An_untagged_document_with_lists_and_figures_has_no_marked_content_or_structure()
     {
         PdfDocument document = new(DocumentTestKit.Options());

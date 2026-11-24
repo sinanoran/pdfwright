@@ -130,6 +130,7 @@ internal sealed partial class DocumentRenderer
                 _tagParent = _writer.Structure.Create(entry, "LBody");
             }
 
+            int firstOfItem = result.Count;
             for (int j = 0; j < item.Content.Count; j++)
             {
                 bool last = lastItem && j == item.Content.Count - 1;
@@ -189,7 +190,28 @@ internal sealed partial class DocumentRenderer
                     KeepTogether = paragraph.KeepTogether,
                 });
             }
+
+            if (entry is not null && !HasTaggedText(result, firstOfItem))
+            {
+                // An item with nothing to read (its paragraphs blank, its nested list too): a label alone would be a bare bullet read aloud, so the
+                // marker is an artifact and the item has no LI. A list whose items are all so has no L either: its elements are never drawn.
+                result[firstOfItem].Styled.List!.Marker!.Tag = null;
+            }
         }
+    }
+
+    /// <summary>Whether a paragraph from <paramref name="from"/> on has an element (a nested list's paragraphs included).</summary>
+    private static bool HasTaggedText(List<TextItem> items, int from)
+    {
+        for (int k = from; k < items.Count; k++)
+        {
+            if (items[k].Styled.Tag is not null)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
