@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Pdfwright.Document;
 using Pdfwright.Pdf;
 
 namespace Pdfwright.Tests.Pdf;
@@ -91,5 +92,53 @@ public class Sha256Tests
 
         Assert.Equal(SHA256.HashData([.. prefix, .. first]), copy.GetHashAndReset());
         Assert.Equal(SHA256.HashData([.. prefix, .. second, 1, 2, 3, 4]), hash.GetHashAndReset());
+    }
+
+    /// <summary>
+    /// The file being saved is hashed for its <c>/ID</c> from the buffer it was written into, with the library's hash below <see cref="SaveBuffer.FrameworkHashThreshold"/> and the framework's from there
+    /// on: both give the digest of the bytes, whatever the length and however they were written (lengths around the buffer's blocks of 64 KiB).
+    /// </summary>
+    [Fact]
+    public void A_saved_file_is_hashed_alike_by_the_library_and_by_the_framework()
+    {
+        Random random = new(20261125);
+        foreach (int length in new[] { 0, 1, 63, 64, 65, 65535, 65536, 65537, 200_000, 3 * 65536 })
+        {
+            byte[] data = new byte[length];
+            random.NextBytes(data);
+            using SaveBuffer buffer = new();
+            for (int at = 0; at < length;)
+            {
+                int piece = Math.Min(length - at, random.Next(1, 30_000));
+                buffer.Write(data.AsSpan(at, piece));
+                at += piece;
+            }
+
+            byte[] expected = SHA256.HashData(data);
+            Assert.Equal(expected, buffer.Sha256(length, frameworkThreshold: long.MaxValue));
+            Assert.Equal(expected, buffer.Sha256(length, frameworkThreshold: 0));
+            if (length > 1)
+            {
+                Assert.Equal(SHA256.HashData(data.AsSpan(0, length - 1)), buffer.Sha256(length - 1, frameworkThreshold: long.MaxValue));
+                Assert.Equal(SHA256.HashData(data.AsSpan(0, length - 1)), buffer.Sha256(length - 1, frameworkThreshold: 0));
+            }
+        }
+    }
+
+    /// <summary>A document's <c>/ID</c> is the first half of the SHA-256 of the file before its cross-reference stream, from a file small enough for the library's hash and one large enough for the framework's.</summary>
+    [Theory]
+    [InlineData(10)]
+    [InlineData(1000)]
+    public void The_id_of_a_saved_document_is_the_hash_of_its_bytes_whichever_hash_took_it(int rows)
+    {
+        using FontCollection fonts = Pdfwright.Benchmarks.Scenarios.ScenarioDocuments.LoadFonts(TestPaths.FontsDirectory);
+        using MemoryStream stream = new();
+        Pdfwright.Benchmarks.Scenarios.ScenarioDocuments.Table(fonts, rows, pinned: true).Save(stream);
+        byte[] pdf = stream.ToArray();
+        string text = Encoding.Latin1.GetString(pdf);
+        int xref = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"startxref\n(\d+)\n%%EOF\n$").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(rows > 100, xref >= SaveBuffer.FrameworkHashThreshold);
+        string expected = Convert.ToHexString(SHA256.HashData(pdf.AsSpan(0, xref)))[..32];
+        Assert.Contains($"/ID [<{expected}> <{expected}>]", text, StringComparison.Ordinal);
     }
 }

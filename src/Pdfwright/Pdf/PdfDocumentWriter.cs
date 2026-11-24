@@ -36,6 +36,12 @@ internal sealed class PdfWriterOptions
     /// <c>/MarkInfo</c> on the catalog. Off by default, and a document written with it off is the same file it always was.
     /// </summary>
     internal bool Tagged { get; init; }
+
+    /// <summary>
+    /// The buffer the file is written into, when the output is that buffer and nothing else (behind streams that only pass the bytes on): the document's <c>/ID</c> is then hashed from it once
+    /// the file is written (<see cref="Pdfwright.Document.SaveBuffer.Sha256(long, long)"/>), instead of as each byte is written. <see langword="null"/> for any other output.
+    /// </summary>
+    internal Pdfwright.Document.SaveBuffer? WrittenTo { get; init; }
 }
 
 /// <summary>A rectangle in the page's own space (origin bottom left, y up), for an annotation.</summary>
@@ -62,7 +68,7 @@ internal sealed class PdfDocumentWriter : IDisposable
     {
         _options = options;
         // A tagged document has an object for each structure element: compressed, they go into object streams (an untagged file stays as it was).
-        _file = new PdfFile(output, options.Compression, objectStreams: options.Tagged);
+        _file = new PdfFile(output, options.Compression, objectStreams: options.Tagged, writtenTo: options.WrittenTo);
         _pagesRoot = _file.Allocate();
         if (options.Tagged)
         {

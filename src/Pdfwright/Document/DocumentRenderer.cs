@@ -68,6 +68,7 @@ internal sealed partial class DocumentRenderer
         DateTimeOffset? created = options.Creation ?? (options.Deterministic ? null : DateTimeOffset.UtcNow);
         _writer = new PdfDocumentWriter(_output, new PdfWriterOptions
         {
+            WrittenTo = output as SaveBuffer,
             Compression = options.Compress ? PdfCompression.Flate : PdfCompression.None,
             Title = options.Title,
             Subject = options.Subject,

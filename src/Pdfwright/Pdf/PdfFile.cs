@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
+using Pdfwright.Document;
 
 namespace Pdfwright.Pdf;
 
@@ -60,6 +61,9 @@ internal sealed class PdfFile : IDisposable
     private const CompressionLevel PackedCompression = CompressionLevel.SmallestSize;
 
     private readonly HashingStream _output;
+
+    /// <summary>The buffer the file lands in, when the <c>/ID</c> is hashed from it at the end; see the constructor.</summary>
+    private readonly SaveBuffer? _writtenTo;
     private readonly PdfCompression _compression;
     private readonly OffsetTable _offsets = new();
     private bool _finished;
@@ -93,10 +97,15 @@ internal sealed class PdfFile : IDisposable
     /// Whether the objects written by <see cref="WritePacked(int, ReadOnlySpan{byte})"/> go into object streams. Only when <paramref name="compression"/> is
     /// <see cref="PdfCompression.Flate"/>: an uncompressed file stays one that a text editor can read, object by object.
     /// </param>
-    internal PdfFile(Stream output, PdfCompression compression, bool objectStreams = false)
+    /// <param name="writtenTo">
+    /// The buffer every byte written to <paramref name="output"/> lands in, from the first, when there is one: the <c>/ID</c> is then hashed from it when the file is finished, which can choose the faster
+    /// hash for a large file (see <see cref="SaveBuffer.Sha256(long, long)"/>); otherwise the bytes are hashed as they are written.
+    /// </param>
+    internal PdfFile(Stream output, PdfCompression compression, bool objectStreams = false, SaveBuffer? writtenTo = null)
     {
         ArgumentNullException.ThrowIfNull(output);
-        _output = new HashingStream(output);
+        _writtenTo = writtenTo;
+        _output = new HashingStream(output, hash: writtenTo is null);
         _compression = compression;
         _objectStreams = objectStreams && compression == PdfCompression.Flate;
         _packedNumbers = _objectStreams ? new int[PackedObjectLimit] : [];
@@ -428,7 +437,13 @@ internal sealed class PdfFile : IDisposable
             }
         }
 
-        byte[] id = _output.Hash();
+        // The streams between the file and the buffer may hold bytes back: they are flushed into it first.
+        if (_writtenTo is not null)
+        {
+            _output.Flush();
+        }
+
+        byte[] id = _writtenTo is null ? _output.Hash() : HashOfBuffer(_writtenTo, _output.Position);
         PdfReference xref = Allocate();
         long xrefOffset = _output.Position;
         _offsets[xref.Number] = xrefOffset;
@@ -510,6 +525,17 @@ internal sealed class PdfFile : IDisposable
     }
 
     public void Dispose() => _output.Dispose();
+
+    /// <summary>The <c>/ID</c> from the buffer the file was written into: the first 16 bytes of the SHA-256 of its <paramref name="length"/> bytes, all of which this file wrote.</summary>
+    private static byte[] HashOfBuffer(SaveBuffer buffer, long length)
+    {
+        if (buffer.Length != length)
+        {
+            throw new InvalidOperationException($"The buffer holds {buffer.Length} bytes and the file wrote {length}: something else wrote to it, so the /ID cannot be taken from it.");
+        }
+
+        return buffer.Sha256(length)[..16];
+    }
 
     private void WriteStreamBody(PdfStream stream)
     {
@@ -652,9 +678,9 @@ internal sealed class PdfFile : IDisposable
     }
 
     /// <summary>A write-only stream that counts the bytes written and hashes them, so the output need not be seekable.</summary>
-    private sealed class HashingStream(Stream inner) : Stream
+    private sealed class HashingStream(Stream inner, bool hash) : Stream
     {
-        private readonly Sha256 _hash = new();
+        private readonly Sha256? _hash = hash ? new() : null;
         private long _position;
 
         public override bool CanRead => false;
@@ -671,12 +697,12 @@ internal sealed class PdfFile : IDisposable
             set => throw new NotSupportedException();
         }
 
-        internal byte[] Hash() => _hash.GetHashAndReset()[..16];
+        internal byte[] Hash() => (_hash ?? throw new InvalidOperationException("The stream does not hash what it writes.")).GetHashAndReset()[..16];
 
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             inner.Write(buffer);
-            _hash.Append(buffer);
+            _hash?.Append(buffer);
             _position += buffer.Length;
         }
 
