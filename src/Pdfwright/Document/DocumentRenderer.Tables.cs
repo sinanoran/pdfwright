@@ -309,7 +309,8 @@ internal sealed partial class DocumentRenderer
         private bool _unrepeatedHeaderOnPage;
         private int _rowsInFragment;
 
-        // Tagged, the table is a Table with a THead for the header rows and a TBody for the others; untagged, there are none.
+        // Tagged, the table is a Table with a THead for the header rows and a TBody for the others (a table with no body row has its header rows
+        // straight under Table, and _headTag is the Table); untagged, there are none.
         private PdfStructureElement? _tag;
         private PdfStructureElement? _headTag;
         private PdfStructureElement? _bodyTag;
@@ -346,9 +347,14 @@ internal sealed partial class DocumentRenderer
             _tag = _r.Tag("Table");
             if (_tag is not null)
             {
+                // Whether a body row will be drawn is known before the header's rows are made: the first row is pulled and held, not laid out, as the
+                // loop below pulls it first (a row limit is 1 or more, so a first row is always drawn). A table of a header and no body has its header
+                // rows straight under Table, with no THead: PDF/UA-1 (7.2) wants a THead followed by a TBody, and a Table may hold its rows as TR
+                // without groups (ISO 32000-1, 14.8.4.3.4); its cells are still TH of their columns.
                 PdfStructureTree structure = _r._writer.Structure!;
-                _headTag = _table.Header.Count > 0 ? structure.Create(_tag, "THead") : null;
-                _bodyTag = structure.Create(_tag, "TBody");
+                bool body = _source.HasNext();
+                _headTag = _table.Header.Count == 0 ? null : body ? structure.Create(_tag, "THead") : _tag;
+                _bodyTag = body ? structure.Create(_tag, "TBody") : null;
             }
 
             _header = [.. _table.Header.Select(row => Layout(row, true, 0))];

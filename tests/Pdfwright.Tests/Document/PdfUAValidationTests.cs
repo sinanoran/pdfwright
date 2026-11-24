@@ -221,6 +221,34 @@ public class PdfUAValidationTests
         AssertPdfUA(files);
     }
 
+    /// <summary>
+    /// A table of a header and no rows (given as none, given lazily as none, a header of two rows) next to one with a header and a body: the header
+    /// rows of a table with no body are straight under the <c>Table</c>, with no <c>THead</c> (which PDF/UA-1, 7.2, fails without a <c>TBody</c>).
+    /// </summary>
+    [Fact]
+    public void A_table_with_a_header_and_no_rows_tagged_is_pdf_ua()
+    {
+        _ = VeraPdf.Require();
+        static IEnumerable<TableRow> None()
+        {
+            yield break;
+        }
+
+        TableColumn[] columns = [new TableColumn(), new TableColumn()];
+        PdfDocument headerOnly = new(Tagged());
+        headerOnly.Add(new Table(columns, new TableRow("A", "B"), []));
+        PdfDocument mixed = new(Tagged());
+        mixed.Add(new Heading(1, "Tables"));
+        mixed.Add(new Table(columns, new TableRow("A", "B"), None()) { Borders = Borders.All, HeaderFill = Color.Gray(0.9) });
+        mixed.Add(new Table(columns, [new TableRow("C", "D"), new TableRow("E", "F")], []));
+        mixed.Add(new Table(columns, new TableRow("Name", "Value"), [new TableRow("x", "1")]));
+        List<Saved> files = [Save("table-header-only", headerOnly), Save("table-header-only-mixed", mixed)];
+
+        IReadOnlyDictionary<string, VeraPdf.Result> results = ValidateAgreeing(files, allCompliant: true);
+        Assert.All(files, f => Assert.True(f.Diagnostics.IsPdfUA, $"{f.Name} does not claim PDF/UA-1"));
+        Assert.All(results.Values, r => Assert.Empty(r.Failures));
+    }
+
     [Fact]
     public void A_document_with_an_accessibility_issue_is_tagged_without_the_claim_and_fails_validation()
     {
