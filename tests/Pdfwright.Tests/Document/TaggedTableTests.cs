@@ -9,7 +9,7 @@ namespace Pdfwright.Tests.Document;
 /// <summary>
 /// The document layer of tagged PDF for tables, behind the internal <see cref="PdfDocumentOptions.Tagged"/>: a table is a <c>Table</c> with a
 /// <c>THead</c> of <c>TR</c> rows of <c>TH</c> column headers (<c>/Scope /Column</c>) and a <c>TBody</c> of <c>TR</c> rows of <c>TD</c> cells, a
-/// cell for each column in logical order; the fills and borders are artifacts outside the cells' marked content, a header row repeated on a later page
+/// cell for each column in logical order (a header with no body has its <c>TR</c> rows straight under the <c>Table</c>); the fills and borders are artifacts outside the cells' marked content, a header row repeated on a later page
 /// is a pagination artifact, and a row split between pages is one row whose cells have marked content on both pages. The documents are made through
 /// the public API and read back by <see cref="StructureTreeReader"/>.
 /// </summary>
@@ -29,6 +29,12 @@ public partial class TaggedTableTests
     internal static string TableOutline(int columns, int headerRows, int bodyRows)
     {
         string Rows(int count, string cell) => string.Join(",", Enumerable.Repeat($"TR[{string.Join(",", Enumerable.Repeat(cell, columns))}]", count));
+        if (bodyRows == 0)
+        {
+            // A header and no body: the header rows are straight under the Table, with no THead (PDF/UA-1 wants a TBody after a THead).
+            return $"Table[{Rows(headerRows, "TH")}]";
+        }
+
         List<string> parts = [];
         if (headerRows > 0)
         {
@@ -279,9 +285,13 @@ public partial class TaggedTableTests
         DocumentTestKit.AssertValid(pdf, $"tagged-table-split-row-{longColumn}");
     }
 
-    /// <summary>A table with a header and no rows is a <c>THead</c> and no <c>TBody</c>; a table with neither draws nothing and is not in the structure.</summary>
+    /// <summary>
+    /// A table with a header and no rows has its header rows straight under the <c>Table</c>, with no <c>THead</c>: PDF/UA-1 (7.2) wants a <c>THead</c>
+    /// followed by a <c>TBody</c>, and ISO 32000-1 (14.8.4.3.4) lets a table hold its rows as <c>TR</c> without groups. The cells are still <c>TH</c> of
+    /// their columns. A table with neither draws nothing and is not in the structure.
+    /// </summary>
     [Fact]
-    public void A_table_with_only_a_header_has_no_body_and_an_empty_table_is_not_in_the_structure()
+    public void A_table_with_only_a_header_has_its_header_rows_under_the_table_and_an_empty_table_is_not_in_the_structure()
     {
         PdfDocument document = new(Tagged());
         document.Add(new Paragraph("Before."));
@@ -292,9 +302,57 @@ public partial class TaggedTableTests
         byte[] pdf = DocumentTestKit.Save(document);
 
         StructureTreeReader tree = Read(pdf);
-        Assert.Equal("Document[P,Table[THead[TR[TH,TH]]],P]", tree.Root.Outline());
+        Assert.Equal("Document[P,Table[TR[TH,TH]],P]", tree.Root.Outline());
+        Assert.Equal("Document[P," + TableOutline(2, 1, 0) + ",P]", tree.Root.Outline());
         Assert.Equal(["A", "B"], ElementTexts(pdf, tree).Where(e => e.Type == "TH").Select(e => e.Text));
+        foreach (StructureTreeReader.Element header in tree.Root.Descendants().Where(e => e.Type == "TH"))
+        {
+            Assert.Equal("Table", Name(header, "O"));
+            Assert.Equal("Column", Name(header, "Scope"));
+        }
+
         DocumentTestKit.AssertValid(pdf, "tagged-table-header-only");
+    }
+
+    /// <summary>
+    /// A header with no body row, however the rows come: given lazily and turning out to be none (known only by pulling the first), or a header of two
+    /// rows. Each has its header rows straight under the <c>Table</c>.
+    /// </summary>
+    [Fact]
+    public void A_header_with_lazy_rows_that_are_none_or_of_two_rows_has_no_thead()
+    {
+        static IEnumerable<TableRow> None()
+        {
+            yield break;
+        }
+
+        PdfDocument document = new(Tagged());
+        document.Add(new Table(Columns(2), new TableRow("A", "B"), None()));
+        document.Add(new Table(Columns(2), [new TableRow("C", "D"), new TableRow("E", "F")], []));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[" + TableOutline(2, 1, 0) + "," + TableOutline(2, 2, 0) + "]", tree.Root.Outline());
+        Assert.Equal(["A", "B", "C", "D", "E", "F"], ElementTexts(pdf, tree).Where(e => e.Type == "TH").Select(e => e.Text));
+        DocumentTestKit.AssertValid(pdf, "tagged-table-header-lazy-none");
+    }
+
+    /// <summary>A table of a header and one row, given lazily, is unchanged: a <c>THead</c> and a <c>TBody</c>.</summary>
+    [Fact]
+    public void A_header_with_one_lazy_row_keeps_its_thead_and_tbody()
+    {
+        static IEnumerable<TableRow> One()
+        {
+            yield return new TableRow("1", "2");
+        }
+
+        PdfDocument document = new(Tagged());
+        document.Add(new Table(Columns(2), new TableRow("A", "B"), One()));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        Assert.Equal("Document[Table[THead[TR[TH,TH]],TBody[TR[TD,TD]]]]", Read(pdf).Root.Outline());
     }
 
     /// <summary>A table without a header that runs over several pages: every cell is a <c>TD</c> of the body, and no page has a repeated header.</summary>
