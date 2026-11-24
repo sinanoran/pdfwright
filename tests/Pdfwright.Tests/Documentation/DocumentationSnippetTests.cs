@@ -835,4 +835,105 @@ public class DocumentationSnippetTests
         Assert.Equal(1, warmUp.Diagnostics.PageCount);
         Assert.Empty(warmUp.Diagnostics.MissingGlyphs);
     }
+
+    [Fact]
+    public async Task A_document_with_a_title_and_a_language_is_tagged_and_claims_pdf_ua()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        byte[] logoBytes = LogoBytes;
+        using MemoryStream stream = new();
+
+        // <snippet guide-tagged>
+        PdfImage logo = PdfImage.FromBytes(logoBytes);
+
+        PdfDocument document = new(new PdfDocumentOptions
+        {
+            Fonts = fonts,
+            DefaultStyle = new TextStyle { Family = "Noto Sans" },
+            // Tagged is on by default. PDF/UA-1 also asks for a title and a language: without them the file is tagged but makes no claim.
+            Title = "Monthly report",
+            Language = "en",
+        });
+
+        document.Add(new Heading(1, "Monthly report"));   // H1; the headings after it go down one level at a time
+        document.Add(new Paragraph(
+        [
+            new TextRun("The Turkish word "),
+            new TextRun("ılık", new TextStyle { Language = "tr" }),   // a run in another language carries its own /Lang
+            new TextRun(" means lukewarm."),
+        ]));
+
+        // With AltText a picture is a Figure that a screen reader reads; without it, it is decorative and skipped.
+        document.Add(new Image(logo) { Width = Length.Mm(30), AltText = "Company logo" });
+        document.Add(new Image(logo) { Width = Length.Mm(5) });
+
+        await document.SaveAsync(stream, cancellationToken);
+        bool claimed = document.Diagnostics.IsPdfUA;   // true: tagged, with a title and a language, and no accessibility issue
+        // </snippet>
+
+        Assert.True(claimed);
+        Assert.Empty(document.Diagnostics.AccessibilityIssues);
+        byte[] pdf = stream.ToArray();
+        Pdfwright.Tests.Pdf.StructureTreeReader tree = TaggedFlowTests.Read(pdf);
+        Assert.Equal("Document[H1,P,Figure]", tree.Root.Outline());
+        Assert.Equal("Company logo", tree.Root.Children.Last().Alt);
+        DocumentTestKit.AssertValid(pdf, "documentation");
+    }
+
+    [Fact]
+    public async Task A_tagged_document_without_a_title_or_a_language_lists_what_keeps_it_from_pdf_ua()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        using MemoryStream stream = new();
+
+        // <snippet guide-accessibility-issues>
+        // using System.Diagnostics;
+        PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });   // no title and no language
+        document.Add(new Heading(2, "Summary"));                                // the first heading is not a level 1 heading
+        document.Add(new Paragraph("Totals are final."));
+
+        await document.SaveAsync(stream, cancellationToken);
+
+        // The file is tagged all the same, without the PDF/UA-1 claim; the diagnostics say what kept it out.
+        if (!document.Diagnostics.IsPdfUA)
+        {
+            foreach (AccessibilityIssue issue in document.Diagnostics.AccessibilityIssues)
+            {
+                // Here: MissingTitle and MissingLanguage (no page: the whole document), then FirstHeadingNotH1 on page 1.
+                Trace.WriteLine(issue.ToString());
+            }
+        }
+        // </snippet>
+
+        Assert.False(document.Diagnostics.IsPdfUA);
+        Assert.Equal(
+            [AccessibilityIssueKind.MissingTitle, AccessibilityIssueKind.MissingLanguage, AccessibilityIssueKind.FirstHeadingNotH1],
+            document.Diagnostics.AccessibilityIssues.Select(i => i.Kind));
+        Assert.Equal([null, null, 1], document.Diagnostics.AccessibilityIssues.Select(i => i.Page));
+        Assert.Equal("Document[H2,P]", TaggedFlowTests.Read(stream.ToArray()).Root.Outline());
+        DocumentTestKit.AssertValid(stream.ToArray(), "documentation");
+    }
+
+    [Fact]
+    public async Task Tagged_false_writes_an_untagged_file()
+    {
+        FontCollection fonts = DocumentTestKit.Fonts;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        using MemoryStream stream = new();
+
+        // <snippet guide-untagged>
+        // The untagged file of 0.1.5, byte for byte: no structure tree, no PDF/UA-1 claim, and no accessibility issue checked.
+        PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts, Title = "Monthly report", Language = "en", Tagged = false });
+        // </snippet>
+
+        document.Add(new Heading(2, "Summary"));
+        await document.SaveAsync(stream, cancellationToken);
+
+        Assert.False(document.Diagnostics.IsPdfUA);
+        Assert.Empty(document.Diagnostics.AccessibilityIssues);
+        Assert.DoesNotContain("/StructTreeRoot", System.Text.Encoding.Latin1.GetString(stream.ToArray()), StringComparison.Ordinal);
+        DocumentTestKit.AssertValid(stream.ToArray(), "documentation");
+    }
 }

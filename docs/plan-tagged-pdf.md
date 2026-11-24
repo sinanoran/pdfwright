@@ -4,6 +4,40 @@
 > T1 and T2 of [`plan-0.2.md`](plan-0.2.md) were its first plan. On 23 November 2026 the maintainer moved tagged PDF ahead of 0.2: it ships
 > as **0.1.6**. This plan replaces T1 and T2 there.
 
+## Status (24 November 2026)
+
+**T1 is done and merged; T2 (the documentation) is this plan's last slice before 0.1.6.** Every document is tagged unless `Tagged = false`,
+and veraPDF validates PDF/UA-1 in CI. The slices, one pull request each, with the work the measurements asked for between them:
+
+| Pull request | Slice | What |
+|---|---|---|
+| #55 | T1a | Writer plumbing: marked content, MCIDs per page, the structure tree writer, the parent tree, `StructParents`, `Tabs`, `MarkInfo`; the test reader of the structure tree |
+| #56 | T1b | Flow text: `Document`, `P`, headings, paragraphs across pages, `/Lang` on elements and spans, header and footer artifacts, callouts and columns as `Div` |
+| #57 | T1c | Lists and figures |
+| #58 | T1d | Tables, fills and borders as artifacts, repeated headers, split rows |
+| #59 | T1e | veraPDF in CI, the accessibility issues and the claim |
+| #60 | | The allocation cost of tagged output: structure elements written straight as bytes, pooled buffers for the file (output unchanged) |
+| #62 | | A table with a header and no body rows: its header rows straight under the `Table`, so it is PDF/UA-1 |
+| #63 | | The structure of compressed tagged files in object streams: the tagged 1,000-row table from 794 KB to 186 KB |
+| #64 | T1f | `Tagged` public and on by default, the diagnostics API, tagged goldens beside the untagged ones |
+| | T2 | The guide, the known limitations, the README, the baselines, `RELEASING.md`; then **0.1.6** after the maintainer's yes |
+
+**The maintainer's decisions of 24 November 2026:**
+
+1. **The cost of tagging is solved within 0.1.6**, not left for 0.2: the allocation work (#60) and the object streams (#63) were done before
+   tagged output was switched on (#64).
+2. **About 186 KB is accepted for the tagged 1,000-row table**, against the plan's 150 KB (0.1 plan, section 7). What is left over the untagged
+   76 KB is the structure of 7,012 elements, numbers that Flate cannot predict. The 150 KB target applies to untagged output; tests hold both to
+   size budgets. The 20-page report (100 KB) and the stress document (452 KB) stay under the plan's 120 and 600 KB tagged. The measured figures
+   are in the CHANGELOG and in [`baselines.md`](baselines.md) ("Tagged output (0.1.6)").
+
+**What remains, unchanged.** 0.2 is still CJK (slices C1 to C5 of [`plan-0.2.md`](plan-0.2.md)) and the performance work left over from 0.1
+(the Arabic and Hindi tables, a measured first save of the 20-page report, a CI job for speed regressions); nothing of it is started. Of tagged
+PDF, what was settled as not in 0.1.6 stays out and is not scheduled: row headers (`TH` with `/Scope /Row`), roles set by the caller and
+an `OutputIntent` (which PDF/A needs and PDF/UA-1 does not), settled in section 1, and a `/Lang` of its own for canvas text, settled in section 2 (the
+canvas text is part of its figure); links have nothing to tag while the API has
+none. [`known-limitations.md`](known-limitations.md) lists them.
+
 ## 1. Decisions (the maintainer, 23 November 2026)
 
 1. **Version 0.1.6.** The new public members are additive.

@@ -223,6 +223,56 @@ The warm table is about half of the 55 to 58 ms measured in the ASCII-paths sitt
 
 **Against the targets of section 7 of the plan:** not met, see there.
 
+## Tagged output (0.1.6)
+
+Since 0.1.6 a document is tagged unless `PdfDocumentOptions.Tagged` is `false`. The benchmark program measures both: every scenario name takes `-untagged` (`warm table-untagged`, `once table-untagged table.pdf`),
+and the BenchmarkDotNet scenarios run with `Tagged` true and false. The figures are those of the CHANGELOG, measured on 24 November 2026, compressed, `net10.0`, on the machine described above. "Untagged" is the output of 0.1.5, which
+`Tagged = false` still writes byte for byte.
+
+**Size of the file.**
+
+| Scenario | Tagged | Untagged | Plan target (section 7) |
+|---|---|---|---|
+| `table` (1,000 rows, 21 pages) | 186 KB | 76 KB | under 150 KB: met untagged; tagged not met, **about 186 KB accepted by the maintainer** (24 November 2026) |
+| `report` (ten pages) | 73 KB | 57 KB | |
+| `report20` | 100 KB | 87 KB | under 120 KB: met |
+| `stress` (101 pages) | 452 KB | 342 KB | under 600 KB: met |
+| `table-arabic` | 480 KB | 372 KB | |
+| `table-devanagari` | 414 KB | 307 KB | |
+| `table10k` (10,000 rows) | 1.8 MB | | |
+
+What the tagged table carries over the untagged 76 KB is the structure of its 7,012 elements, numbers that Flate cannot predict. A compressed tagged file keeps its structure elements, the parent tree's arrays and
+the `StructTreeRoot` in compressed object streams; before they were (#63), the tagged table was 794 KB. The tests hold the tagged documents to size budgets: the plan's targets where tagged output meets them, and
+guards for the tables.
+
+**Managed allocation per save.**
+
+| Scenario | Tagged | Untagged |
+|---|---|---|
+| `table` | 18.3 to 19.5 MB | 18.1 to 19.2 MB |
+| `report20` | 5.6 MB | 5.55 MB |
+| `stress` | 29.3 MB | 29.2 MB |
+| `table-arabic` | 42.1 MB | 40.5 MB |
+| `table-devanagari` | 37.7 MB | 36.3 MB |
+
+A range is that of several measurements, on `net10.0`. The table, the 20-page report and the stress document are within the plan's budgets there (the table's 20 MB included); `net8.0` reads about 7 percent
+more, and the table passes there through the 25 percent tolerance of `AllocationBudgetTests`, which holds tagged and untagged output to these budgets. The Arabic and Devanagari tables have regression guards only.
+
+**Time.** Tagged and untagged were run **alternating, in two rounds**, at **5 to 8 GB free** (`Available MBytes`) on a **busy machine**, so the figures are noisy: compare tagged with untagged within this sitting, not with
+the quieter sitting of 23 November above (where the warm table was about 30 ms). The cold figures are the medians of **40 fresh processes** each.
+
+| | Tagged | Untagged |
+|---|---|---|
+| `table`, warm (the two rounds) | 51.6 and 56.7 ms | 38.0 and 39.6 ms |
+| `table`, cold, default JIT | 519 ms | 473 ms |
+| `table`, cold, ReadyToRun | 288 ms | 283 ms |
+| `table`, peak working set, ReadyToRun | 48.2 MB | 47.9 MB |
+| `report`, warm (the two rounds) | 30.9 and 28.0 ms | 25.5 and 28.0 ms |
+| `report20`, warm (the two rounds) | 29.4 and 46.1 ms | 34.6 and 44.4 ms |
+
+So the warm table takes about 15 ms more tagged (under the plan's 60 ms), its first save in a fresh process 46 ms more with the default JIT and level within noise with ReadyToRun, and the 20-page report is
+level within noise. With ReadyToRun, 288 ms is over the 250 ms target in that busier sitting, where the untagged build measured 283 ms (240 ms in the quiet sitting of 23 November).
+
 ## What the Skia spike showed about text (why Pdfwright writes its own writer)
 
 Read back with PdfPig 0.1.16: Latin, Turkish and Thai extract correctly; **Arabic comes back as presentation
@@ -283,4 +333,4 @@ dotnet publish ../../../Pdfwright.Benchmarks.csproj -c Release -r win-x64 --self
 ./Pdfwright.Benchmarks bench --filter "*" --job short
 ```
 
-On Windows the program is `Pdfwright.Benchmarks.exe`. `DOTNET_TieredPGO=0` in the environment turns tiered PGO off for a run. `once` prints one JSON line (time since the process started, its own peak working set, bytes, pages), and `cold` takes the peak from it, so the figures are the process's own. The benchmark project is built by `dotnet build Pdfwright.slnx` so it cannot rot; CI builds it and does not run it.
+On Windows the program is `Pdfwright.Benchmarks.exe`. `DOTNET_TieredPGO=0` in the environment turns tiered PGO off for a run. `once` prints one JSON line (time since the process started, its own peak working set, bytes, pages), and `cold` takes the peak from it, so the figures are the process's own. The benchmark project is built by `dotnet build Pdfwright.slnx` so it cannot rot; CI builds it and does not run it.

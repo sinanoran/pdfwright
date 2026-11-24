@@ -162,7 +162,7 @@ public sealed class PdfDocumentOptions
     /// A tagged document claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its metadata) only when the save found no accessibility issue. A document without a
     /// <see cref="Title"/> or a <see cref="Language"/>, with a character no font has a glyph for, or with headings out of order is written tagged all the same,
     /// without the claim, and the save lists what is in the way in <see cref="DocumentDiagnostics.AccessibilityIssues"/>; <see cref="DocumentDiagnostics.IsPdfUA"/>
-    /// says whether the claim was written. Tagging changes nothing that is drawn; it makes the file larger (about 1.2 to 2.5 times the untagged file of the benchmark documents), so a
+    /// says whether the claim was written. Tagging changes nothing that is drawn; it makes the file larger (about 1.15 to 2.5 times the untagged file of the benchmark documents), so a
     /// <see cref="DocumentLimits.MaxBytes"/> chosen for untagged files may need raising.
     /// </para>
     /// <para>
@@ -200,7 +200,7 @@ public sealed class DocumentLimits
     /// The most bytes the file may have, or <see langword="null"/> for no limit. The size is checked after every page, to stop early, and once more when the file is complete (the fonts are
     /// written last), so a file over the limit is never returned: <see cref="PdfLimitExceededException"/> is thrown and nothing at all has been written to the caller's stream.
     /// The file is built in memory before it is written to the stream.
-    /// A tagged file (<see cref="PdfDocumentOptions.Tagged"/>, the default since 0.1.6) is larger than the untagged file of the same document (about 1.2 to 2.5 times for the
+    /// A tagged file (<see cref="PdfDocumentOptions.Tagged"/>, the default since 0.1.6) is larger than the untagged file of the same document (about 1.15 to 2.5 times for the
     /// benchmark documents), so a limit chosen for the files of 0.1.5 can now be exceeded: raise it, or set <see cref="PdfDocumentOptions.Tagged"/> to <see langword="false"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is less than 1.</exception>

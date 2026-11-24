@@ -78,7 +78,7 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **A callout nested in a column cell or another callout that is taller than a page fails the save** with an `InvalidOperationException` (it is not split, and nothing is written); only a callout in the flow is split. The same holds for a callout whose border and padding leave no room on a page for its first block, or less than 4 points of width, and for columns whose gap leaves a cell less than 4 points.
 - **`CornerRadius` is cut to half the shorter side of the box**, so a large radius gives a pill, not elliptical corners.
 - **`KeepTogether` exists on `Paragraph` and `Callout` only**, not on `Table` (its rows are streamed) or `Heading` (always kept with what follows). In a column cell it has no effect. A block taller than a page is split whatever it asks.
-- **`AltText` is not written anywhere.** `Drawing.AltText` and `Image.AltText` are kept for tagged output (plan section 6), which does not exist yet, so a screen reader does not see them today.
+- **A picture or a drawing without `AltText` is decorative.** In a tagged document (the default since 0.1.6) `Image.AltText` and `Drawing.AltText` become the `/Alt` of a `Figure`; without them (or with a blank one) the picture is an artifact that a screen reader skips, and nothing reports it, since a decorative picture is legitimate. A picture in a header or a footer is an artifact either way. An untagged document writes `AltText` nowhere.
 - **The canvas text has no wrapping:** `DrawingCanvas.DrawText` breaks only at hard line breaks; use `TextMeasurer` to wrap or fit text.
 - **A header or footer is one block drawn inside the margin**, with no splitting and no table; one taller than what the margin leaves (the margin minus the offset) fails the save, and so does a block that cannot be laid out there; the exception names the page and says whether it was the header or the footer. Its callback runs once for each page after the whole body is laid out, so it should be a pure function of the `PageContext`.
 - **A document with a header or a footer holds a reference and the resources of every page until the body is laid out** (not the content, which is written as each page ends). `MaxBytes` is checked as the bodies are written and at the end; the header and footer streams are added after the last body.
@@ -89,6 +89,27 @@ What Pdfwright does not do, or does in a way that a reader of the output can not
 - **The colours of a lossy WebP are libwebp's to within one level, by construction and not by comparison.** The conversion of YUV to RGB and the "fancy" upsampling of the chroma planes are ported from libwebp v1.6.0 (scalar code), and the rest of the lossy decoder from the Go port of the VP8 specification; no libwebp was run to compare the two, so a pixel-exact claim is not made. The lossless decoder is exact: its output equals the PNG the test pictures were made from.
 - **A WebP is decoded whole**: a lossless one of the pixel limit (40 million) needs about 320 MB while it is decoded and holds 160 MB when it is done; a lossy one about 220 MB while it is decoded. Lower `PdfImageOptions.MaxPixels` if that is too much. **A valid lossless WebP can be tiny and still decode to the whole limit:** a picture of one colour has trees of one symbol, which are read with zero bits, so a file of 34 bytes can claim 16,384 by 2,441 pixels (40 million) and decode to 160 MB (and about 320 MB at its peak). That file is legal, so no ratio of size to pixels is checked; for pictures from untrusted sources lower `MaxPixels`. A lossy WebP does not amplify like this: its data must cover every macroblock row, and a frame that ends early is refused at the end of the first row that lacks its data, with the planes allocated only after the headers are checked. The Huffman tables of one image are capped at 64 MB, and an image that names more than 2,600 Huffman groups is refused.
 - **The picture of a `PdfImage` is held decoded** (a PNG's or a WebP's samples, a JPEG's bytes) for the life of the object, and is written once to each document that uses it.
+
+## Tagged PDF and PDF/UA-1
+
+Tagged output is on by default since 0.1.6 (see the guide, section "Tagged PDF and accessibility", and [plan-tagged-pdf.md](plan-tagged-pdf.md)).
+
+- **The roles follow from the block types and cannot be set by the caller.** A `Heading` is `H1` to `H6`, a `Paragraph` a `P`, a `Callout` or `Columns` a `Div`, and so on; there is no property to make a paragraph a caption, a
+  block quote or a note, to mark a picture with `AltText` as decorative, or to add a role map. Roles set by the caller are not in 0.1.6.
+- **Table header cells are column headers only.** The cells of a table's header rows are `TH` with `/Scope /Column`; there are no row headers (`TH` with `/Scope /Row`), no `/Headers` attribute and no `Caption`, so a
+  table whose first column names the rows is read as plain data cells there. A table with a header and no body row has its header rows straight under the `Table` (no `THead` without a `TBody`, which PDF/UA-1 forbids).
+- **No links are tagged, because there are none.** The public API has no link on text (see "Columns, callouts, drawings, images, headers and footers" below), so there is no `Link` element or link annotation to tag.
+- **Text drawn on a canvas has no `/Lang` of its own.** It is part of its drawing's `Figure`, which the `/Alt` stands for, or of an artifact. A chart's labels in another language than the document's are not marked as such.
+- **A document claims PDF/UA-1 only with a title, a language, a glyph for every character and headings in order.** Without `PdfDocumentOptions.Title` or `PdfDocumentOptions.Language` (a language set only on `DefaultStyle`
+  does not count), with a language that is not a language tag, with a character no font has, with a first heading that is not level 1 or with a skipped heading level, the file is written tagged but without the
+  claim, and `DocumentDiagnostics.AccessibilityIssues` says why. Heading levels are reported, not remapped. A missing glyph is still drawn as the font's `.notdef`.
+- **A tagged file is larger.** About 1.15 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10). The 1,000-row table is 186 KB tagged against 76 KB untagged, over the plan's 150 KB: the
+  maintainer accepted about 186 KB for tagged output on 24 November 2026, as what is left is the structure of its 7,012 elements, numbers that Flate cannot predict; the 150 KB target applies to untagged output. The
+  20-page report (100 KB) and the stress document (452 KB) stay under the plan's 120 and 600 KB. A `DocumentLimits.MaxBytes` chosen for the files of 0.1.5 can be exceeded; raise it, or set `Tagged = false`, which
+  writes the untagged bytes of 0.1.5.
+- **No `OutputIntent`.** PDF/A needs one and PDF/UA-1 does not; PDF/A is not claimed.
+- **veraPDF is the only validator used.** CI validates tagged files against PDF/UA-1 with veraPDF (a pinned version, on the Linux leg), and the tests check that `IsPdfUA` agrees with it for every file. Other checkers
+  (Adobe Acrobat's accessibility check, PAC) were not run, and **no screen reader was tried by hand**: that a screen reader reads the files well is expected from the structure, not observed.
 
 ## Fonts and scripts
 

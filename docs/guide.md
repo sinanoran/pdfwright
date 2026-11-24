@@ -30,9 +30,10 @@ Two type names are also names in `System.Drawing`: `Drawing` and `Image`. Where 
 12. [Headers and footers](#headers-and-footers)
 13. [Right-to-left and mixed-direction text](#right-to-left-and-mixed-direction-text)
 14. [Metadata and deterministic output](#metadata-and-deterministic-output)
-15. [Diagnostics and limits](#diagnostics-and-limits)
-16. [Threads and lifetimes](#threads-and-lifetimes)
-17. [Startup time](#startup-time)
+15. [Tagged PDF and accessibility](#tagged-pdf-and-accessibility)
+16. [Diagnostics and limits](#diagnostics-and-limits)
+17. [Threads and lifetimes](#threads-and-lifetimes)
+18. [Startup time](#startup-time)
 
 ## How a document is made
 
@@ -427,7 +428,8 @@ document.Add(new Drawing(Length.Mm(60), Length.Mm(30), canvas =>
   `alignment` says which edge of the text sits at the point. It does not wrap; break lines yourself, using the measurer. A `Drawing` sets text in the direction of the `Columns` or `Callout` it is in.
 - A drawing is never split or scaled: one taller than a page, or wider than the room it is in, fails the save with an `InvalidOperationException`. Give it the size of its place.
 - Write numbers on a scale near 1: operands are written with five decimals, so data in units whose fractions are below 0.00001 loses them. Scale your data into points before drawing.
-- `AltText` is kept for tagged output, which is not in 0.1, and is not written to the file yet.
+- `AltText` is the drawing's alternative text. In a tagged document (the default) a drawing with it is a `Figure` whose `/Alt` a screen reader reads, and the text drawn on its canvas is part of that figure; a drawing
+  without it is decorative, and a screen reader skips it. Write in it what a reader should take from the chart, not only its title. See [Tagged PDF and accessibility](#tagged-pdf-and-accessibility).
 
 ## Measuring text
 
@@ -472,7 +474,8 @@ document.Add(new Drawing(Length.Mm(40), Length.Mm(20), canvas => canvas.DrawImag
 ```
 
 The `Image` block keeps the picture's proportions (set a width or a height, not both; setting both stretches it) and is scaled down to fit the width when it is wider than its place. It can be placed in the flow, in a cell, in a callout,
-in a header, and drawn on a canvas.
+in a header, and drawn on a canvas. In a tagged document (the default) an `Image` with `AltText` is a `Figure` that a screen reader reads, and one without it is decorative; a picture drawn on a canvas belongs to its drawing
+(see [Tagged PDF and accessibility](#tagged-pdf-and-accessibility)).
 
 A picture of more pixels than the limit is refused with an `ArgumentException` whose message gives its size, the limit and the option that changes it. `PdfImageOptions.MaxPixels` raises the limit for pictures you trust, up to 100,000,000 (about 400 MB decoded for a PNG
 with transparency), or lowers it to be stricter about pictures from users; a value below 1 or above 100,000,000 is refused where it is set.
@@ -624,11 +627,125 @@ PdfDocument document = new(options);
 document.Add(new Paragraph("Hello"));
 ```
 
+- The title and the language are also what PDF/UA-1 asks of every document: a tagged document without them is written tagged, without the PDF/UA-1 claim (see [Tagged PDF and accessibility](#tagged-pdf-and-accessibility)).
 - Metadata is the title, subject, author, creator and language. Nothing is written that was not set, and the library records itself as the producer. A line break or a tab in them is written as a space, other control characters are left out, and a surrogate without its pair is written as U+FFFD, so that the Info dictionary and the XMP packet always agree and are well formed.
 - With `Deterministic = true` the clock is never read, so the same document is the same bytes. The file's `/ID` is a hash of its content either way. Without `Deterministic` and without `Creation`, the date is the time of the save.
 - `Compress` (on by default) is Flate. The compressed bytes depend on the zlib of the .NET runtime, so a compressed file is the same bytes on the same runtime but may differ between runtimes. For golden files that must match everywhere,
   switch it off.
 - Every number in the file is written with the invariant culture, so a German or Turkish machine writes the same file as an American one.
+
+## Tagged PDF and accessibility
+
+Since 0.1.6 every document is written as a **tagged PDF** unless `PdfDocumentOptions.Tagged` is set to `false`. A tagged file has a structure tree that says what each piece of the page is (a heading, a paragraph, a
+table cell, a figure) in the order it is read, so a screen reader reads the report in order and announces its headings, lists and tables. Tagging changes nothing that is drawn: a tagged page and an untagged page are
+the same pixels. When the document also has a title and a language, and the save found nothing in the way, the file claims **PDF/UA-1** (ISO 14289-1, `pdfuaid:part` 1 in its XMP metadata).
+
+<!-- snippet: guide-tagged -->
+```csharp
+PdfImage logo = PdfImage.FromBytes(logoBytes);
+
+PdfDocument document = new(new PdfDocumentOptions
+{
+    Fonts = fonts,
+    DefaultStyle = new TextStyle { Family = "Noto Sans" },
+    // Tagged is on by default. PDF/UA-1 also asks for a title and a language: without them the file is tagged but makes no claim.
+    Title = "Monthly report",
+    Language = "en",
+});
+
+document.Add(new Heading(1, "Monthly report"));   // H1; the headings after it go down one level at a time
+document.Add(new Paragraph(
+[
+    new TextRun("The Turkish word "),
+    new TextRun("ılık", new TextStyle { Language = "tr" }),   // a run in another language carries its own /Lang
+    new TextRun(" means lukewarm."),
+]));
+
+// With AltText a picture is a Figure that a screen reader reads; without it, it is decorative and skipped.
+document.Add(new Image(logo) { Width = Length.Mm(30), AltText = "Company logo" });
+document.Add(new Image(logo) { Width = Length.Mm(5) });
+
+await document.SaveAsync(stream, cancellationToken);
+bool claimed = document.Diagnostics.IsPdfUA;   // true: tagged, with a title and a language, and no accessibility issue
+```
+
+**What is written.** The role of each element follows from the type of its block; there is no role to set. The structure is in the order the content is read: the blocks in the order they were added, and the cells of a row of
+columns in their order, whatever its direction.
+
+| Block | Structure element |
+|---|---|
+| `Heading` | `H1` to `H6`, by its level |
+| `Paragraph` | `P`; a paragraph that continues on the next page stays one `P` |
+| `Callout` | `Div`, holding the elements of its blocks |
+| `Columns` | `Div` for the row and a `Div` for each cell |
+| `ItemList` | `L`, with an `LI` for each item, its marker as `Lbl` and its paragraphs and nested list in `LBody` |
+| `Table` | `Table`, with `THead` (the header rows), `TBody`, `TR` for each row, `TH` with `/Scope /Column` for a header cell and `TD` for a body cell (one `P` for each paragraph when a cell has several; an empty cell is an empty `TD`); a table with header rows and no body row has its header rows straight under the `Table`, with no `THead` |
+| `Image`, `Drawing` with `AltText` | `Figure`, with the `AltText` as its `/Alt` and its bounding box; the text drawn on a drawing's canvas is part of the figure |
+
+Everything that is not content is an **artifact**, which a screen reader skips: the header and the footer (whatever block they are, a picture with `AltText` too), the fills and borders of a table (`HeaderFill`, `ZebraFill`,
+a row's or a cell's `Fill`), the box of a callout, the header rows of a table drawn again at the top of later pages (the header on the table's first page is the `THead`), blank paragraphs and headings, the marker of a list item with nothing to read, and every `Image` or `Drawing` without `AltText`.
+
+**Alternative text.** `Image.AltText` and `Drawing.AltText` are the alternative text of a figure. A picture or a drawing without it, or with one that is empty or blank, is **decorative**: right for a rule, a background or a logo
+that repeats the text beside it, wrong for a chart. For a chart, write what a reader should take from it ("Sales rose every month from June to October, from 4 to 9 thousand units"), not only its title: the
+labels drawn on its canvas are inside the figure, and its `/Alt` stands for all of it.
+
+**Languages.** `PdfDocumentOptions.Language` is the document's language, written on the catalog. An element whose text is in another language (set by the `Language` of a `TextStyle`) carries its own `/Lang`, and so does
+a run in another language than its paragraph (as a marked span). A language set only on `DefaultStyle` is the language of the text, not of the document: without `PdfDocumentOptions.Language` the catalog has no
+`/Lang`, and the save reports `MissingLanguage`. Text drawn on a canvas has no `/Lang` of its own: it is part of its figure, or of an artifact.
+
+**The PDF/UA-1 claim.** A tagged document claims PDF/UA-1 only when the save reported no accessibility issue. Otherwise it is written tagged all the same, without the claim, and the save lists what kept the claim out.
+`DocumentDiagnostics.IsPdfUA` says whether the claim was written, and `DocumentDiagnostics.AccessibilityIssues` lists the issues in the order found. Each `AccessibilityIssue` has a `Kind`, a `Page` (from 1, or `null`
+for an issue of the whole document) and a `Message` in English for a log. Once nothing is left, the next save claims PDF/UA-1.
+
+<!-- snippet: guide-accessibility-issues -->
+```csharp
+using System.Diagnostics;
+
+PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts });   // no title and no language
+document.Add(new Heading(2, "Summary"));                                // the first heading is not a level 1 heading
+document.Add(new Paragraph("Totals are final."));
+
+await document.SaveAsync(stream, cancellationToken);
+
+// The file is tagged all the same, without the PDF/UA-1 claim; the diagnostics say what kept it out.
+if (!document.Diagnostics.IsPdfUA)
+{
+    foreach (AccessibilityIssue issue in document.Diagnostics.AccessibilityIssues)
+    {
+        // Here: MissingTitle and MissingLanguage (no page: the whole document), then FirstHeadingNotH1 on page 1.
+        Trace.WriteLine(issue.ToString());
+    }
+}
+```
+
+| `AccessibilityIssueKind` | What it means | How to fix it |
+|---|---|---|
+| `MissingTitle` | The document has no `Title` (or one that is blank). No page. | Set `PdfDocumentOptions.Title`. |
+| `MissingLanguage` | The document has no `Language` (or one that is blank). No page. | Set `PdfDocumentOptions.Language` (a language on `DefaultStyle` is not enough). |
+| `InvalidLanguage` | A language written as `/Lang` (the document's, a paragraph's or a run's) is not a language tag, such as `en_US`. No page for the document's language, else the page the text is first on. | Write a BCP 47 tag: `en-US`, `tr`, `ar`. |
+| `MissingGlyph` | A character that no font has was drawn as the font's `.notdef`, which PDF/UA-1 forbids. One issue for each page that has any. Characters that no font has are also listed in `MissingGlyphs` (up to its 1,000 entries); a `.notdef` that the shaper itself leaves, such as for a Hangul filler, is not. | Add a font that has the character to the collection, or leave the character out. |
+| `FirstHeadingNotH1` | The first heading of the document is not a level 1 heading. | Start with `new Heading(1, ...)`. |
+| `SkippedHeadingLevel` | A heading is more than one level below the heading before it, such as a level 3 after a level 1. | Go down one level at a time; the levels are not changed for you. |
+
+Headings are checked in reading order, those inside callouts and columns too. Later versions may add kinds, so a `switch` over `Kind` should have a default. An untagged document is not checked: its
+`AccessibilityIssues` is empty and its `IsPdfUA` is `false`.
+
+**Untagged output.** `Tagged = false` writes the untagged file of 0.1.5 byte for byte: to compare with files made by 0.1.5, or for the smallest file.
+
+<!-- snippet: guide-untagged -->
+```csharp
+// The untagged file of 0.1.5, byte for byte: no structure tree, no PDF/UA-1 claim, and no accessibility issue checked.
+PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts, Title = "Monthly report", Language = "en", Tagged = false });
+```
+
+**What it costs.** A tagged file is larger: about 1.15 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10: the 1,000-row table 186 KB against 76 KB, the ten-page report 73 KB against 57 KB,
+the 20-page report 100 KB against 87 KB). **A `DocumentLimits.MaxBytes` chosen for the files of 0.1.5 can now be exceeded**, and the save then throws `PdfLimitExceededException`: raise the limit, or set
+`Tagged = false`. The allocation per save is about the same (the 1,000-row table 18.3 to 19.5 MB against 18.1 to 19.2 MB untagged), and a warm save of that table took about 15 ms more on a busy machine (51.6 and
+56.7 ms against 38.0 and 39.6 ms). [baselines.md](baselines.md) has every figure and how they were taken.
+
+**How it is checked.** The tests read the structure tree of tagged files back and check it, and CI validates tagged files against PDF/UA-1 with veraPDF (the corpus of every script, the README report, the sample, the
+benchmark scenarios, the tagged golden files and documents with every kind of block); the tests also check that `IsPdfUA` agrees with veraPDF for every file. No screen reader was tried by hand. What tagging does not
+cover (row headers, roles of your own) is in [known-limitations.md](known-limitations.md).
 
 ## Diagnostics and limits
 
@@ -639,6 +756,8 @@ A document is made for a report, so a character no font has is **data to inspect
 | `MissingGlyphs` | Each character no font had, once for each language and page it occurred on, at most 1,000 |
 | `MissingFamilies` | The families a style asked for that the collection does not have |
 | `TruncatedTables` | The tables that went past their `MaxRows` |
+| `IsPdfUA` | Whether the file claims PDF/UA-1 (see [Tagged PDF and accessibility](#tagged-pdf-and-accessibility)) |
+| `AccessibilityIssues` | What kept a tagged document from claiming PDF/UA-1: no title, no language or an invalid language tag, a missing glyph, a heading out of order |
 | `PageCount`, `ByteCount` | The size of what was written |
 
 `PdfDocumentOptions.Limits` stops a runaway document with a `PdfLimitExceededException` whose `Limit` says which limit and `Maximum` its value: `MaxPages`, `MaxBytes` (checked after every page and once more when the file is complete,

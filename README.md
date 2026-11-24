@@ -39,8 +39,10 @@ evidence, is in [`docs/plan-0.1.md`](docs/plan-0.1.md).
 - Embedded **font subsets** (TrueType), chosen by family, weight and style with fallback by coverage.
 - **Right-to-left and mixed-direction text** (the Unicode bidirectional algorithm), Arabic, Hebrew, Devanagari, Bengali, Tamil and Thai shaping, and Latin, Greek and Cyrillic.
 - Metadata, deterministic output (the same document is the same bytes), limits on pages, bytes and table rows, and diagnostics for missing glyphs.
+- **Tagged (accessible) PDF, PDF/UA-1, on by default** (since 0.1.6): a structure tree in reading order (headings, paragraphs, lists, tables with column headers, figures with their alternative text), the header, the footer and
+  decoration as artifacts, and languages on the text. A document with a title and a language claims PDF/UA-1 when nothing is in the way, and the diagnostics say whether it did and what kept it out. veraPDF validates PDF/UA-1 in CI.
 
-**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A and PDF/UA, **tagged (accessible) PDF** (the design leaves room for it; it is the next work, in a 0.1.x release before 0.2), links on text,
+**Not in 0.1:** tested CJK (most CJK fonts have CFF outlines, which are refused; a CJK font with TrueType outlines is accepted but no CJK text is in the test corpus), vertical text, emoji and colour fonts, forms, encryption and signatures, PDF/A, links on text,
 hyphenation and justified text, table cell spans, floating images, pictures other than JPEG, PNG and WebP (no GIF, TIFF, SVG or animated WebP), gradients, and any use of system fonts. It is a report writer, not a PDF editor: it does not read, merge or modify existing PDF files.
 
 ## Quick start
@@ -107,7 +109,7 @@ There is also a runnable sample, a multi-page report with a heading, a row of KP
   the paragraph, the run.
 - **Direction is logical.** Alignment and column order say *start* and *end*, so the same table is right to left when its `Direction` is. Text is written to the file in logical order, with every glyph where the bidirectional algorithm puts it.
 - **`Deterministic = true`** reads no clock, so the same document is the same bytes (with `Compress = false` the bytes are the same on every .NET version too).
-- **Diagnostics and limits.** `PdfDocument.Diagnostics` reports missing glyphs, missing families, truncated tables, the page count and the byte count. `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway
+- **Diagnostics and limits.** `PdfDocument.Diagnostics` reports missing glyphs, missing families, truncated tables, whether the file claims PDF/UA-1 and what kept it out, the page count and the byte count. `DocumentLimits` (`MaxPages`, `MaxBytes`, `MaxTableRows`) stop a runaway
   document with a `PdfLimitExceededException`, and nothing is written to the stream when one is hit.
 - **`SaveAsync` buffers.** The whole file is made in memory and then copied to the stream, so a failing document writes nothing and a stream that cannot seek works. Plan for memory about the size of the file; the rows of a table
   are never held.
@@ -151,20 +153,22 @@ pages with a repeated header. Where a cell says "not measured", nobody measured 
 | Dependency on disk | HarfBuzz: `libHarfBuzzSharp` 2.2 MB (win-x64) and 16.8 MB (Linux, every architecture in one package) | `libSkiaSharp` 13.2 MB and `libHarfBuzzSharp` 2.2 MB (win-x64; 16.8 MB for Linux, every architecture in one package); the Linux Skia package is a 63 MB `.nupkg` for every architecture | the browser: 288 MB (headless shell) or 453 MB (full Chromium) |
 | Arabic and Hebrew text read back in logical order | **yes**: 313 of 313 Arabic and 312 of 312 Hebrew strings (PdfPig), same in pdf.js | **no**: Arabic comes back as presentation forms in visual order, Hebrew reversed (read with PdfPig 0.1.16; feeding Skia the shaper's clusters did not change it) | not measured here |
 | Mixed-direction paragraph (Latin in Arabic) | itemized and ordered by UAX #9 | the stock shaper does no bidirectional itemization: a mixed line was drawn with the Arabic in isolated forms | not measured here |
-| Tagged (accessible) PDF | **not yet** | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
-| 1,000-row table, cold process | 417 ms median over 40 fresh processes of the current build, **240 ms** when the application is published with ReadyToRun (the plan's target is 250 ms, section 7), including about 75 ms of runtime start, at 12 GB free (the cold time moves by half a second with the machine's free memory, see baselines.md); 50 MB peak (25.7 MB over the 24.7 MB of a bare runtime start; **23.8 MB with ReadyToRun**, under the plan's 25 MB), 76 KB (75,661 bytes), 21 pages, 18.5 MB allocated and about 30 ms warm; 8 mm side margins and 3 pt cell padding against the browser's none and 1 px | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms from browser launch to the end of `page.pdf` (node start and browser close excluded), 495 MB peak over the process tree, 154 KB. The "cold" numbers are taken differently: Pdfwright's is process start to exit, runtime start included; the Skia spike's method is not documented; the layouts differ (margins, padding, fonts) |
+| Tagged (accessible) PDF | **yes**: PDF/UA-1, on by default since 0.1.6, validated by veraPDF in CI | not possible through SkiaSharp: `SKDocumentPdfMetadata` has no structure tree, language, outlines or page labels | documented: Playwright's `page.pdf` has a `tagged` option (not tested here) |
+| 1,000-row table, cold process | 417 ms median over 40 fresh processes of the current build, **240 ms** when the application is published with ReadyToRun (the plan's target is 250 ms, section 7), including about 75 ms of runtime start, at 12 GB free (the cold time moves by half a second with the machine's free memory, see baselines.md); 50 MB peak (25.7 MB over the 24.7 MB of a bare runtime start; **23.8 MB with ReadyToRun**, under the plan's 25 MB), 76 KB (75,661 bytes), 21 pages, 18.5 MB allocated and about 30 ms warm, all of the untagged file before 0.1.6. **Tagged, the default since 0.1.6: 186 KB** (over the plan's 150 KB, which the untagged file meets), 18.3 to 19.5 MB allocated, and about 15 ms more warm in a later, busier sitting (51.6 and 56.7 ms against 38.0 and 39.6 ms untagged); in that sitting (24 November 2026, medians of 40 fresh processes) the first save in a fresh process took 519 ms tagged against 473 ms untagged, and 288 against 283 ms with ReadyToRun; `Tagged = false` writes the 76 KB file; 8 mm side margins and 3 pt cell padding against the browser's none and 1 px | 279 ms, 31 MB peak (7 MB over the process baseline), 590 KB: a text-only spike, and the font was barely subset | 2,048 ms from browser launch to the end of `page.pdf` (node start and browser close excluded), 495 MB peak over the process tree, 154 KB. The "cold" numbers are taken differently: Pdfwright's is process start to exit, runtime start included; the Skia spike's method is not documented; the layouts differ (margins, padding, fonts) |
 | Fonts | supplied by you, embedded as subsets | not assessed here | looked up by the browser on the machine, unless the page loads its own |
 | Byte-stable output (golden files) | yes (`Deterministic`, optionally `Compress = false`) | Skia writes a document id and dates; stability not assessed | not assessed here |
 
 Reading it: the browser is the most complete and costs a browser; the Skia backend is the lightest and failed the extraction criterion for the scripts that matter here; Pdfwright's claim is the third row, measured by the tests in this
-repository, and it pays for it with what is not in 0.1 (tested CJK, tagged PDF, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
+repository, and it pays for it with what is not in 0.1 (tested CJK, forms, encryption, PDF/A). The two competitors' rows are spikes made for the plan, not the tools at their best: a team that does not need Arabic, Hebrew or Indic text
 extraction, or needs full HTML and CSS, should use the browser or Skia. Pdfwright's own timings, a ten-page report and how to repeat them are in `docs/baselines.md`; they are order-of-magnitude comparisons only (the browser and Skia rows are one run each).
 
 ## Known limitations
 
 The full list, with the reason for each, is in [docs/known-limitations.md](docs/known-limitations.md). The ones that matter most when choosing:
 
-- No tagged PDF yet, so a screen reader reads the text but not a structure; `AltText` on images and drawings is kept for it and is not written yet. Tagged PDF is the next work, in a 0.1.x release before 0.2.
+- Tagged PDF covers what the blocks say and no more: the roles follow from the block types and cannot be set by the caller, table header cells are column headers only (no row headers), there are no links to tag (the API has none),
+  and text drawn on a canvas has no language of its own. A tagged table is larger than the plan's size target (186 KB against 150 KB for the 1,000-row table), and a `MaxBytes` chosen for untagged files may need raising.
+  veraPDF is the only validator used; no screen reader was tried by hand.
 - CJK is not tested or claimed: OpenType fonts with CFF outlines (most CJK fonts, such as the `.otf` Noto Sans CJK) are refused; a CJK font with TrueType outlines is accepted, its text is shaped,
   embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. CJK is planned for 0.2. No vertical text, emoji or colour fonts.
 - Arabic and Hindi tables take about 5 and 6 times the time of the same Latin table (the plan aims at 2 times); faster shaping for them is planned for 0.2.
@@ -176,12 +180,12 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 
 ## Documentation
 
-- [User guide](docs/guide.md): fonts, styles, headings and paragraphs, tables, columns and callouts, drawing, images, headers and footers, right-to-left text, metadata, diagnostics and limits.
+- [User guide](docs/guide.md): fonts, styles, headings and paragraphs, tables, columns and callouts, drawing, images, headers and footers, right-to-left text, metadata, tagged PDF and accessibility, diagnostics and limits.
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
-- [Plan for tagged PDF](docs/plan-tagged-pdf.md): tagged (accessible) PDF and PDF/UA-1, on by default, in 0.1.6.
-- [Draft plan for 0.2](docs/plan-0.2.md): CJK and the performance work left over from 0.1; tagged PDF, first planned there, comes before 0.2. A draft, not a commitment.
+- [Plan for tagged PDF](docs/plan-tagged-pdf.md): tagged (accessible) PDF and PDF/UA-1, on by default; done in 0.1.6, with what is left for later.
+- [Draft plan for 0.2](docs/plan-0.2.md): CJK and the performance work left over from 0.1; tagged PDF, first planned there, came before 0.2, in 0.1.6. A draft, not a commitment.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 
