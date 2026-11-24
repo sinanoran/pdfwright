@@ -447,6 +447,41 @@ public class TaggedWriterTests
         page.EndMarkedContent();
     }
 
+    [Fact]
+    public void A_closed_element_made_again_is_a_new_element_with_its_own_object_and_an_unwritten_one_is_refused()
+    {
+        MemoryStream memory = new();
+        int firstNumber;
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfPageWriter page = document.BeginPage(300, 300);
+            PdfStructureElement element = structure.Create(structure.Document, "P");
+            Assert.Throws<InvalidOperationException>(() => structure.Reuse(element, structure.Document, "H1"));
+            Mark(page, element);
+            Assert.Throws<InvalidOperationException>(() => structure.Reuse(element, structure.Document, "H1"));
+            firstNumber = element.Number;
+            structure.Close(element);
+
+            Assert.Same(element, structure.Reuse(element, structure.Document, "H1", language: "de"));
+            Assert.Equal(0, element.Number);
+            Assert.False(element.IsClosed);
+            Mark(page, element);
+            Assert.NotEqual(firstNumber, element.Number);
+            page.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        Assert.Equal("Document[P,H1]", tree.Root.Outline());
+        StructureTreeReader.Element[] elements = [.. tree.Root.Children];
+        Assert.Equal(firstNumber, elements[0].Object);
+        Assert.Null(elements[0].Language);
+        Assert.Equal("de", elements[1].Language);
+        Assert.Equal<StructureTreeReader.Kid>([new StructureTreeReader.ContentKid(0, 1, false)], elements[1].Kids);
+    }
+
     // ---- misuse that would leave a broken file
 
     [Fact]
