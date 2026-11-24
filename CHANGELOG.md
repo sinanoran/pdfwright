@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-24
+
 ### Added
 
 - **`FontCollection.AddFile(string path)` and `FontCollection.Add(Stream)`.** They read a font straight into the collection's own (pinned) copy of it, so adding a font no longer needs an array of the file that the collection copies and the caller drops (`Add(File.ReadAllBytes(path))` held each font twice while it was added, the caller's copy on the large object heap). `Add(Stream)` reads from the stream's position to its end and leaves the stream open; `AddFile` reads a file whose length the system gives as 0 (a pipe, a file of `/proc`) to its end. `Add(null)` with a literal `null` is now ambiguous between `Add(byte[])` and `Add(Stream)` (cast it, as with any such overloads). `Add(byte[])` and `Add(ReadOnlyMemory<byte>)` are unchanged and still copy. The benchmark scenarios, the report sample and the guide use `AddFile`.
@@ -156,7 +158,8 @@ The text engine passes every row of `BidiTest.txt` (770,241), `BidiCharacterTest
 - CI on Linux, Windows and macOS, a job that makes the sample report inside the slim .NET runtime images for glibc (Debian) and musl (Alpine), and a release workflow that publishes with Trusted Publishing and no stored key.
 - A language review of the corpus text, the report sample and the guide by an AI agent (22 November 2026): corrections applied (the Arabic phrases of the sample and the guide, the corpus lines), goldens regenerated.
 
-[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/sinanoran/pdfwright/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/sinanoran/pdfwright/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/sinanoran/pdfwright/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/sinanoran/pdfwright/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/sinanoran/pdfwright/compare/v0.1.3...v0.1.4
