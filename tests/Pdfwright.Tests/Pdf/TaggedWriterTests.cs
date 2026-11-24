@@ -200,6 +200,39 @@ public class TaggedWriterTests
         Assert.Throws<InvalidOperationException>(() => page.BeginMarkedContent(one));
     }
 
+    /// <summary>
+    /// Attributes may be set late, while the element is open (a figure's bounding box when it is drawn), and not once its object is written: then
+    /// neither the setter nor the getter can be used, so a change to the dictionary cannot be lost without a word.
+    /// </summary>
+    [Fact]
+    public void The_attributes_are_set_while_the_element_is_open_and_refused_once_it_is_closed()
+    {
+        MemoryStream memory = new();
+        using (PdfDocumentWriter document = new(memory, new PdfWriterOptions { Compression = PdfCompression.None, Tagged = true }))
+        {
+            PdfStructureTree structure = document.Structure!;
+            PdfStructureElement figure = structure.Create(structure.Document, "Figure", alt: "A box");
+            PdfPageWriter page = document.BeginPage(300, 300);
+            page.BeginMarkedContent(figure);
+            page.Content.FillGray(0.5).Rectangle(10, 20, 30, 40).Fill();
+            figure.Attributes = new PdfDictionary().Set("O", "Layout").Set("BBox", new PdfArray(new PdfInteger(10), new PdfInteger(20), new PdfInteger(40), new PdfInteger(60)));
+            page.EndMarkedContent();
+            structure.Close(figure);
+
+            Assert.True(figure.IsClosed);
+            Assert.Throws<InvalidOperationException>(() => figure.Attributes = new PdfDictionary());
+            Assert.Throws<InvalidOperationException>(() => figure.Attributes!.Set("Placement", "Block"));
+            page.End();
+            document.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        tree.AssertConsistent();
+        StructureTreeReader.Element written = Assert.Single(tree.Root.Children);
+        Assert.Equal("Layout", ((UglyToad.PdfPig.Tokens.NameToken)written.Attributes!.Data["O"]).Data);
+        Assert.False(written.Attributes.Data.ContainsKey("Placement"));
+    }
+
     [Fact]
     public void Marked_content_needs_a_tagged_document()
     {

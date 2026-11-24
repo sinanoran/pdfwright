@@ -16,7 +16,7 @@ namespace Pdfwright.Tests.Document;
 /// </summary>
 public partial class TaggedFlowTests
 {
-    private static PdfDocumentOptions Tagged(Action<DocumentTestKit.OptionsBuilder>? change = null) =>
+    internal static PdfDocumentOptions Tagged(Action<DocumentTestKit.OptionsBuilder>? change = null) =>
         DocumentTestKit.Options(o =>
         {
             o.Tagged = true;
@@ -26,7 +26,7 @@ public partial class TaggedFlowTests
         });
 
     /// <summary>The text of each element of the tree, in the tree's order: the letters of its marked content, page by page, with white space left out.</summary>
-    private static List<(string Type, string Text)> ElementTexts(byte[] pdf, StructureTreeReader tree)
+    internal static List<(string Type, string Text)> ElementTexts(byte[] pdf, StructureTreeReader tree)
     {
         Dictionary<(int Page, int Mcid), string> marked = MarkedTexts(pdf);
         List<(string, string)> texts = [];
@@ -60,7 +60,7 @@ public partial class TaggedFlowTests
     }
 
     /// <summary>The text of the artifacts of each page, as PdfPig reads it.</summary>
-    private static string[] ArtifactTexts(byte[] pdf)
+    internal static string[] ArtifactTexts(byte[] pdf)
     {
         using UglyToad.PdfPig.PdfDocument read = UglyToad.PdfPig.PdfDocument.Open(pdf);
         return [.. DocumentTestKit.Pages(read).Select(p => DocumentTestKit.Strip(string.Concat(p.GetMarkedContents().Where(e => e.IsArtifact).SelectMany(Letters).Select(l => l.Value))))];
@@ -91,7 +91,7 @@ public partial class TaggedFlowTests
         return [.. letters.OrderBy(l => l.TextSequence)];
     }
 
-    private static StructureTreeReader Read(byte[] pdf)
+    internal static StructureTreeReader Read(byte[] pdf)
     {
         StructureTreeReader tree = StructureTreeReader.Read(pdf);
         tree.AssertConsistent();
@@ -442,11 +442,11 @@ public partial class TaggedFlowTests
     }
 
     /// <summary>
-    /// Lists, tables, images and drawings are not tagged in this slice: they are artifacts, in the flow, in a callout, in columns and in a header, and
-    /// the file stays consistent around them.
+    /// Tables are not tagged in this slice, and images and drawings without alternative text are decorative: they are artifacts, in the flow, in a
+    /// callout, in columns and in a header, and the file stays consistent around them and around the lists, which are tagged (except in the header).
     /// </summary>
     [Fact]
-    public void Blocks_not_tagged_yet_are_artifacts_and_the_file_stays_consistent()
+    public void Tables_and_pictures_without_alternative_text_are_artifacts_and_the_file_stays_consistent()
     {
         PdfImage png = PdfImage.FromBytes(ImageTestKit.Png(16, 16, 8, 6));
         DrawingBlock drawing = new(Length.Mm(40), Length.Mm(20), canvas =>
@@ -476,12 +476,22 @@ public partial class TaggedFlowTests
         byte[] pdf = DocumentTestKit.Save(document);
 
         StructureTreeReader tree = Read(pdf);
-        Assert.Equal("Document[H1,P,Div[P],Div[Div[P]],P]", tree.Root.Outline());
-        Assert.Equal(["Mixed", "Between.", "", "Inthecallout.", "", "", "Caption", "Theend."], ElementTexts(pdf, tree).Select(e => e.Text));
+        Assert.Equal(
+            "Document[H1,L[LI[Lbl,LBody[P]],LI[Lbl,LBody[P]]],P,Div[P,L[LI[Lbl,LBody[P]]]],Div[Div[L[LI[Lbl,LBody[P]]]],Div[P]],P]",
+            tree.Root.Outline());
+        Assert.Equal(
+            ["Mixed", "Firstitem", "Seconditem", "Between.", "Inthecallout.", "Calloutitem", "Columnitem", "Caption", "Theend."],
+            ElementTexts(pdf, tree).Where(e => e.Type == "P" || e.Type.StartsWith('H')).Select(e => e.Text));
+        Assert.DoesNotContain(tree.Root.Descendants(), e => e.Type == "Figure");
         string artifacts = string.Concat(ArtifactTexts(pdf));
-        foreach (string text in new[] { "Firstitem", "Row79", "Calloutitem", "Columnitem", "Canvastext", "Headeritem" })
+        foreach (string text in new[] { "Row79", "Canvastext", "Headeritem" })
         {
             Assert.Contains(text, artifacts, StringComparison.Ordinal);
+        }
+
+        foreach (string text in new[] { "Firstitem", "Calloutitem", "Columnitem" })
+        {
+            Assert.DoesNotContain(text, artifacts, StringComparison.Ordinal);
         }
 
         DocumentTestKit.AssertValid(pdf, "tagged-flow-artifacts");
@@ -497,7 +507,8 @@ public partial class TaggedFlowTests
         }));
 
         StructureTreeReader tree = Read(pdf);
-        Assert.Equal("Document[H1,P,Div[Div[Div[P],Div[P],Div[P]]],H2,H2]", tree.Root.Outline());
+        Assert.Equal("Document[H1,P,Div[Div[Div[P],Div[P],Div[P]]],H2,H2,Figure,Figure]", tree.Root.Outline());
+        Assert.Equal(["Bar chart of sales by month", "Logo"], tree.Root.Children.Where(e => e.Type == "Figure").Select(e => e.Alt));
         Assert.Equal("Monthlyreport", ElementTexts(pdf, tree)[0].Text);
         DocumentTestKit.AssertValid(pdf, "tagged-readme-report");
     }

@@ -19,7 +19,7 @@ internal sealed class PdfStructureElement
         Type = type;
         Alt = alt;
         Language = language;
-        Attributes = attributes;
+        _attributes = attributes;
     }
 
     /// <summary>The tree the element belongs to.</summary>
@@ -37,8 +37,35 @@ internal sealed class PdfStructureElement
     /// <summary>The element's language (<c>/Lang</c>), a BCP 47 tag, when it is not the language of the element around it.</summary>
     internal string? Language { get; }
 
-    /// <summary>The attribute dictionary (<c>/A</c>), such as <c>&lt;&lt;/O /Table /Scope /Column&gt;&gt;</c>.</summary>
-    internal PdfDictionary? Attributes { get; }
+    /// <summary>
+    /// The attribute dictionary (<c>/A</c>), such as <c>&lt;&lt;/O /Table /Scope /Column&gt;&gt;</c>. It may be set late, until the element closes:
+    /// a figure's bounding box is known only when the figure is drawn. Once the element's object is written, neither the getter nor the setter
+    /// can be used: the dictionary is mutable, and a change made to it then would be lost without a word, so it is not handed out at all.
+    /// </summary>
+    internal PdfDictionary? Attributes
+    {
+        get
+        {
+            ThrowIfClosed();
+            return _attributes;
+        }
+
+        set
+        {
+            ThrowIfClosed();
+            _attributes = value;
+        }
+    }
+
+    private PdfDictionary? _attributes;
+
+    private void ThrowIfClosed()
+    {
+        if (IsClosed)
+        {
+            throw new InvalidOperationException($"The {Type} element is closed and its object is written: its attributes cannot be read or changed.");
+        }
+    }
 
     /// <summary>The element's object number, from the moment it is materialised.</summary>
     internal PdfReference? Reference { get; set; }

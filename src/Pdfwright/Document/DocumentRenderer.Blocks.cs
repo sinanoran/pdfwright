@@ -149,9 +149,12 @@ internal sealed partial class DocumentRenderer
     /// <c>/Lang</c> is the paragraph's language when that is set and not the document's; the default style's language counts as the paragraph's, as
     /// it does for shaping.
     /// </summary>
-    private PdfStructureElement? TextTag(string type, StyledLayout layout, ResolvedStyle style)
+    private PdfStructureElement? TextTag(string type, StyledLayout layout, ResolvedStyle style) => TextTag(_tagParent, type, layout, style);
+
+    /// <summary>The light element of text under <paramref name="parent"/> (a list item's <c>Lbl</c> under its <c>LI</c>), as <see cref="TextTag(string, StyledLayout, ResolvedStyle)"/> makes it.</summary>
+    private PdfStructureElement? TextTag(PdfStructureElement? parent, string type, StyledLayout layout, ResolvedStyle style)
     {
-        if (_tagParent is not { } parent || string.IsNullOrWhiteSpace(layout.Layout.Text))
+        if (parent is null || string.IsNullOrWhiteSpace(layout.Layout.Text))
         {
             return null;
         }
@@ -251,13 +254,14 @@ internal sealed partial class DocumentRenderer
         }
 
         double offset = Offset(TextAlignment.Start, width, w, direction);
+        PdfStructureElement? figure = FigureTag(drawing.AltText);
         return new FixedItem
         {
             Kind = "drawing",
             Height = h,
             Before = Space(drawing.SpaceBefore, 0),
             After = AfterDefault(drawing.SpaceAfter),
-            Draw = (x, y) => DrawDrawing(drawing, x + offset, y, w, h, direction),
+            Draw = (x, y) => DrawDrawing(drawing, figure, x + offset, y, w, h, direction),
         };
     }
 
@@ -292,14 +296,30 @@ internal sealed partial class DocumentRenderer
         w *= scale;
         h *= scale;
         double offset = Offset(image.Alignment, width, w, direction);
+        PdfStructureElement? figure = FigureTag(image.AltText);
         return new FixedItem
         {
             Kind = "image",
             Height = h,
             Before = Space(image.SpaceBefore, 0),
             After = AfterDefault(image.SpaceAfter),
-            Draw = (x, y) => DrawPicture(image.Source, x + offset, y, w, h),
+            Draw = (x, y) => DrawPicture(image.Source, figure, x + offset, y, w, h),
         };
+    }
+
+    /// <summary>
+    /// The light <c>Figure</c> of an image or a drawing with alternative text, under the current parent, or <see langword="null"/>: untagged, in a
+    /// header or a footer, or without alternative text (or with one that is empty once read as metadata), which makes the picture decorative, an
+    /// artifact. Its bounding box is set when it is drawn (<see cref="BeginFigure"/>).
+    /// </summary>
+    private PdfStructureElement? FigureTag(string? alt)
+    {
+        if (_tagParent is not { } parent || alt is null || PdfDocumentWriter.Clean(alt).Length == 0)
+        {
+            return null;
+        }
+
+        return _writer.Structure!.Create(parent, "Figure", alt: alt);
     }
 
     private FixedItem BuildColumns(Columns columns, double width, double maxHeight, TextDirection direction)
@@ -498,12 +518,15 @@ internal sealed partial class DocumentRenderer
         (codePoint, language) => AddMissing(codePoint, language, pageNumber),
         NoteFamily);
 
-    /// <summary>Draws a drawing; tagged, it is an artifact for now, its canvas text included (a figure with alternative text comes with the tagging of figures).</summary>
-    private void DrawDrawing(Drawing drawing, double x, double y, double width, double height, TextDirection direction)
+    /// <summary>
+    /// Draws a drawing. Tagged, everything it paints, its canvas text and pictures included, is the one marked content of its <c>Figure</c> (the
+    /// alternative text stands for the whole, so the canvas text has no element of its own), or an artifact when it has no figure.
+    /// </summary>
+    private void DrawDrawing(Drawing drawing, PdfStructureElement? figure, double x, double y, double width, double height, TextDirection direction)
     {
-        bool artifact = BeginArtifact();
+        bool artifact = BeginFigure(figure, x, y, width, height);
         PaintDrawing(drawing, x, y, width, height, direction);
-        EndArtifact(artifact);
+        EndFigure(figure, artifact);
     }
 
     private void PaintDrawing(Drawing drawing, double x, double y, double width, double height, TextDirection direction)
@@ -524,13 +547,50 @@ internal sealed partial class DocumentRenderer
         }
     }
 
-    /// <summary>Draws an image; tagged, it is an artifact for now (a figure with alternative text comes with the tagging of figures).</summary>
-    private void DrawPicture(PdfImage picture, double x, double y, double width, double height)
+    /// <summary>Draws an image; tagged, it is the marked content of its <c>Figure</c>, or an artifact when it has no figure.</summary>
+    private void DrawPicture(PdfImage picture, PdfStructureElement? figure, double x, double y, double width, double height)
     {
-        bool artifact = BeginArtifact();
+        bool artifact = BeginFigure(figure, x, y, width, height);
         using (Canvas canvas = new(_page!, x, _pageHeight - _top - y, width, height))
         {
             canvas.DrawImage(picture.Source, 0, 0, width, height);
+        }
+
+        EndFigure(figure, artifact);
+    }
+
+    /// <summary>
+    /// Begins what a picture is drawn in when the document is tagged: the marked content of its <c>Figure</c>, whose bounding box (<c>/BBox</c>, in
+    /// the page's coordinates) is set now that the place is known, or an artifact for a picture with no figure. Returns whether it began an
+    /// artifact, for <see cref="EndFigure"/>. A picture is never split, so a figure has one sequence on one page.
+    /// </summary>
+    private bool BeginFigure(PdfStructureElement? figure, double x, double y, double width, double height)
+    {
+        if (figure is null)
+        {
+            return BeginArtifact();
+        }
+
+        if (_inArtifact)
+        {
+            // A figure is built only where its parent is the document's (not in a header or a footer): drawn inside an artifact, it is a defect of the renderer.
+            throw new InvalidOperationException("A figure is drawn inside an artifact.");
+        }
+
+        double top = _pageHeight - _top - y;
+        figure.Attributes = new PdfDictionary()
+            .Set("O", "Layout")
+            .Set("BBox", new PdfArray(new PdfReal(x), new PdfReal(top - height), new PdfReal(x + width), new PdfReal(top)));
+        _ = _page!.BeginMarkedContent(figure);
+        return false;
+    }
+
+    /// <summary>Ends what <see cref="BeginFigure"/> began.</summary>
+    private void EndFigure(PdfStructureElement? figure, bool artifact)
+    {
+        if (figure is not null)
+        {
+            _page!.EndMarkedContent();
         }
 
         EndArtifact(artifact);

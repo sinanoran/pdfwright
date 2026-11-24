@@ -384,7 +384,8 @@ internal sealed partial class DocumentRenderer
         ParagraphLayout layout = styled.Layout;
         if (styled.List is { } placement)
         {
-            // A paragraph of a list item: the text is inset from the start edge, and the marker is drawn with the first line, so that the two are never apart.
+            // A paragraph of a list item: the text is inset from the start edge, and the marker is drawn with the first line, so that the two are never apart. Tagged, the marker is its
+            // item's Lbl, whose marked content ends here, before the paragraph's own begins below: the two never nest.
             if (firstLine == 0 && placement.Marker is { } marker)
             {
                 LaidOutLine markerLine = marker.Layout.Lines[0];
@@ -424,7 +425,7 @@ internal sealed partial class DocumentRenderer
         }
 
         // Tagged, the lines are the marked content of their element (an MCID on this page; a paragraph split between pages has one on each), with a span
-        // around a run in another language than the paragraph's; text with no element (a list's or a table's, until they are tagged) is an artifact.
+        // around a run in another language than the paragraph's; text with no element (a table's, until tables are tagged) is an artifact.
         bool marked = false;
         bool artifact = false;
         if (_writer.Structure is not null)
@@ -456,7 +457,7 @@ internal sealed partial class DocumentRenderer
         RecordMissing(styled, firstLine, count, page.Index + 1);
     }
 
-    /// <summary>The element the text items built now belong to (<see cref="BuildTextItem"/>): the <c>Document</c>, a callout's or a column cell's <c>Div</c>, or <see langword="null"/> for none (untagged, or a header or footer).</summary>
+    /// <summary>The element the text items built now belong to (<see cref="BuildTextItem"/>): the <c>Document</c>, a callout's or a column cell's <c>Div</c>, a list item's <c>LBody</c>, or <see langword="null"/> for none (untagged, or a header or footer).</summary>
     private PdfStructureElement? _tagParent;
 
     /// <summary>
