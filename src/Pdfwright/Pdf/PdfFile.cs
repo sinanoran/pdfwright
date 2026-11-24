@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -339,6 +340,61 @@ internal sealed class PdfFile : IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes a content stream (a stream with no entries of its own in its dictionary) from the pieces a <see cref="ContentStreamBuilder"/> holds it in, as <see cref="Write"/> writes a
+    /// <see cref="PdfStream"/> of the same bytes: compressed when that makes it smaller, and the same bytes either way, without the pieces being joined first.
+    /// </summary>
+    internal void WriteContent(PdfReference reference, ContentStreamBuilder content)
+    {
+        CheckWritable(reference.Number, nameof(reference));
+        long start = _output.Position;
+        try
+        {
+            PdfSerializer.Integer(_output, reference.Number);
+            _output.Write(" 0 obj\n"u8);
+            PdfDictionary dictionary = new();
+            int length = content.Length;
+            if (_compression == PdfCompression.Flate && length >= CompressionThreshold)
+            {
+                ReadOnlyMemory<byte> deflated = Deflate(content, CompressionLevel.Optimal);
+                if (deflated.Length < length)
+                {
+                    dictionary.Set("Filter", "FlateDecode").Set("Length", deflated.Length);
+                    WriteStreamData(dictionary, deflated.Span);
+                    PdfSerializer.Ascii(_output, "\nendobj\n");
+                    _offsets[reference.Number] = start;
+                    return;
+                }
+            }
+
+            dictionary.Set("Length", length);
+            PdfSerializer.WriteDictionary(dictionary, _output);
+            PdfSerializer.Ascii(_output, "\nstream\n");
+            for (int i = 0; i < content.SegmentCount; i++)
+            {
+                _output.Write(content.Segment(i));
+            }
+
+            PdfSerializer.Ascii(_output, "\nendstream");
+            PdfSerializer.Ascii(_output, "\nendobj\n");
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+
+        _offsets[reference.Number] = start;
+    }
+
+    /// <summary>Allocates a number and writes a content stream under it, as <see cref="WriteContent"/> does.</summary>
+    internal PdfReference AddContent(ContentStreamBuilder content)
+    {
+        PdfReference reference = Allocate();
+        WriteContent(reference, content);
+        return reference;
+    }
+
     /// <summary>Allocates a number and writes the object under it.</summary>
     internal PdfReference Add(PdfObject value)
     {
@@ -478,9 +534,15 @@ internal sealed class PdfFile : IDisposable
         }
 
         dictionary.Set("Length", data.Length);
+        WriteStreamData(dictionary, data.Span);
+    }
+
+    /// <summary>The dictionary of a stream (its <c>/Length</c> set), and the stream's data between <c>stream</c> and <c>endstream</c>.</summary>
+    private void WriteStreamData(PdfDictionary dictionary, ReadOnlySpan<byte> data)
+    {
         PdfSerializer.WriteDictionary(dictionary, _output);
         PdfSerializer.Ascii(_output, "\nstream\n");
-        _output.Write(data.Span);
+        _output.Write(data);
         PdfSerializer.Ascii(_output, "\nendstream");
     }
 
@@ -512,6 +574,37 @@ internal sealed class PdfFile : IDisposable
         }
 
         return compressed.GetBuffer().AsMemory(0, (int)compressed.Length);
+    }
+
+    /// <summary>
+    /// The pieces of a content stream compressed as one, into the buffer <see cref="Deflate(ReadOnlySpan{byte}, CompressionLevel)"/> uses. The compressor is given the whole stream in one write, as it
+    /// was before the stream was held in pieces: the runtime's zlib does not write the same bytes for the same data given in several writes, so a stream of several pieces is first copied into one
+    /// buffer borrowed from the shared array pool (given back, cleared, at once), which a long page needs at about the size of its stream once in a process rather than at every save.
+    /// </summary>
+    private ReadOnlyMemory<byte> Deflate(ContentStreamBuilder content, CompressionLevel level)
+    {
+        if (content.SegmentCount == 1)
+        {
+            return Deflate(content.Segment(0), level);
+        }
+
+        byte[] whole = ArrayPool<byte>.Shared.Rent(content.Length);
+        try
+        {
+            int at = 0;
+            for (int i = 0; i < content.SegmentCount; i++)
+            {
+                ReadOnlySpan<byte> segment = content.Segment(i);
+                segment.CopyTo(whole.AsSpan(at));
+                at += segment.Length;
+            }
+
+            return Deflate(whole.AsSpan(0, at), level);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(whole, clearArray: true);
+        }
     }
 
     private MemoryStream? _deflated;
