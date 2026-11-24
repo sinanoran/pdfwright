@@ -75,20 +75,27 @@ public sealed record Paragraph : Block
     /// <summary>A paragraph of one run in the document's default style.</summary>
     /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     public Paragraph(string text)
-        : this([new TextRun(text)])
+        : this([new TextRun(text)], owned: true)
     {
     }
 
     /// <summary>A paragraph of several runs, each of which may differ in style (a bold word, a coloured number) within the same lines.</summary>
     /// <param name="runs">The runs, in logical order.</param>
     public Paragraph(IEnumerable<TextRun> runs)
+        : this(Check.Copy(runs ?? throw new ArgumentNullException(nameof(runs))), owned: true)
     {
-        ArgumentNullException.ThrowIfNull(runs);
-        Runs = new ReadOnlyCollection<TextRun>([.. runs]);
-        if (Runs.Any(r => r is null))
+    }
+
+    /// <summary>A paragraph of the runs of an array that is its own (a copy, or one made for it), which it keeps as its list of runs.</summary>
+    private Paragraph(TextRun[] runs, bool owned)
+    {
+        _ = owned;
+        if (Check.AnyNull(runs))
         {
             throw new ArgumentException("A run is null.", nameof(runs));
         }
+
+        Runs = new ReadOnlyCollection<TextRun>(runs);
     }
 
     /// <summary>The runs of the paragraph.</summary>
@@ -191,7 +198,7 @@ public sealed record Heading : Block
     /// <param name="text">The text. A line break of any kind inside it (line feed, carriage return, U+0085, vertical tab, form feed, U+2028, U+2029) is a hard line break in the same block, never a new paragraph; other control characters are removed and a surrogate without its pair is drawn as U+FFFD. The string is kept as given.</param>
     /// <exception cref="ArgumentOutOfRangeException">The level is not from 1 to 6.</exception>
     public Heading(int level, string text)
-        : this(level, [new TextRun(text)])
+        : this(level, new[] { new TextRun(text) })
     {
     }
 
@@ -208,11 +215,13 @@ public sealed record Heading : Block
         }
 
         Level = level;
-        Runs = new ReadOnlyCollection<TextRun>([.. runs]);
-        if (Runs.Any(r => r is null))
+        TextRun[] copy = Check.Copy(runs);
+        if (Check.AnyNull(copy))
         {
             throw new ArgumentException("A run is null.", nameof(runs));
         }
+
+        Runs = new ReadOnlyCollection<TextRun>(copy);
     }
 
     /// <summary>The level, 1 to 6.</summary>
