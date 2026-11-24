@@ -74,6 +74,38 @@ internal sealed class PdfDocumentWriter : IDisposable
     /// <summary>The structure tree of a tagged document (<see cref="PdfWriterOptions.Tagged"/>), or <see langword="null"/> for an untagged one.</summary>
     internal PdfStructureTree? Structure { get; }
 
+    /// <summary>
+    /// Whether the metadata claims PDF/UA-1 (<c>pdfuaid:part</c> 1). Set it before <see cref="Complete"/>, once what could stand in the way is known (a
+    /// missing glyph is known only when the last page is drawn); only a tagged document can claim it.
+    /// </summary>
+    internal bool ClaimsPdfUA
+    {
+        get => _claimsPdfUA;
+        set
+        {
+            if (value && Structure is null)
+            {
+                throw new InvalidOperationException("Only a tagged document can claim PDF/UA.");
+            }
+
+            if (_completed)
+            {
+                throw new InvalidOperationException("The document is complete.");
+            }
+
+            _claimsPdfUA = value;
+        }
+    }
+
+    private bool _claimsPdfUA;
+
+    /// <summary>
+    /// How many times an embedded font has drawn its glyph 0, the <c>.notdef</c> (<see cref="PdfEmbeddedFont.UseGlyph"/> counts them): a character drawn
+    /// with no glyph of its own, which PDF/UA-1 forbids anywhere in the content, artifacts included (7.21.8). It is counted whatever the reason the
+    /// glyph is missing, so that a claim never rests on a list of characters.
+    /// </summary>
+    internal long NotdefDrawn { get; set; }
+
     /// <summary>Writes an object of the document that pages refer to (a font, an image) and returns its reference.</summary>
     internal PdfReference AddObject(PdfObject value) => _file.Add(value);
 
@@ -483,7 +515,14 @@ internal sealed class PdfDocumentWriter : IDisposable
             xmp.Append("<xmp:ModifyDate>").Append(stamp).Append("</xmp:ModifyDate>\n");
         }
 
-        xmp.Append("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+        xmp.Append("</rdf:Description>\n");
+        if (ClaimsPdfUA)
+        {
+            // The PDF/UA identification schema (ISO 14289-1, 5); PDF/UA-1 asks for nothing else beside it (its extension schema description is a PDF/A rule).
+            xmp.Append("<rdf:Description rdf:about=\"\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">\n<pdfuaid:part>1</pdfuaid:part>\n</rdf:Description>\n");
+        }
+
+        xmp.Append("</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
         return xmp.ToString();
     }
 

@@ -29,6 +29,7 @@ internal sealed class PdfEmbeddedFont
     internal const string ContinuationText = "\u034F";
 
     private readonly TrueTypeFont _font;
+    private readonly PdfDocumentWriter _document;
 
     // The codes handed out, kept by glyph. A glyph's first code is its id, so the text it was first drawn for is all that is kept for it (null for a glyph not drawn yet), and the codes of a glyph drawn
     // for other texts are a short chain of their own. Every glyph drawn is looked up here (more than a hundred thousand times for a 1,000-row table), so these are plain arrays indexed by the glyph instead
@@ -83,6 +84,7 @@ internal sealed class PdfEmbeddedFont
         }
 
         _font = font;
+        _document = document;
         _nextExtra = font.GlyphCount;
         _pages = new GlyphPage?[Math.Max(1, (font.GlyphCount + PageSize - 1) / PageSize)];
         Reference = document.AllocateObject();
@@ -114,6 +116,12 @@ internal sealed class PdfEmbeddedFont
         if (glyph < 0 || glyph >= _font.GlyphCount)
         {
             throw new ArgumentOutOfRangeException(nameof(glyph), glyph, $"The font has {_font.GlyphCount} glyphs.");
+        }
+
+        if (glyph == 0)
+        {
+            // Glyph 0 is the font's .notdef: drawn, it is a character with no glyph, whatever the reason, which a tagged document reports (PDF/UA-1 7.21.8).
+            _document.NotdefDrawn++;
         }
 
         text ??= string.Empty;
@@ -292,7 +300,7 @@ internal sealed class PdfEmbeddedFont
             .Set("W", Widths(codes))
             .Set("CIDToGIDMap", glyphMap));
 
-        PdfReference toUnicode = document.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(ToUnicodeMap(codes))));
+        PdfReference toUnicode = document.AddObject(new PdfStream(new PdfDictionary(), Encoding.ASCII.GetBytes(ToUnicodeMap(codes, document.Structure is not null))));
 
         document.WriteObject(Reference, new PdfDictionary()
             .Set("Type", "Font")
@@ -378,8 +386,10 @@ internal sealed class PdfEmbeddedFont
     /// <summary>
     /// The <c>ToUnicode</c> CMap (ISO 32000-1, 9.10.3): one <c>bfchar</c> per code, the text as UTF-16BE
     /// (several code points when the glyph stands for a cluster, such as a ligature), in blocks of at most 100 as the format requires.
+    /// <paramref name="tagged"/>: the document is tagged, and PDF/UA-1 (7.21.7) forbids U+FEFF and U+FFFE in the map: U+FEFF, the old zero width
+    /// no-break space, is written as U+2060 WORD JOINER, which Unicode gives its meaning to, and the noncharacter U+FFFE as U+FFFD.
     /// </summary>
-    private static string ToUnicodeMap(CodeTable codes)
+    private static string ToUnicodeMap(CodeTable codes, bool tagged)
     {
         // A code with no text (the rest of a cluster) maps to U+034F, see the class remarks.
         StringBuilder cmap = new();
@@ -394,6 +404,11 @@ internal sealed class PdfEmbeddedFont
             for (int i = block; i < block + chunk; i++)
             {
                 string text = codes.Texts[i];
+                if (tagged && text.AsSpan().IndexOfAny('\uFEFF', '\uFFFE') >= 0)
+                {
+                    text = text.Replace('\uFEFF', '\u2060').Replace('\uFFFE', '\uFFFD');
+                }
+
                 cmap.Append('<').Append(codes.Codes[i].ToString("X4", CultureInfo.InvariantCulture)).Append("> <")
                     .Append(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(text.Length == 0 ? ContinuationText : text))).Append(">\n");
             }

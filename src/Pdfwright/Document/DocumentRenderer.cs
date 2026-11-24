@@ -79,6 +79,11 @@ internal sealed partial class DocumentRenderer
         });
         _tagParent = _writer.Structure?.Document;
         _documentLanguage = TaggedLanguage(ResolvedStyle.Base(fonts, null, options.Language).Language);
+        if (options.Tagged)
+        {
+            _accessibility = [];
+            NoteDocumentIssues(options);
+        }
     }
 
     /// <summary>The document's language as the catalog's <c>/Lang</c> has it, read by the same rule as a style's; <see langword="null"/> when it is not set or empty.</summary>
@@ -192,11 +197,142 @@ internal sealed partial class DocumentRenderer
         ClosePage();
         _cancellation.ThrowIfCancellationRequested();
         DrawOverlays();
+
+        // A tagged document claims PDF/UA-1 when nothing stood in the way; the header and the footer are drawn, so every missing glyph is known.
+        bool pdfUA = _accessibility is { Count: 0 };
+        if (pdfUA)
+        {
+            _writer.ClaimsPdfUA = true;
+        }
+
         _writer.Complete();
 
         // The fonts are written by Complete, after the last page: this is the check that holds the limit. The caller's stream has not been touched, so nothing of an oversized file escapes.
         CheckBytes();
-        return new DocumentDiagnostics(_missing.AsReadOnly(), _missingFamilies.AsReadOnly(), _writer.PageCount, _output.Count, _truncated.AsReadOnly());
+        return new DocumentDiagnostics(_missing.AsReadOnly(), _missingFamilies.AsReadOnly(), _writer.PageCount, _output.Count, _truncated.AsReadOnly(), _accessibility?.AsReadOnly(), pdfUA);
+    }
+
+    /// <summary>What keeps a tagged document from being PDF/UA-1, in the order found (<see cref="DocumentDiagnostics.AccessibilityIssues"/>), or <see langword="null"/> untagged: nothing is checked then.</summary>
+    private readonly List<AccessibilityIssue>? _accessibility;
+
+    /// <summary>The pages a missing glyph was reported on as an accessibility issue, once each; made with the first.</summary>
+    private HashSet<int>? _glyphIssuePages;
+
+    /// <summary>The level of the last heading drawn, 0 before the first.</summary>
+    private int _headingLevel;
+
+    /// <summary>The <see cref="PdfDocumentWriter.NotdefDrawn"/> count the last <see cref="NoteNotdef"/> saw.</summary>
+    private long _notdefSeen;
+
+    /// <summary>
+    /// Notes a <c>.notdef</c> glyph drawn on a page since the last call, whatever drew it (the body, a header, a footer, a canvas) and whatever the
+    /// character: one that no font has is reported with its code point as it is drawn, but a character the shaper leaves to the font's glyph 0 (a Hangul
+    /// filler, which HarfBuzz does not hide) is found only here. Called when the page's body ends and when its header and footer are drawn.
+    /// </summary>
+    private void NoteNotdef(int pageNumber)
+    {
+        if (_accessibility is null || _writer.NotdefDrawn == _notdefSeen)
+        {
+            return;
+        }
+
+        _notdefSeen = _writer.NotdefDrawn;
+        if ((_glyphIssuePages ??= []).Add(pageNumber))
+        {
+            _accessibility.Add(new AccessibilityIssue(
+                AccessibilityIssueKind.MissingGlyph,
+                pageNumber,
+                "A character is drawn as the font's .notdef glyph, which PDF/UA-1 forbids (7.21.8)."));
+        }
+    }
+
+    /// <summary>The issues of the document as a whole: PDF/UA-1 asks for a title (7.1, shown by the viewer as <c>DisplayDocTitle</c> says) and a language (7.2).</summary>
+    private void NoteDocumentIssues(PdfDocumentOptions options)
+    {
+        if (options.Title is null || PdfDocumentWriter.Clean(options.Title).Length == 0)
+        {
+            _accessibility!.Add(new AccessibilityIssue(AccessibilityIssueKind.MissingTitle, null, "The document has no title: PDF/UA-1 asks for one in the metadata (dc:title)."));
+        }
+
+        if (options.Language is null || PdfDocumentWriter.Clean(options.Language).Length == 0)
+        {
+            _accessibility!.Add(new AccessibilityIssue(AccessibilityIssueKind.MissingLanguage, null, "The document has no language: PDF/UA-1 asks for the natural language of its text (/Lang)."));
+        }
+        else
+        {
+            NoteLanguage(PdfDocumentWriter.Clean(options.Language), null);
+        }
+    }
+
+    /// <summary>The languages checked by <see cref="NoteLanguage"/>, each once; made with the first.</summary>
+    private HashSet<string>? _checkedLanguages;
+
+    /// <summary>
+    /// Notes a language written as a <c>/Lang</c> (the catalog's, an element's or a span's) that is not a language tag, which PDF/UA-1 7.2 asks for:
+    /// once for each language, on the page it is first drawn on (none for the document's own).
+    /// </summary>
+    private void NoteLanguage(string? language, int? pageNumber)
+    {
+        if (string.IsNullOrEmpty(language) || !(_checkedLanguages ??= new(StringComparer.Ordinal)).Add(language) || IsLanguageTag(language))
+        {
+            return;
+        }
+
+        _accessibility!.Add(new AccessibilityIssue(
+            AccessibilityIssueKind.InvalidLanguage,
+            pageNumber,
+            $"'{language}' is not a language tag (letters, then subtags of letters and digits after hyphens, such as en-US): PDF/UA-1 asks for one in /Lang (7.2)."));
+    }
+
+    /// <summary>Whether a language is a Language-Tag of RFC 3066, as PDF 1.7 (14.9.2) defines /Lang: a primary subtag of 1 to 8 letters, then subtags of 1 to 8 letters and digits, each after a hyphen.</summary>
+    internal static bool IsLanguageTag(string language)
+    {
+        int start = 0;
+        for (int part = 0; start <= language.Length; part++)
+        {
+            int end = language.IndexOf('-', start);
+            if (end < 0)
+            {
+                end = language.Length;
+            }
+
+            int length = end - start;
+            if (length is < 1 or > 8)
+            {
+                return false;
+            }
+
+            for (int i = start; i < end; i++)
+            {
+                char c = language[i];
+                if (!(char.IsAsciiLetter(c) || (part > 0 && char.IsAsciiDigit(c))))
+                {
+                    return false;
+                }
+            }
+
+            start = end + 1;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Notes a heading when its first content is drawn, in reading order: the first must be a level 1 heading (Matterhorn 14-002) and none may be more
+    /// than one level below the one before it (14-003). Levels are reported, not changed.
+    /// </summary>
+    private void NoteHeading(int level, int pageNumber)
+    {
+        if (_headingLevel == 0 && level != 1)
+        {
+            _accessibility!.Add(new AccessibilityIssue(AccessibilityIssueKind.FirstHeadingNotH1, pageNumber, $"The first heading is an H{level}: a document's first heading is an H1."));
+        }
+        else if (_headingLevel > 0 && level > _headingLevel + 1)
+        {
+            _accessibility!.Add(new AccessibilityIssue(AccessibilityIssueKind.SkippedHeadingLevel, pageNumber, $"An H{level} follows an H{_headingLevel}: a heading is at most one level below the heading before it."));
+        }
+
+        _headingLevel = level;
     }
 
     /// <summary>A block ready to place: its lines and its spacing. Blocks that have no text have no layout.</summary>
@@ -441,6 +577,21 @@ internal sealed partial class DocumentRenderer
                     throw new InvalidOperationException($"The text of a {element.Type} element is drawn inside an artifact.");
                 }
 
+                if (_accessibility is not null && element.Reference is null && element.Type is ['H', >= '1' and <= '6'])
+                {
+                    NoteHeading(element.Type[1] - '0', page.Index + 1);
+                }
+
+                if (_accessibility is not null)
+                {
+                    // The element's /Lang and its spans' come from the styles of its text.
+                    IReadOnlyList<ResolvedStyle> styles = styled.Styles;
+                    for (int s = 0; s < styles.Count; s++)
+                    {
+                        NoteLanguage(styles[s].Language, page.Index + 1);
+                    }
+                }
+
                 _ = page.BeginMarkedContent(element);
                 marked = true;
             }
@@ -561,6 +712,15 @@ internal sealed partial class DocumentRenderer
 
     private void AddMissing(int codePoint, string? language, int pageNumber)
     {
+        // Tagged, each page with a missing glyph is an accessibility issue, whatever the cap of the list of glyphs: its .notdef is in the content (PDF/UA-1 7.21.8).
+        if (_accessibility is not null && (_glyphIssuePages ??= []).Add(pageNumber))
+        {
+            _accessibility.Add(new AccessibilityIssue(
+                AccessibilityIssueKind.MissingGlyph,
+                pageNumber,
+                $"No font has a glyph for U+{codePoint:X4}, drawn as the font's .notdef glyph, which PDF/UA-1 forbids (7.21.8)."));
+        }
+
         if (_missing.Count < MaxReportedGlyphs && _missingSeen.Add((codePoint, language, pageNumber)))
         {
             _missing.Add(new MissingGlyph(codePoint, language, pageNumber));
@@ -594,6 +754,7 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
+        NoteNotdef(_page.Index + 1);
         if (_overlay)
         {
             _page.EndBody(_options.Header is not null, _options.Footer is not null);
