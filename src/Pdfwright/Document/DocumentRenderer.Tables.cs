@@ -221,6 +221,9 @@ internal sealed partial class DocumentRenderer
 
         internal int BodyIndex { get; init; }
 
+        /// <summary>The row's structure elements when the document is tagged, or <see langword="null"/>.</summary>
+        internal RowTags? Tags { get; init; }
+
         internal bool IsDone(int[] cursor)
         {
             for (int i = 0; i < Cells.Length; i++)
@@ -265,6 +268,21 @@ internal sealed partial class DocumentRenderer
         }
     }
 
+    /// <summary>
+    /// The structure elements of a row of a tagged table: its <c>TR</c> and a <c>TH</c> or <c>TD</c> for each column, light until the row is first drawn.
+    /// The row keeps its cells open together (<see cref="PdfStructureElement.KeepsChildrenOpen"/>): a row split between pages returns to each cell.
+    /// </summary>
+    private sealed class RowTags(PdfStructureElement row, PdfStructureElement?[] cells)
+    {
+        internal PdfStructureElement Row { get; } = row;
+
+        /// <summary>The cells, one for each column of the table (none is null once the row is laid out), in logical order: the first column first, whichever side of the page it stands on.</summary>
+        internal PdfStructureElement?[] Cells { get; } = cells;
+
+        /// <summary>Whether the row and its cells are materialised: they are, all of them in order, before anything of the row is drawn.</summary>
+        internal bool Opened { get; set; }
+    }
+
     private sealed class TableRun : IDisposable
     {
         private readonly DocumentRenderer _r;
@@ -291,6 +309,11 @@ internal sealed partial class DocumentRenderer
         private bool _unrepeatedHeaderOnPage;
         private int _rowsInFragment;
 
+        // Tagged, the table is a Table with a THead for the header rows and a TBody for the others; untagged, there are none.
+        private PdfStructureElement? _tag;
+        private PdfStructureElement? _headTag;
+        private PdfStructureElement? _bodyTag;
+
         internal TableRun(DocumentRenderer renderer, Table table, int blockIndex)
         {
             _r = renderer;
@@ -308,6 +331,16 @@ internal sealed partial class DocumentRenderer
         internal void Run()
         {
             Measure();
+
+            // Tagged, the elements are light until the first row is drawn; a table that draws nothing is not in the structure.
+            _tag = _r.Tag("Table");
+            if (_tag is not null)
+            {
+                PdfStructureTree structure = _r._writer.Structure!;
+                _headTag = _table.Header.Count > 0 ? structure.Create(_tag, "THead") : null;
+                _bodyTag = structure.Create(_tag, "TBody");
+            }
+
             _header = [.. _table.Header.Select(row => Layout(row, true, 0))];
             _headerHeight = _header.Sum(h => h.Remaining(new int[h.Cells.Length]));
             _repeat = _table.RepeatHeader && _header.Length > 0 && _headerHeight * 2 <= _r._contentHeight;
@@ -390,6 +423,12 @@ internal sealed partial class DocumentRenderer
             {
                 CloseFragment();
                 _r._y = Math.Min(_r._y + (_table.SpaceAfter?.Points ?? (_r._base.Size * 0.6)), _r._contentHeight);
+            }
+
+            if (_tag is not null)
+            {
+                // The table is done (a truncated one too: the rows past the limit were never laid out, so they have no elements).
+                _r._writer.Structure!.Close(_tag);
             }
         }
 
@@ -531,6 +570,15 @@ internal sealed partial class DocumentRenderer
         {
             int n = _table.Columns.Count;
             CellPlan?[] cells = new CellPlan?[n];
+            PdfStructureElement? rowTag = null;
+            PdfStructureElement?[]? cellTags = null;
+            if (_tag is not null)
+            {
+                rowTag = _r._writer.Structure!.Create(header ? _headTag! : _bodyTag!, "TR");
+                rowTag.KeepsChildrenOpen = true;
+                cellTags = new PdfStructureElement?[n];
+            }
+
             for (int i = 0; i < row.Cells.Count; i++)
             {
                 TableCell cell = row.Cells[i];
@@ -554,6 +602,22 @@ internal sealed partial class DocumentRenderer
                     TextAlignment aligned = paragraph.Alignment != TextAlignment.Start ? paragraph.Alignment : alignment;
                     StyledLayout layout = BlockText.Layout(paragraph.Runs, paragraphStyle, _r._fonts, inner, aligned, paragraph.Direction ?? _direction, paragraph.LineSpacing);
                     _r.NoteFamilies(layout);
+                    if (rowTag is not null)
+                    {
+                        // A cell of one paragraph has its text as the cell's own content, with the paragraph's language; a cell of several has a P for each.
+                        // Blank text has no element (it is drawn as an artifact), and its cell stays: an empty cell is an empty TD.
+                        if (cell.Paragraphs.Count == 1)
+                        {
+                            cellTags![i] = CellTag(rowTag, header, _r.ElementLanguage(paragraphStyle));
+                            layout.Tag = string.IsNullOrWhiteSpace(layout.Layout.Text) ? null : cellTags[i];
+                        }
+                        else
+                        {
+                            cellTags![i] ??= CellTag(rowTag, header, null);
+                            layout.Tag = _r.TextTag(cellTags[i], "P", layout, paragraphStyle);
+                        }
+                    }
+
                     if (k > 0)
                     {
                         y += previousAfter + (paragraph.SpaceBefore?.Points ?? 0);
@@ -574,8 +638,27 @@ internal sealed partial class DocumentRenderer
                 cells[i] = plan;
             }
 
-            return new RowPlan { Cells = cells, RowFill = row.Fill, IsHeader = header, BodyIndex = bodyIndex };
+            RowTags? tags = null;
+            if (rowTag is not null)
+            {
+                // A row with fewer cells than the table has columns: the missing ones are empty cells, so that every row of the structure has a cell
+                // for each column and a cell's header is the one at its place (a table has no spans, and PDF/UA-1 needs a regular table to tell it).
+                for (int i = row.Cells.Count; i < n; i++)
+                {
+                    cellTags![i] = CellTag(rowTag, header, null);
+                }
+
+                tags = new RowTags(rowTag, cellTags!);
+            }
+
+            return new RowPlan { Cells = cells, RowFill = row.Fill, IsHeader = header, BodyIndex = bodyIndex, Tags = tags };
         }
+
+        /// <summary>A light cell element under <paramref name="row"/>: a <c>TH</c> of its column (<c>/Scope /Column</c>) in a header row, a <c>TD</c> otherwise.</summary>
+        private PdfStructureElement CellTag(PdfStructureElement row, bool header, string? language) =>
+            header
+                ? _r._writer.Structure!.Create(row, "TH", language: language, attributes: new PdfDictionary().Set("O", "Table").Set("Scope", "Column"))
+                : _r._writer.Structure!.Create(row, "TD", language: language);
 
         private void EnsureFragment()
         {
@@ -598,7 +681,7 @@ internal sealed partial class DocumentRenderer
                 foreach (RowPlan header in _header)
                 {
                     int[] cursor = new int[header.Cells.Length];
-                    DrawFragment(header, cursor, double.PositiveInfinity);
+                    DrawFragment(header, cursor, double.PositiveInfinity, repeated: true);
                 }
             }
 
@@ -614,6 +697,16 @@ internal sealed partial class DocumentRenderer
 
         /// <summary>Places one row, in one piece on this page, or on the next, or in pieces between lines when it is taller than a page.</summary>
         private void PlaceRow(RowPlan row)
+        {
+            PlaceRowPieces(row);
+            if (row.Tags is { } tags)
+            {
+                // The row is placed: its TR and its cells are written now, so a table of any length holds one row's elements at a time.
+                _r._writer.Structure!.Close(tags.Row);
+            }
+        }
+
+        private void PlaceRowPieces(RowPlan row)
         {
             int[] cursor = new int[row.Cells.Length];
             while (true)
@@ -647,8 +740,11 @@ internal sealed partial class DocumentRenderer
             }
         }
 
-        /// <summary>Draws the part of a row that fits in <paramref name="budget"/> from its cursors (at least one line of a cell when none fits), moves the cursors and the flow down, and returns nothing.</summary>
-        private void DrawFragment(RowPlan row, int[] cursor, double budget)
+        /// <summary>
+        /// Draws the part of a row that fits in <paramref name="budget"/> from its cursors (at least one line of a cell when none fits), moves the cursors and the flow down, and returns nothing.
+        /// <paramref name="repeated"/> is a header row drawn again at the top of a later page.
+        /// </summary>
+        private void DrawFragment(RowPlan row, int[] cursor, double budget, bool repeated = false)
         {
             int n = row.Cells.Length;
             int[] take = new int[n];
@@ -703,8 +799,28 @@ internal sealed partial class DocumentRenderer
 
             double top = _r._y;
 
-            // Tagged, a table is an artifact for now, its text included: the table's structure comes with the tagging of tables.
-            bool artifact = _r.BeginArtifact();
+            // Tagged, the fills are an artifact drawn before the row's text and the borders one drawn after it, so that neither is inside a cell's marked
+            // content. A header row drawn again on a later page is a pagination artifact, fills, text and borders, which a reader does not read twice:
+            // its first drawing is the table's header in the structure, and its elements are closed, so its text is drawn without them.
+            bool pagination = false;
+            if (repeated && row.Tags is not null)
+            {
+                pagination = _r.BeginRepeatedArtifact();
+            }
+            else if (row.Tags is { Opened: false } tags)
+            {
+                // The row and all its cells are materialised in logical order before anything of the row is drawn: a cell whose first line does not fit on
+                // this page, or an empty cell, still has its place among the others.
+                PdfStructureTree structure = _r._writer.Structure!;
+                structure.Open(tags.Row);
+                foreach (PdfStructureElement? cellTag in tags.Cells)
+                {
+                    structure.Open(cellTag!);
+                }
+
+                tags.Opened = true;
+            }
+
             DrawFills(row, top, height);
             for (int i = 0; i < n; i++)
             {
@@ -725,7 +841,7 @@ internal sealed partial class DocumentRenderer
                         end++;
                     }
 
-                    _r.Draw(styled, cell.Items[j].Line, end - j + 1, _left[i] + cell.PadLeft, top + cell.PadTop + cell.Items[j].Top - baseTop);
+                    _r.Draw(styled, cell.Items[j].Line, end - j + 1, _left[i] + cell.PadLeft, top + cell.PadTop + cell.Items[j].Top - baseTop, pagination);
                     j = end + 1;
                 }
 
@@ -733,7 +849,7 @@ internal sealed partial class DocumentRenderer
             }
 
             DrawBorders(top, height);
-            _r.EndArtifact(artifact);
+            _r.EndArtifact(pagination);
             _r._y = top + height;
             _r._hasContent = true;
             _rowsInFragment++;
@@ -764,6 +880,7 @@ internal sealed partial class DocumentRenderer
             int[] order = n == _leftToRight.Length ? _leftToRight : LeftToRight(_left, n);
             ContentStreamBuilder content = _r._page!.Content;
             bool open = false;
+            bool artifact = false;
             int s = 0;
             while (s < n)
             {
@@ -778,6 +895,8 @@ internal sealed partial class DocumentRenderer
                 {
                     if (!open)
                     {
+                        // Tagged, the fills are an artifact; begun with the first, so that a row with none has no empty one.
+                        artifact = _r.BeginArtifact();
                         content.SaveState();
                         open = true;
                     }
@@ -794,6 +913,7 @@ internal sealed partial class DocumentRenderer
             if (open)
             {
                 content.RestoreState();
+                _r.EndArtifact(artifact);
             }
         }
 
@@ -801,18 +921,18 @@ internal sealed partial class DocumentRenderer
         {
             Borders b = _table.Borders;
             ContentStreamBuilder content = _r._page!.Content;
-            bool first = _rowsInFragment == 0;
-            double right = _tableLeft + _tableWidth;
-            if (first)
+            BorderLine? above = _rowsInFragment == 0 ? b.OuterHorizontal : b.InnerHorizontal;
+            bool vertical = b.OuterVertical is not null || b.InnerVertical is not null;
+            if (above is null && b.OuterVertical is null && (b.InnerVertical is null || _widths.Length < 2))
             {
-                Line(content, b.OuterHorizontal, _tableLeft, PdfY(top), right, PdfY(top));
-            }
-            else
-            {
-                Line(content, b.InnerHorizontal, _tableLeft, PdfY(top), right, PdfY(top));
+                return;
             }
 
-            if (b.OuterVertical is not null || b.InnerVertical is not null)
+            // Tagged, the lines are an artifact, drawn after the row's text.
+            bool artifact = _r.BeginArtifact();
+            double right = _tableLeft + _tableWidth;
+            Line(content, above, _tableLeft, PdfY(top), right, PdfY(top));
+            if (vertical)
             {
                 int[] order = _widths.Length == _leftToRight.Length ? _leftToRight : LeftToRight(_left, _widths.Length);
                 Line(content, b.OuterVertical, _tableLeft, PdfY(top), _tableLeft, PdfY(top + height));
@@ -823,11 +943,13 @@ internal sealed partial class DocumentRenderer
                     Line(content, b.InnerVertical, x, PdfY(top), x, PdfY(top + height));
                 }
             }
+
+            _r.EndArtifact(artifact);
         }
 
         private void CloseFragment()
         {
-            if (_fragmentOpen && _rowsInFragment > 0 && _r._page is not null)
+            if (_fragmentOpen && _rowsInFragment > 0 && _r._page is not null && _table.Borders.OuterHorizontal is not null)
             {
                 bool artifact = _r.BeginArtifact();
                 Line(_r._page.Content, _table.Borders.OuterHorizontal, _tableLeft, PdfY(_r._y), _tableLeft + _tableWidth, PdfY(_r._y));
