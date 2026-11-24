@@ -273,11 +273,16 @@ internal sealed class ContentStreamBuilder
         return Ascii("] TJ\n"u8);
     }
 
-    // ---- marked content (the structure of a tagged PDF, added in 0.2, is built from these)
+    // ---- marked content (the structure of a tagged PDF is built from these, see PdfStructureTree)
 
-    /// <summary>Begins a marked-content sequence with a property list that carries an <c>MCID</c>: <c>/Tag &lt;&lt;/MCID n&gt;&gt; BDC</c>.</summary>
+    /// <summary>
+    /// Begins a marked-content sequence with a property list that carries an <c>MCID</c>: <c>/Tag &lt;&lt;/MCID n&gt;&gt; BDC</c>. The tag is the
+    /// structure type of the element the content belongs to (<c>P</c>, <c>H1</c>, <c>TD</c>), and the number is the content's place in the page's
+    /// entry of the parent tree. End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
     internal ContentStreamBuilder BeginMarkedContent(string tag, int mcid)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(mcid);
         Name(tag);
         Ascii(" <</MCID "u8);
         Span<byte> span = _bytes.GetSpan(16);
@@ -287,6 +292,43 @@ internal sealed class ContentStreamBuilder
     }
 
     internal ContentStreamBuilder EndMarkedContent() => Op("EMC\n"u8);
+
+    /// <summary>
+    /// Begins a span in another language than the element around it, <c>/Span &lt;&lt;/Lang (de)&gt;&gt; BDC</c>, inside the element's own marked
+    /// content, so that a screen reader changes its voice for the span and back after it. The language is a BCP 47 tag, written as a text string
+    /// (ISO 32000-1, 14.9.2). End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginLanguageSpan(string language)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(language);
+        Ascii("/Span <</Lang "u8);
+        using (MemoryStream text = new())
+        {
+            // The serializer's own string form, so a tag with a parenthesis or a character outside ASCII is escaped as everywhere else in the file.
+            PdfSerializer.Write(PdfString.Text(language), text);
+            Ascii(text.GetBuffer().AsSpan(0, (int)text.Length));
+        }
+
+        return Ascii(">> BDC\n"u8);
+    }
+
+    /// <summary>
+    /// Begins an artifact, content that is not part of the document's text (a table's fills and borders, a decorative image): <c>/Artifact BMC</c>.
+    /// A screen reader skips it; it has no <c>MCID</c> and no structure element. End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginArtifact() => Op("/Artifact BMC\n"u8);
+
+    /// <summary>
+    /// Begins a pagination artifact, the page's running header or footer: <c>/Artifact &lt;&lt;/Type /Pagination /Subtype /Header&gt;&gt; BDC</c>
+    /// (or <c>/Footer</c>), which a reader can tell apart from the body and leave out of what it reads aloud. End it with
+    /// <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginPaginationArtifact(PdfPaginationArtifact subtype) => subtype switch
+    {
+        PdfPaginationArtifact.Header => Op("/Artifact <</Type /Pagination /Subtype /Header>> BDC\n"u8),
+        PdfPaginationArtifact.Footer => Op("/Artifact <</Type /Pagination /Subtype /Footer>> BDC\n"u8),
+        _ => throw new ArgumentOutOfRangeException(nameof(subtype), subtype, "A pagination artifact is a header or a footer."),
+    };
 
     /// <summary>
     /// Begins a span whose <c>ActualText</c> is what a reader gives back when the marked glyphs are copied or searched, in
@@ -433,4 +475,14 @@ internal sealed class ContentStreamBuilder
 
     private static ArgumentException NotPlain(string name) =>
         new($"'{name}' is not a plain name: use letters, digits, underscore, dot and hyphen.", nameof(name));
+}
+
+/// <summary>Which running part of the page a pagination artifact is (ISO 32000-1, 14.8.2.2).</summary>
+internal enum PdfPaginationArtifact
+{
+    /// <summary>The running header, above the body.</summary>
+    Header,
+
+    /// <summary>The running footer, below the body.</summary>
+    Footer,
 }
