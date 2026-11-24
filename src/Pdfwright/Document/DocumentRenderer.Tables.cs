@@ -314,6 +314,16 @@ internal sealed partial class DocumentRenderer
         private PdfStructureElement? _headTag;
         private PdfStructureElement? _bodyTag;
 
+        /// <summary>
+        /// The elements of the body row placed last, written and closed, for the next body row to make again (<see cref="PdfStructureTree.Reuse"/>):
+        /// a placed row's plan is dropped, and the file and the tree refer to its elements by number only, so a long table holds one row's elements
+        /// and makes them once. A header row's are kept for the header drawn again on later pages, and are never given back.
+        /// </summary>
+        private RowTags? _spareTags;
+
+        /// <summary>The cells of <see cref="_spareTags"/> while the next row is laid out, each taken when that row's cell at its place is made.</summary>
+        private PdfStructureElement?[] _spareCells = [];
+
         internal TableRun(DocumentRenderer renderer, Table table, int blockIndex)
         {
             _r = renderer;
@@ -572,11 +582,33 @@ internal sealed partial class DocumentRenderer
             CellPlan?[] cells = new CellPlan?[n];
             PdfStructureElement? rowTag = null;
             PdfStructureElement?[]? cellTags = null;
+            RowTags? spare = null;
             if (_tag is not null)
             {
-                rowTag = _r._writer.Structure!.Create(header ? _headTag! : _bodyTag!, "TR");
+                PdfStructureTree structure = _r._writer.Structure!;
+                spare = header ? null : _spareTags;
+                _spareTags = null;
+                if (spare is not null)
+                {
+                    // The cells of the row placed before are set aside, to be made again at their places, and the row's array is filled anew.
+                    rowTag = structure.Reuse(spare.Row, _bodyTag!, "TR");
+                    cellTags = spare.Cells;
+                    if (_spareCells.Length != n)
+                    {
+                        _spareCells = new PdfStructureElement?[n];
+                    }
+
+                    cellTags.AsSpan().CopyTo(_spareCells);
+                    Array.Clear(cellTags);
+                    spare.Opened = false;
+                }
+                else
+                {
+                    rowTag = structure.Create(header ? _headTag! : _bodyTag!, "TR");
+                    cellTags = new PdfStructureElement?[n];
+                }
+
                 rowTag.KeepsChildrenOpen = true;
-                cellTags = new PdfStructureElement?[n];
             }
 
             for (int i = 0; i < row.Cells.Count; i++)
@@ -608,12 +640,12 @@ internal sealed partial class DocumentRenderer
                         // Blank text has no element (it is drawn as an artifact), and its cell stays: an empty cell is an empty TD.
                         if (cell.Paragraphs.Count == 1)
                         {
-                            cellTags![i] = CellTag(rowTag, header, _r.ElementLanguage(paragraphStyle));
+                            cellTags![i] = CellTag(rowTag, i, header, _r.ElementLanguage(paragraphStyle));
                             layout.Tag = string.IsNullOrWhiteSpace(layout.Layout.Text) ? null : cellTags[i];
                         }
                         else
                         {
-                            cellTags![i] ??= CellTag(rowTag, header, null);
+                            cellTags![i] ??= CellTag(rowTag, i, header, null);
                             layout.Tag = _r.TextTag(cellTags[i], "P", layout, paragraphStyle);
                         }
                     }
@@ -645,20 +677,35 @@ internal sealed partial class DocumentRenderer
                 // for each column and a cell's header is the one at its place (a table has no spans, and PDF/UA-1 needs a regular table to tell it).
                 for (int i = row.Cells.Count; i < n; i++)
                 {
-                    cellTags![i] = CellTag(rowTag, header, null);
+                    cellTags![i] = CellTag(rowTag, i, header, null);
                 }
 
-                tags = new RowTags(rowTag, cellTags!);
+                tags = spare ?? new RowTags(rowTag, cellTags!);
             }
 
             return new RowPlan { Cells = cells, RowFill = row.Fill, IsHeader = header, BodyIndex = bodyIndex, Tags = tags };
         }
 
-        /// <summary>A light cell element under <paramref name="row"/>: a <c>TH</c> of its column (<c>/Scope /Column</c>) in a header row, a <c>TD</c> otherwise.</summary>
-        private PdfStructureElement CellTag(PdfStructureElement row, bool header, string? language) =>
-            header
-                ? _r._writer.Structure!.Create(row, "TH", language: language, attributes: new PdfDictionary().Set("O", "Table").Set("Scope", "Column"))
-                : _r._writer.Structure!.Create(row, "TD", language: language);
+        /// <summary>
+        /// A light cell element under <paramref name="row"/> for the column at <paramref name="column"/>: a <c>TH</c> of its column (<c>/Scope /Column</c>)
+        /// in a header row, a <c>TD</c> otherwise, made again from the cell of the row placed before at the same place when there is one.
+        /// </summary>
+        private PdfStructureElement CellTag(PdfStructureElement row, int column, bool header, string? language)
+        {
+            PdfStructureTree structure = _r._writer.Structure!;
+            if (header)
+            {
+                return structure.Create(row, "TH", language: language, attributes: new PdfDictionary().Set("O", "Table").Set("Scope", "Column"));
+            }
+
+            if (column < _spareCells.Length && _spareCells[column] is { IsClosed: true } spare)
+            {
+                _spareCells[column] = null;
+                return structure.Reuse(spare, row, "TD", language: language);
+            }
+
+            return structure.Create(row, "TD", language: language);
+        }
 
         private void EnsureFragment()
         {
@@ -701,8 +748,13 @@ internal sealed partial class DocumentRenderer
             PlaceRowPieces(row);
             if (row.Tags is { } tags)
             {
-                // The row is placed: its TR and its cells are written now, so a table of any length holds one row's elements at a time.
+                // The row is placed: its TR and its cells are written now, so a table of any length holds one row's elements at a time, and a body
+                // row's elements are made again for the next body row.
                 _r._writer.Structure!.Close(tags.Row);
+                if (!row.IsHeader && tags.Row.IsClosed)
+                {
+                    _spareTags = tags;
+                }
             }
         }
 

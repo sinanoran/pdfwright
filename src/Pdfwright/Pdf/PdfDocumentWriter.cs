@@ -111,6 +111,12 @@ internal sealed class PdfDocumentWriter : IDisposable
 
     internal PdfReference AllocateObject() => _file.Allocate();
 
+    /// <summary>Reserves an object number, as <see cref="AllocateObject"/> does, without making a reference.</summary>
+    internal int AllocateNumber() => _file.AllocateNumber();
+
+    /// <summary>Writes an object given as the bytes the serializer would write for its value, under a number <see cref="AllocateNumber"/> returned.</summary>
+    internal void WriteRawObject(int number, ReadOnlySpan<byte> value) => _file.WriteRaw(number, value);
+
     /// <summary>
     /// What the document keeps once for everything that uses it: the embedded form of a font, the XObject of an image. The first call
     /// with a key (compared by reference) makes the value with <paramref name="create"/>, and every later call returns that same value.
@@ -316,7 +322,41 @@ internal sealed class PdfDocumentWriter : IDisposable
             return;
         }
 
-        Structure.AddEntry(key, _file.Add(new PdfArray([.. page.TakeMarkedContentOwners()])));
+        // Written as the serializer writes an array of references, from the numbers the page kept, with no array made for it.
+        List<int> owners = page.TakeMarkedContentOwners();
+        MemoryStream output = _scratch;
+        output.SetLength(0);
+        output.WriteByte((byte)'[');
+        for (int i = 0; i < owners.Count; i++)
+        {
+            if (i > 0)
+            {
+                output.WriteByte((byte)' ');
+            }
+
+            PdfStructureTree.WriteReference(output, owners[i]);
+        }
+
+        output.WriteByte((byte)']');
+        int number = _file.AllocateNumber();
+        _file.WriteRaw(number, output.GetBuffer().AsSpan(0, (int)output.Length));
+        owners.Clear();
+        _spareOwners = owners;
+        Structure.AddEntry(key, new PdfReference(number));
+    }
+
+    /// <summary>The bytes of a page's entry of the parent tree, kept from one page to the next.</summary>
+    private readonly MemoryStream _scratch = new();
+
+    /// <summary>The list of the elements of a page's <c>MCID</c>s, emptied, for the next page to use.</summary>
+    private List<int>? _spareOwners;
+
+    /// <summary>An empty list for the elements of a page's <c>MCID</c>s: the one the last page gave back, or a new one.</summary>
+    internal List<int> TakeOwnerList()
+    {
+        List<int> owners = _spareOwners ?? [];
+        _spareOwners = null;
+        return owners;
     }
 
     /// <summary>Writes the page tree, the annotations that point at pages, the metadata and the catalog, and ends the file.</summary>
@@ -584,8 +624,8 @@ internal sealed class PdfPageWriter
     /// <summary>The page's key in the parent tree (<c>/StructParents</c>) in a tagged document, or <see langword="null"/>.</summary>
     internal int? StructParents { get; set; }
 
-    /// <summary>The structure element of each <c>MCID</c> of the page, by number, made with the first one (an untagged page never makes it).</summary>
-    private List<PdfReference>? _markedContentOwners;
+    /// <summary>The object number of the structure element of each <c>MCID</c> of the page, by <c>MCID</c>, taken with the first one (an untagged page never takes it).</summary>
+    private List<int>? _markedContentOwners;
 
     /// <summary>The page's entry of the parent tree is written: it takes no more marked content.</summary>
     private bool _parentTreeEntryWritten;
@@ -611,10 +651,10 @@ internal sealed class PdfPageWriter
 
         // Nesting is checked before the tree records anything, so a refused call leaves the tree and the page as they were.
         Content.CheckMarkedContentAllowed();
-        _markedContentOwners ??= [];
+        _markedContentOwners ??= _document.TakeOwnerList();
         int mcid = _markedContentOwners.Count;
-        structure.AddMarkedContent(element, Reference, mcid);
-        _markedContentOwners.Add(element.Reference!);
+        structure.AddMarkedContent(element, Reference.Number, mcid);
+        _markedContentOwners.Add(element.Number);
         Content.BeginMarkedContent(element.Type, mcid);
         return mcid;
     }
@@ -627,14 +667,14 @@ internal sealed class PdfPageWriter
     internal void EndMarkedContent() => Content.EndMarkedContent();
 
     /// <summary>The elements of the page's <c>MCID</c>s, for its entry of the parent tree; after this the page takes no more marked content.</summary>
-    internal List<PdfReference> TakeMarkedContentOwners()
+    internal List<int> TakeMarkedContentOwners()
     {
         if (_parentTreeEntryWritten)
         {
             throw new InvalidOperationException("The page's entry of the parent tree is written.");
         }
 
-        List<PdfReference> owners = _markedContentOwners ?? [];
+        List<int> owners = _markedContentOwners ?? _document.TakeOwnerList();
         _markedContentOwners = null;
         _parentTreeEntryWritten = true;
         return owners;

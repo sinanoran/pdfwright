@@ -27,10 +27,11 @@ public sealed class AllocationBudgetTests : IDisposable
     private const long TableGuard = 207 * Megabyte / 10;
 
     /// <summary>
-    /// The 1,000-row table tagged: 28.4 MB, the highest reading on net8.0 to net11.0, Debug and Release (net8.0 Release 28.37 MB, the others 26.9 to 28.2
-    /// MB), against 19.0 to 20.7 MB untagged in the same runs: about 1.2 KB for each of its 7,007 structure elements and their 6,006 marked contents.
+    /// The 1,000-row table tagged: 21.0 MB, the highest reading on net8.0 to net11.0, Debug and Release (net8.0 Release 20.95 MB, net8.0 Debug 20.4 to
+    /// 20.7 MB, the others 18.1 to 19.6 MB), against 18.1 to 20.3 MB untagged in the same runs. It was 28.4 MB while each of its 7,007 structure
+    /// elements was built as PDF objects (about 1.2 KB each); the elements are now written straight as bytes and a body row's are made again for the next.
     /// </summary>
-    private const long TaggedTableGuard = 284 * Megabyte / 10;
+    private const long TaggedTableGuard = 210 * Megabyte / 10;
 
     private const long ReportGuard = 63 * Megabyte / 10;
 
@@ -49,12 +50,12 @@ public sealed class AllocationBudgetTests : IDisposable
     public void Table_with_1000_rows_stays_within_its_budgets() => AssertWithin(fonts => ScenarioDocuments.Table(fonts), expectedPages: 21, TableTarget, TableGuard);
 
     /// <summary>
-    /// A regression guard only, not a plan target: the same table tagged (the internal option), at its measured figure. The budgets stay those of
-    /// untagged output (plan of tagged PDF, section 1); the structure costs a few objects for each row, its cells and their marked content, written
-    /// as each row is placed.
+    /// The same table tagged (the internal option): the plan's target of the untagged table (plan of tagged PDF, section 1: the budgets stay those of
+    /// untagged output) and a guard at its measured figure. net10.0 reads 18.1 to 19.5 MB; net8.0 reads 20.3 to 20.95 MB and passes through the
+    /// tolerance, as the untagged table does, so the name claims no figure.
     /// </summary>
     [Fact]
-    public void Tagged_table_with_1000_rows_stays_within_its_guard() => AssertWithin(fonts => ScenarioDocuments.Table(fonts, tagged: true), expectedPages: 21, null, TaggedTableGuard);
+    public void Tagged_table_with_1000_rows_stays_within_its_budgets() => AssertWithin(fonts => ScenarioDocuments.Table(fonts, tagged: true), expectedPages: 21, TableTarget, TaggedTableGuard);
 
     /// <summary>The plan's target (20 pages under 10 MB) and a guard at the measured figure.</summary>
     [Fact]

@@ -7,7 +7,13 @@ namespace Pdfwright.Pdf;
 /// written when it <b>closes</b>, so the writer holds the open elements, one branch of the tree, and not the tree.
 /// </summary>
 /// <remarks>
-/// An element that is never materialised is not in the file. An element that is closed cannot be added to again: its object is written.
+/// <para>An element that is never materialised is not in the file. An element that is closed cannot be added to again: its object is written.</para>
+/// <para>
+/// A tagged table has several elements for each of its rows, so an element is made to cost little: its object number, its page and its kids are
+/// numbers held in the element (the first kid in a field, the others in an array the tree lends it while it is open), and no PDF object is built
+/// for it; the tree writes its dictionary straight as bytes. Once written, nothing refers to an element but by its number, so a closed element can
+/// be made again for another place (<see cref="PdfStructureTree.Reuse"/>).
+/// </para>
 /// </remarks>
 internal sealed class PdfStructureElement
 {
@@ -26,16 +32,16 @@ internal sealed class PdfStructureElement
     internal PdfStructureTree Tree { get; }
 
     /// <summary>The element it is a child of, or <see langword="null"/> for the tree's <c>Document</c> element, whose parent is the tree's root.</summary>
-    internal PdfStructureElement? Parent { get; }
+    internal PdfStructureElement? Parent { get; private set; }
 
     /// <summary>The structure type (<c>/S</c>), a standard type such as <c>P</c> or <c>TD</c>; it is also the tag of the element's marked content.</summary>
-    internal string Type { get; }
+    internal string Type { get; private set; }
 
     /// <summary>The alternative text (<c>/Alt</c>), for a figure.</summary>
-    internal string? Alt { get; }
+    internal string? Alt { get; private set; }
 
     /// <summary>The element's language (<c>/Lang</c>), a BCP 47 tag, when it is not the language of the element around it.</summary>
-    internal string? Language { get; }
+    internal string? Language { get; private set; }
 
     /// <summary>
     /// The attribute dictionary (<c>/A</c>), such as <c>&lt;&lt;/O /Table /Scope /Column&gt;&gt;</c>. It may be set late, until the element closes:
@@ -67,14 +73,26 @@ internal sealed class PdfStructureElement
         }
     }
 
-    /// <summary>The element's object number, from the moment it is materialised.</summary>
-    internal PdfReference? Reference { get; set; }
+    /// <summary>The element's object number from the moment it is materialised, or 0 before.</summary>
+    internal int Number { get; set; }
 
-    /// <summary>The page of the element's first marked content (<c>/Pg</c>): its marked content on that page is an <c>MCID</c> in <c>/K</c>, on another page a marked-content reference.</summary>
-    internal PdfReference? Page { get; set; }
+    /// <summary>The element's object, from the moment it is materialised (a new reference to <see cref="Number"/> at each call), or <see langword="null"/> before.</summary>
+    internal PdfReference? Reference => Number == 0 ? null : new PdfReference(Number);
 
-    /// <summary>The element's kids in order, while it is open: <c>MCID</c>s, marked-content references and the references of child elements.</summary>
-    internal List<PdfObject>? Kids { get; set; }
+    /// <summary>
+    /// The object number of the page of the element's first marked content (<c>/Pg</c>), or 0 when it has none: its marked content on that page is an
+    /// <c>MCID</c> in <c>/K</c>, on another page a marked-content reference.
+    /// </summary>
+    internal int Page { get; set; }
+
+    /// <summary>The number of kids recorded while the element is open: <c>MCID</c>s, marked-content references and child elements.</summary>
+    internal int KidCount { get; set; }
+
+    /// <summary>The first kid, held in the element: most elements have one (a cell's text, a paragraph on one page).</summary>
+    internal PdfStructureKid FirstKid { get; set; }
+
+    /// <summary>The kids after the first, in an array the tree lends the element while it is open (<see cref="KidCount"/> - 1 of them are used).</summary>
+    internal PdfStructureKid[]? MoreKids { get; set; }
 
     /// <summary>The child that is open now, which is closed before another child is added.</summary>
     internal PdfStructureElement? OpenChild { get; set; }
@@ -86,14 +104,45 @@ internal sealed class PdfStructureElement
     /// </summary>
     internal bool KeepsChildrenOpen { get; set; }
 
-    /// <summary>The children materialised while <see cref="KeepsChildrenOpen"/>, in order; they are closed when the element closes.</summary>
+    /// <summary>The children materialised while <see cref="KeepsChildrenOpen"/>, in order (a list the tree lends); they are closed when the element closes.</summary>
     internal List<PdfStructureElement>? OpenChildren { get; set; }
 
     /// <summary>The element's object is written.</summary>
     internal bool IsClosed { get; set; }
 
     /// <summary>The element has an object and is not closed yet.</summary>
-    internal bool IsOpen => Reference is not null && !IsClosed;
+    internal bool IsOpen => Number != 0 && !IsClosed;
+
+    /// <summary>Makes a closed element light again, under <paramref name="parent"/>, as the constructor makes a new one.</summary>
+    internal void Reset(PdfStructureElement parent, string type, string? alt, string? language, PdfDictionary? attributes)
+    {
+        PdfStructureTree.CheckType(type);
+        Parent = parent;
+        Type = type;
+        Alt = alt;
+        Language = language;
+        _attributes = attributes;
+        Number = 0;
+        Page = 0;
+        KidCount = 0;
+        FirstKid = default;
+        MoreKids = null;
+        OpenChild = null;
+        KeepsChildrenOpen = false;
+        OpenChildren = null;
+        IsClosed = false;
+    }
+}
+
+/// <summary>
+/// A kid of a structure element, as numbers: an <c>MCID</c> on the element's own page (<see cref="Page"/> 0, <see cref="Value"/> the <c>MCID</c>), a
+/// marked-content reference to an <c>MCID</c> on another page (<see cref="Page"/> that page's object number), or a child element
+/// (<see cref="Page"/> <see cref="ChildPage"/>, <see cref="Value"/> the child's object number).
+/// </summary>
+internal readonly record struct PdfStructureKid(int Page, int Value)
+{
+    /// <summary>The <see cref="Page"/> of a kid that is a child element.</summary>
+    internal const int ChildPage = -1;
 }
 
 /// <summary>
@@ -114,13 +163,30 @@ internal sealed class PdfStructureElement
 /// order, written as its own object when the page's body ends. The keys are given in page order from a counter, which leaves the keys after the
 /// pages for what else the parent tree will hold (a link annotation's <c>/StructParent</c>).
 /// </para>
+/// <para>
+/// <b>Cost.</b> An element's dictionary is written straight as the bytes the serializer writes for a <see cref="PdfDictionary"/> of the same
+/// entries (the same keys in the same order, the same spacing), with no dictionary, array, name or reference made for it, and the arrays and lists
+/// an open element borrows go back to the tree when it closes: a long tagged table costs its elements, not their PDF objects.
+/// </para>
 /// <para>Object numbers are given in the order things happen, so the same document is the same file.</para>
 /// </remarks>
 internal sealed class PdfStructureTree
 {
+    /// <summary>The sizes of the arrays of kids kept for reuse: 4, 8, ... 128 kids.</summary>
+    private const int KeptKidSizes = 6;
+
     private readonly PdfDocumentWriter _writer;
     private readonly List<PdfStructureElement> _stack = [];
     private readonly PdfArray _nums = new();
+
+    /// <summary>The bytes of the element being written, kept from one element to the next.</summary>
+    private readonly MemoryStream _scratch = new();
+
+    /// <summary>The arrays of kids closed elements gave back, by size (4 &lt;&lt; index).</summary>
+    private readonly Stack<PdfStructureKid[]>[] _spareKids = new Stack<PdfStructureKid[]>[KeptKidSizes];
+
+    /// <summary>The lists of open children closed rows gave back.</summary>
+    private readonly Stack<List<PdfStructureElement>> _spareChildren = new();
     private int _nextKey;
     private int _lastEntryKey = -1;
     private bool _completed;
@@ -147,13 +213,41 @@ internal sealed class PdfStructureTree
     /// <summary>Makes a light element under <paramref name="parent"/>. It has no object until content is drawn for it or it is opened.</summary>
     internal PdfStructureElement Create(PdfStructureElement parent, string type, string? alt = null, string? language = null, PdfDictionary? attributes = null)
     {
+        CheckParent(parent);
+        return new PdfStructureElement(this, parent, type, alt, language, attributes);
+    }
+
+    /// <summary>
+    /// Makes <paramref name="element"/>, which is closed (its object is written), a light element under <paramref name="parent"/> again, as
+    /// <see cref="Create"/> makes a new one: a table makes each body row's elements from those of the row placed before it. The element's object is
+    /// in the file, and its parent and the parent tree refer to it by number only, so the element itself is free; whoever made it must hold it no more
+    /// for its old place.
+    /// </summary>
+    internal PdfStructureElement Reuse(PdfStructureElement element, PdfStructureElement parent, string type, string? alt = null, string? language = null, PdfDictionary? attributes = null)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        CheckParent(parent);
+        if (!ReferenceEquals(element.Tree, this))
+        {
+            throw new ArgumentException("The element belongs to another document.", nameof(element));
+        }
+
+        if (!element.IsClosed)
+        {
+            throw new InvalidOperationException($"The {element.Type} element is not written: only a closed element can be made again.");
+        }
+
+        element.Reset(parent, type, alt, language, attributes);
+        return element;
+    }
+
+    private void CheckParent(PdfStructureElement parent)
+    {
         ArgumentNullException.ThrowIfNull(parent);
         if (!ReferenceEquals(parent.Tree, this))
         {
             throw new ArgumentException("The parent belongs to another document.", nameof(parent));
         }
-
-        return new PdfStructureElement(this, parent, type, alt, language, attributes);
     }
 
     /// <summary>Makes a light element under <see cref="Current"/> and makes it the current one, until <see cref="EndElement"/>.</summary>
@@ -196,7 +290,7 @@ internal sealed class PdfStructureTree
             throw new InvalidOperationException($"The {element.Type} element is closed and its object is written: content in reading order cannot return to it.");
         }
 
-        if (element.Reference is not null)
+        if (element.Number != 0)
         {
             return;
         }
@@ -209,11 +303,11 @@ internal sealed class PdfStructureTree
                 CloseElement(previous);
             }
 
-            element.Reference = _writer.AllocateObject();
-            parent.Kids!.Add(element.Reference);
+            element.Number = _writer.AllocateNumber();
+            AddKid(parent, new PdfStructureKid(PdfStructureKid.ChildPage, element.Number));
             if (parent.KeepsChildrenOpen)
             {
-                (parent.OpenChildren ??= []).Add(element);
+                (parent.OpenChildren ??= _spareChildren.Count > 0 ? _spareChildren.Pop() : []).Add(element);
             }
             else
             {
@@ -222,10 +316,8 @@ internal sealed class PdfStructureTree
         }
         else
         {
-            element.Reference = _writer.AllocateObject();
+            element.Number = _writer.AllocateNumber();
         }
-
-        element.Kids = [];
     }
 
     /// <summary>
@@ -257,41 +349,151 @@ internal sealed class PdfStructureTree
         }
 
         CloseChildren(element);
-        PdfDictionary dictionary = new PdfDictionary()
-            .Set("Type", "StructElem")
-            .Set("S", element.Type)
-            .Set("P", element.Parent?.Reference ?? Root);
-        if (element.Page is { } page)
+        WriteElement(element);
+        element.IsClosed = true;
+        if (element.MoreKids is { } more)
         {
-            dictionary.Set("Pg", page);
+            element.MoreKids = null;
+            ReturnKids(more);
         }
 
-        if (element.Kids is { Count: > 0 } kids)
+        element.KidCount = 0;
+        element.FirstKid = default;
+        if (element.Parent is { } parent && ReferenceEquals(parent.OpenChild, element))
         {
-            dictionary.Set("K", new PdfArray([.. kids]));
+            parent.OpenChild = null;
+        }
+    }
+
+    /// <summary>
+    /// Writes the element's object as the serializer writes a <see cref="PdfDictionary"/> of the same entries: <c>/Type</c>, <c>/S</c> and
+    /// <c>/P</c>, then <c>/Pg</c>, <c>/K</c>, <c>/Alt</c>, <c>/Lang</c> and <c>/A</c> when the element has them, each on its own line.
+    /// </summary>
+    private void WriteElement(PdfStructureElement element)
+    {
+        MemoryStream output = _scratch;
+        output.SetLength(0);
+        output.Write("<<\n/Type /StructElem\n/S "u8);
+        PdfSerializer.WriteName(element.Type, output);
+        output.Write("\n/P "u8);
+        WriteReference(output, element.Parent?.Number ?? Root.Number);
+        if (element.Page != 0)
+        {
+            output.Write("\n/Pg "u8);
+            WriteReference(output, element.Page);
+        }
+
+        if (element.KidCount > 0)
+        {
+            output.Write("\n/K ["u8);
+            WriteKid(output, element.FirstKid);
+            for (int i = 0; i < element.KidCount - 1; i++)
+            {
+                output.WriteByte((byte)' ');
+                WriteKid(output, element.MoreKids![i]);
+            }
+
+            output.WriteByte((byte)']');
         }
 
         if (element.Alt is { } alt)
         {
-            dictionary.Set("Alt", PdfString.Text(PdfDocumentWriter.Clean(alt)));
+            output.Write("\n/Alt "u8);
+            PdfSerializer.Write(PdfString.Text(PdfDocumentWriter.Clean(alt)), output);
         }
 
         if (element.Language is { } language)
         {
-            dictionary.Set("Lang", PdfString.Text(language));
+            output.Write("\n/Lang "u8);
+            PdfSerializer.Write(PdfString.Text(language), output);
         }
 
         if (element.Attributes is { } attributes)
         {
-            dictionary.Set("A", attributes);
+            output.Write("\n/A "u8);
+            PdfSerializer.Write(attributes, output);
         }
 
-        _writer.WriteObject(element.Reference!, dictionary);
-        element.IsClosed = true;
-        element.Kids = null;
-        if (element.Parent is { } parent && ReferenceEquals(parent.OpenChild, element))
+        output.Write("\n>>"u8);
+        _writer.WriteRawObject(element.Number, output.GetBuffer().AsSpan(0, (int)output.Length));
+    }
+
+    /// <summary>A kid as the serializer writes it: an integer (<c>MCID</c>), a marked-content reference dictionary, or a reference to a child.</summary>
+    private static void WriteKid(Stream output, PdfStructureKid kid)
+    {
+        switch (kid.Page)
         {
-            parent.OpenChild = null;
+            case 0:
+                PdfSerializer.Integer(output, kid.Value);
+                break;
+            case PdfStructureKid.ChildPage:
+                WriteReference(output, kid.Value);
+                break;
+            default:
+                output.Write("<<\n/Type /MCR\n/Pg "u8);
+                WriteReference(output, kid.Page);
+                output.Write("\n/MCID "u8);
+                PdfSerializer.Integer(output, kid.Value);
+                output.Write("\n>>"u8);
+                break;
+        }
+    }
+
+    /// <summary>An indirect reference, <c>n 0 R</c>, as the serializer writes a <see cref="PdfReference"/>.</summary>
+    internal static void WriteReference(Stream output, int number)
+    {
+        PdfSerializer.Integer(output, number);
+        output.Write(" 0 R"u8);
+    }
+
+    /// <summary>Adds a kid to an open element: the first in the element, the others in an array borrowed from the tree, which grows by doubling.</summary>
+    private void AddKid(PdfStructureElement element, PdfStructureKid kid)
+    {
+        int count = element.KidCount;
+        if (count == 0)
+        {
+            element.FirstKid = kid;
+        }
+        else
+        {
+            PdfStructureKid[]? more = element.MoreKids;
+            if (more is null || count - 1 == more.Length)
+            {
+                PdfStructureKid[] grown = RentKids(more is null ? 4 : more.Length * 2);
+                if (more is not null)
+                {
+                    more.AsSpan().CopyTo(grown);
+                    ReturnKids(more);
+                }
+
+                element.MoreKids = more = grown;
+            }
+
+            more[count - 1] = kid;
+        }
+
+        element.KidCount = count + 1;
+    }
+
+    /// <summary>An array of <paramref name="length"/> kids (4 or a doubling of it), one a closed element gave back when there is one.</summary>
+    private PdfStructureKid[] RentKids(int length)
+    {
+        int index = System.Numerics.BitOperations.Log2((uint)length) - 2;
+        if (index < KeptKidSizes && _spareKids[index] is { Count: > 0 } spare)
+        {
+            return spare.Pop();
+        }
+
+        return new PdfStructureKid[length];
+    }
+
+    /// <summary>Keeps an array of kids for the next element that needs one of its size; the larger sizes are left to the collector.</summary>
+    private void ReturnKids(PdfStructureKid[] kids)
+    {
+        int index = System.Numerics.BitOperations.Log2((uint)kids.Length) - 2;
+        if (index < KeptKidSizes)
+        {
+            (_spareKids[index] ??= new Stack<PdfStructureKid[]>()).Push(kids);
         }
     }
 
@@ -310,24 +512,29 @@ internal sealed class PdfStructureTree
             {
                 CloseElement(open);
             }
+
+            children.Clear();
+            _spareChildren.Push(children);
         }
     }
 
     /// <summary>
-    /// Records marked content numbered <paramref name="mcid"/> on <paramref name="page"/> as the next kid of <paramref name="element"/>, which is
-    /// materialised if it is not yet: an <c>MCID</c> on the element's own page, a marked-content reference on another.
+    /// Records marked content numbered <paramref name="mcid"/> on the page whose object number is <paramref name="page"/> as the next kid of
+    /// <paramref name="element"/>, which is materialised if it is not yet: an <c>MCID</c> on the element's own page, a marked-content reference on another.
     /// </summary>
-    internal void AddMarkedContent(PdfStructureElement element, PdfReference page, int mcid)
+    internal void AddMarkedContent(PdfStructureElement element, int page, int mcid)
     {
         Open(element);
 
         // Content of the element itself after a child's content: the child is done.
         CloseChildren(element);
 
-        element.Page ??= page;
-        element.Kids!.Add(element.Page.Number == page.Number
-            ? new PdfInteger(mcid)
-            : new PdfDictionary().Set("Type", "MCR").Set("Pg", page).Set("MCID", mcid));
+        if (element.Page == 0)
+        {
+            element.Page = page;
+        }
+
+        AddKid(element, new PdfStructureKid(element.Page == page ? 0 : page, mcid));
     }
 
     /// <summary>Gives a page its key in the parent tree (its <c>/StructParents</c>).</summary>
@@ -363,7 +570,7 @@ internal sealed class PdfStructureTree
         _completed = true;
         _writer.WriteObject(Root, new PdfDictionary()
             .Set("Type", "StructTreeRoot")
-            .Set("K", Document.Reference!)
+            .Set("K", new PdfReference(Document.Number))
             .Set("ParentTree", new PdfDictionary().Set("Nums", _nums))
             .Set("ParentTreeNextKey", _nextKey));
     }

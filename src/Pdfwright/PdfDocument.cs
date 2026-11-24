@@ -80,10 +80,9 @@ public sealed class PdfDocument
         Block[] blocks = Begin();
         try
         {
-            using MemoryStream buffer = new();
+            using SaveBuffer buffer = new();
             DocumentDiagnostics report = DocumentRenderer.Render(_options, blocks, buffer, CancellationToken.None);
-            buffer.Position = 0;
-            buffer.CopyTo(destination);
+            buffer.WriteTo(destination);
             destination.Flush();
             _diagnostics = report;
         }
@@ -118,10 +117,9 @@ public sealed class PdfDocument
         Block[] blocks = Begin();
         try
         {
-            using MemoryStream buffer = new();
+            using SaveBuffer buffer = new();
             DocumentDiagnostics report = await Task.Run(() => DocumentRenderer.Render(_options, blocks, buffer, cancellationToken), cancellationToken).ConfigureAwait(false);
-            buffer.Position = 0;
-            await buffer.CopyToAsync(destination, 81920, cancellationToken).ConfigureAwait(false);
+            await buffer.WriteToAsync(destination, cancellationToken).ConfigureAwait(false);
             await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
             _diagnostics = report;
         }

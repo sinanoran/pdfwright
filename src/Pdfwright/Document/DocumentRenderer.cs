@@ -577,7 +577,7 @@ internal sealed partial class DocumentRenderer
                     throw new InvalidOperationException($"The text of a {element.Type} element is drawn inside an artifact.");
                 }
 
-                if (_accessibility is not null && element.Reference is null && element.Type is ['H', >= '1' and <= '6'])
+                if (_accessibility is not null && element.Number == 0 && element.Type is ['H', >= '1' and <= '6'])
                 {
                     NoteHeading(element.Type[1] - '0', page.Index + 1);
                 }
