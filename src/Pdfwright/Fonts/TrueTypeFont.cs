@@ -184,6 +184,29 @@ internal sealed class TrueTypeFont
     /// <summary>The same bytes as an array, for a consumer that needs one to copy from; it must not be changed.</summary>
     internal byte[] RawBytes => _data;
 
+    private Pdf.Sha256? _bytesHash;
+
+    /// <summary>
+    /// A SHA-256 that has taken in the font's bytes and is not finished: the tag of a subset is the hash of the bytes and of the glyphs kept, so a subset goes on from a copy of it
+    /// (<see cref="Pdf.Sha256.Clone"/>) instead of hashing the font again at every save. Made on the first ask; a font is shared by every thread of its collection, and two threads that
+    /// ask first both make the same value and one wins. Never appended to: only copies are.
+    /// </summary>
+    internal Pdf.Sha256 BytesHash
+    {
+        get
+        {
+            Pdf.Sha256? known = Volatile.Read(ref _bytesHash);
+            if (known is not null)
+            {
+                return known;
+            }
+
+            Pdf.Sha256 made = new();
+            made.Append(_data);
+            return Interlocked.CompareExchange(ref _bytesHash, made, null) ?? made;
+        }
+    }
+
     /// <summary>
     /// Whether the licence allows embedding a <b>subset</b>, which is all Pdfwright does. OpenType says that when several usage bits are set the least restrictive
     /// applies: fsType 0 (installable), 4 (preview and print) and 8 (editable) allow a subset, and so does a combination such as 0x0006 or 0x000A, in which the

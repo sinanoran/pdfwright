@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
-using System.Security.Cryptography;
 
 namespace Pdfwright.Pdf;
 
@@ -655,7 +654,7 @@ internal sealed class PdfFile : IDisposable
     /// <summary>A write-only stream that counts the bytes written and hashes them, so the output need not be seekable.</summary>
     private sealed class HashingStream(Stream inner) : Stream
     {
-        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private readonly Sha256 _hash = new();
         private long _position;
 
         public override bool CanRead => false;
@@ -672,12 +671,12 @@ internal sealed class PdfFile : IDisposable
             set => throw new NotSupportedException();
         }
 
-        internal byte[] Hash() => _hash.GetCurrentHash()[..16];
+        internal byte[] Hash() => _hash.GetHashAndReset()[..16];
 
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             inner.Write(buffer);
-            _hash.AppendData(buffer);
+            _hash.Append(buffer);
             _position += buffer.Length;
         }
 
@@ -691,14 +690,5 @@ internal sealed class PdfFile : IDisposable
 
         public override void SetLength(long value) => throw new NotSupportedException();
 
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _hash.Dispose();
-            }
-
-            base.Dispose(disposing);
-        }
     }
 }
