@@ -196,9 +196,13 @@ internal sealed class ParagraphLayout
     /// <paramref name="embedded"/> and <paramref name="fontResourceNames"/> hold one entry for each font that was given to
     /// <see cref="ParagraphLayouter.Layout"/>, in the same order, and each embedded font must be the very font (the same <see cref="TrueTypeFont"/> object) the paragraph was laid out with at that place.
     /// </summary>
-    /// <remarks><paramref name="firstLine"/> and <paramref name="lineCount"/> (all the rest when negative) draw only some of the lines, the first of them with its top at <paramref name="top"/>: the flow of a document uses it to split a paragraph between pages. A style with a colour sets the fill colour before its runs.</remarks>
+    /// <remarks>
+    /// <paramref name="firstLine"/> and <paramref name="lineCount"/> (all the rest when negative) draw only some of the lines, the first of them with its top at <paramref name="top"/>: the flow of a document uses it to split a paragraph between pages. A style with a colour sets the fill colour before its runs.
+    /// With <paramref name="languageSpans"/> (the lines are the marked content of an element of a tagged document) a run whose style has another language than <paramref name="language"/>, the paragraph's, is
+    /// a span with its own <c>/Lang</c>, so that a screen reader reads it in its own voice.
+    /// </remarks>
     /// <exception cref="ArgumentException">The arrays do not match the fonts the paragraph was laid out with.</exception>
-    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont?[] embedded, string?[] fontResourceNames, double left, double top, int firstLine = 0, int lineCount = -1)
+    internal void Draw(ContentStreamBuilder content, PdfEmbeddedFont?[] embedded, string?[] fontResourceNames, double left, double top, int firstLine = 0, int lineCount = -1, bool languageSpans = false, string? language = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(embedded);
@@ -257,19 +261,33 @@ internal sealed class ParagraphLayout
                 PlacedRun placed = lineRuns[r];
                 int font = placed.Run.FontIndex;
                 RunStyle style = Styles[placed.Run.Style];
+
+                // A run is set in one style, so in one language: a span in another language than the paragraph's holds the whole run.
+                bool span = languageSpans && style.Language is { Length: > 0 } own && !string.Equals(own, language, StringComparison.OrdinalIgnoreCase);
+                if (span)
+                {
+                    _ = content.BeginLanguageSpan(style.Language!);
+                }
+
                 if (!_mixedColours)
                 {
                     SetColour(content, style.Color, ref current);
                     GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, placed.Run, Text, left + placed.X, baseline, style.Size);
-                    continue;
+                }
+                else
+                {
+                    // A run may hold characters of several colours (a colour does not change how a run is shaped): it is written in parts, one for each stretch of its glyphs of one colour.
+                    double scale = style.Size / _fonts[font].Font.UnitsPerEm;
+                    foreach ((ShapedRun part, double offset, Color? colour) in ColourParts(placed.Run, scale))
+                    {
+                        SetColour(content, colour, ref current);
+                        GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, part, Text, left + placed.X + offset, baseline, style.Size);
+                    }
                 }
 
-                // A run may hold characters of several colours (a colour does not change how a run is shaped): it is written in parts, one for each stretch of its glyphs of one colour.
-                double scale = style.Size / _fonts[font].Font.UnitsPerEm;
-                foreach ((ShapedRun part, double offset, Color? colour) in ColourParts(placed.Run, scale))
+                if (span)
                 {
-                    SetColour(content, colour, ref current);
-                    GlyphRunWriter.Write(content, embedded[font]!, fontResourceNames[font]!, part, Text, left + placed.X + offset, baseline, style.Size);
+                    _ = content.EndMarkedContent();
                 }
             }
 

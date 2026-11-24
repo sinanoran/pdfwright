@@ -75,8 +75,14 @@ internal sealed partial class DocumentRenderer
             Creator = options.Creator,
             Language = options.Language,
             Created = created,
+            Tagged = options.Tagged,
         });
+        _tagParent = _writer.Structure?.Document;
+        _documentLanguage = ResolvedStyle.Base(fonts, null, options.Language).Language;
     }
+
+    /// <summary>The document's language as the catalog's <c>/Lang</c> has it, read by the same rule as a style's.</summary>
+    private readonly string? _documentLanguage;
 
     /// <summary>Checks the options once, so that a bad document fails when it is made and not halfway through a save.</summary>
     internal static void Validate(PdfDocumentOptions options)
@@ -417,8 +423,82 @@ internal sealed partial class DocumentRenderer
             }
         }
 
-        layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count);
+        // Tagged, the lines are the marked content of their element (an MCID on this page; a paragraph split between pages has one on each), with a span
+        // around a run in another language than the paragraph's; text with no element (a list's or a table's, until they are tagged) is an artifact.
+        bool marked = false;
+        bool artifact = false;
+        if (_writer.Structure is not null)
+        {
+            if (styled.Tag is { } element)
+            {
+                _ = page.BeginMarkedContent(element);
+                marked = true;
+            }
+            else
+            {
+                artifact = BeginArtifact();
+            }
+        }
+
+        layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count, marked, styled.Styles[0].Language);
+        if (marked)
+        {
+            page.EndMarkedContent();
+        }
+
+        EndArtifact(artifact);
         RecordMissing(styled, firstLine, count, page.Index + 1);
+    }
+
+    /// <summary>The element the text items built now belong to (<see cref="BuildTextItem"/>): the <c>Document</c>, a callout's or a column cell's <c>Div</c>, or <see langword="null"/> for none (untagged, or a header or footer).</summary>
+    private PdfStructureElement? _tagParent;
+
+    /// <summary>The content drawn now is inside an artifact (a header or a footer, a table's fragment), so drawing does not begin another.</summary>
+    private bool _inArtifact;
+
+    /// <summary>Makes a light structure element under the current parent (<see cref="_tagParent"/>), or nothing when there is none.</summary>
+    private PdfStructureElement? Tag(string type, string? language = null) =>
+        _tagParent is { } parent ? _writer.Structure!.Create(parent, type, language: language) : null;
+
+    /// <summary>Builds with <paramref name="parent"/> as the parent of the elements made meanwhile, and the parent before it afterwards.</summary>
+    private T BuildUnder<T>(PdfStructureElement? parent, Func<T> build)
+    {
+        PdfStructureElement? before = _tagParent;
+        _tagParent = parent;
+        try
+        {
+            return build();
+        }
+        finally
+        {
+            _tagParent = before;
+        }
+    }
+
+    /// <summary>
+    /// Begins an artifact on the page's current stream when the document is tagged and none is open, for content that is not the document's text
+    /// (a callout's box, a picture, a table's fills and borders); returns whether it began one, for <see cref="EndArtifact"/>.
+    /// </summary>
+    private bool BeginArtifact()
+    {
+        if (_writer.Structure is null || _inArtifact)
+        {
+            return false;
+        }
+
+        _ = _page!.Content.BeginArtifact();
+        _inArtifact = true;
+        return true;
+    }
+
+    /// <summary>Ends the artifact <see cref="BeginArtifact"/> began, when it began one.</summary>
+    private void EndArtifact(bool began)
+    {
+        if (began)
+        {
+            _ = _page!.Content.EndMarkedContent();
+            _inArtifact = false;
+        }
     }
 
     /// <summary>The embedded form of a font of the collection in this document, made on first use and kept (the document keeps one for each font, see <see cref="PdfDocumentWriter.GetOrAddShared"/>).</summary>

@@ -111,6 +111,7 @@ internal sealed partial class DocumentRenderer
                 ResolvedStyle style = _base.Apply(paragraph.Style);
                 StyledLayout layout = BlockText.Layout(paragraph.Runs, style, _fonts, width, paragraph.Alignment, paragraph.Direction ?? direction, paragraph.LineSpacing);
                 NoteFamilies(layout);
+                layout.Tag = Tag("P", OwnLanguage(style));
                 return new TextItem
                 {
                     Styled = layout,
@@ -125,6 +126,7 @@ internal sealed partial class DocumentRenderer
                 ResolvedStyle style = _headings[heading.Level - 1];
                 StyledLayout layout = BlockText.Layout(heading.Runs, style, _fonts, width, heading.Alignment, heading.Direction ?? direction, 1.0);
                 NoteFamilies(layout);
+                layout.Tag = Tag(HeadingTypes[heading.Level - 1], OwnLanguage(style));
                 return new TextItem
                 {
                     Styled = layout,
@@ -138,6 +140,15 @@ internal sealed partial class DocumentRenderer
                 throw new InvalidOperationException("Not a text block.");
         }
     }
+
+    private static readonly string[] HeadingTypes = ["H1", "H2", "H3", "H4", "H5", "H6"];
+
+    /// <summary>
+    /// The language of a paragraph set in <paramref name="style"/> when it is not the document's (the catalog's <c>/Lang</c>), for the element's own
+    /// <c>/Lang</c>; otherwise <see langword="null"/>. The default style's language counts as the paragraph's, as it does for shaping.
+    /// </summary>
+    private string? OwnLanguage(ResolvedStyle style) =>
+        style.Language is { } language && !string.Equals(language, _documentLanguage, StringComparison.OrdinalIgnoreCase) ? language : null;
 
     private Stack BuildStack(IReadOnlyList<Block> blocks, double width, double maxHeight, TextDirection direction) =>
         new([.. blocks.SelectMany(block => BuildItems(block, width, maxHeight, direction))]);
@@ -292,7 +303,10 @@ internal sealed partial class DocumentRenderer
             throw new InvalidOperationException($"The columns' gap of {gap:0.##} pt leaves {Math.Max(0, cell):0.##} pt for each of {count} cells in the {width:0.##} pt available: a cell is at least {MinimumWidth:0.##} pt wide (make the gap smaller).");
         }
 
-        Stack[] stacks = [.. columns.Cells.Select(blocks => BuildStack(blocks, cell, maxHeight, own))];
+        // Tagged, the columns are a Div with a Div for each cell, in the order of the cells (the logical order, which is the order they are drawn in
+        // whichever way they stand on the page).
+        PdfStructureElement? division = Tag("Div");
+        Stack[] stacks = [.. columns.Cells.Select(blocks => BuildUnder(division is null ? null : _writer.Structure!.Create(division, "Div"), () => BuildStack(blocks, cell, maxHeight, own)))];
         double height = stacks.Max(s => s.Height);
         bool rtl = IsRightToLeft(own);
         return new FixedItem
@@ -332,7 +346,8 @@ internal sealed partial class DocumentRenderer
             throw new InvalidOperationException($"The callout's border and padding take {top + bottom:0.##} pt of the {maxHeight:0.##} pt a page can hold here and leave nothing for its content (make the padding smaller).");
         }
 
-        Stack stack = BuildStack(callout.Content, inner, innerMax, callout.Direction ?? direction);
+        // Tagged, the callout is a Div around its content; its box is an artifact. A callout split between pages is one Div.
+        Stack stack = BuildUnder(Tag("Div"), () => BuildStack(callout.Content, inner, innerMax, callout.Direction ?? direction));
         if (stack.Items.Count > 0)
         {
             Item head = stack.Items[0];
@@ -406,6 +421,15 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
+        bool artifact = BeginArtifact();
+        PaintCalloutBox(plan, x, y, height);
+        EndArtifact(artifact);
+    }
+
+    private void PaintCalloutBox(CalloutPlan plan, double x, double y, double height)
+    {
+        Callout callout = plan.Block;
+
         // A radius is cut to half the shorter side of what it is drawn on, so that the corners stay circular (a box is a pill at the most) and the same for the fill and the border.
         double radius = Math.Min(callout.CornerRadius.Points, Math.Min(plan.Width, height) / 2);
         using Canvas canvas = new(_page!, x, _pageHeight - _top - y, plan.Width, height);
@@ -433,7 +457,15 @@ internal sealed partial class DocumentRenderer
         (codePoint, language) => AddMissing(codePoint, language, pageNumber),
         NoteFamily);
 
+    /// <summary>Draws a drawing; tagged, it is an artifact for now, its canvas text included (a figure with alternative text comes with the tagging of figures).</summary>
     private void DrawDrawing(Drawing drawing, double x, double y, double width, double height, TextDirection direction)
+    {
+        bool artifact = BeginArtifact();
+        PaintDrawing(drawing, x, y, width, height, direction);
+        EndArtifact(artifact);
+    }
+
+    private void PaintDrawing(Drawing drawing, double x, double y, double width, double height, TextDirection direction)
     {
         PdfPageWriter page = _page!;
         DrawingServices services = Services(page.Index + 1, direction);
@@ -451,10 +483,16 @@ internal sealed partial class DocumentRenderer
         }
     }
 
+    /// <summary>Draws an image; tagged, it is an artifact for now (a figure with alternative text comes with the tagging of figures).</summary>
     private void DrawPicture(PdfImage picture, double x, double y, double width, double height)
     {
-        using Canvas canvas = new(_page!, x, _pageHeight - _top - y, width, height);
-        canvas.DrawImage(picture.Source, 0, 0, width, height);
+        bool artifact = BeginArtifact();
+        using (Canvas canvas = new(_page!, x, _pageHeight - _top - y, width, height))
+        {
+            canvas.DrawImage(picture.Source, 0, 0, width, height);
+        }
+
+        EndArtifact(artifact);
     }
 
     // ---- placing
@@ -704,7 +742,7 @@ internal sealed partial class DocumentRenderer
                 page.UseHeader();
                 Item item = BuildOverlay(header, room, "header", n + 1);
                 CheckFits(item, room, "header", "top", n + 1);
-                DrawItem(item, _left, headerOffset - _top);
+                DrawOverlay(item, _left, headerOffset - _top, PdfPaginationArtifact.Header);
             }
 
             if (_options.Footer?.Invoke(context) is { } footer)
@@ -713,7 +751,7 @@ internal sealed partial class DocumentRenderer
                 page.UseFooter();
                 Item item = BuildOverlay(footer, room, "footer", n + 1);
                 double height = CheckFits(item, room, "footer", "bottom", n + 1);
-                DrawItem(item, _left, _pageHeight - footerOffset - height - _top);
+                DrawOverlay(item, _left, _pageHeight - footerOffset - height - _top, PdfPaginationArtifact.Footer);
             }
 
             _page = null;
@@ -724,12 +762,32 @@ internal sealed partial class DocumentRenderer
         _pending.Clear();
     }
 
+    /// <summary>
+    /// Draws a header or a footer. Tagged, the whole of it is a pagination artifact, which a reader can tell apart from the body and does not read
+    /// as the document's text: nothing in it has a structure element (it was built with none) and nothing drawn in it begins another artifact.
+    /// </summary>
+    private void DrawOverlay(Item item, double x, double y, PdfPaginationArtifact subtype)
+    {
+        if (_writer.Structure is null)
+        {
+            DrawItem(item, x, y);
+            return;
+        }
+
+        _ = _page!.Content.BeginPaginationArtifact(subtype);
+        _inArtifact = true;
+        DrawItem(item, x, y);
+        _inArtifact = false;
+        _ = _page.Content.EndMarkedContent();
+    }
+
     /// <summary>Lays out the header or the footer of a page; a block that cannot be laid out there fails with the page and which of the two it was (the original exception is the inner one).</summary>
     private Item BuildOverlay(Block block, double room, string what, int pageNumber)
     {
         try
         {
-            return BuildItem(block, _contentWidth, room, _options.Direction);
+            // A header or a footer is an artifact: its text has no structure element.
+            return BuildUnder(null, () => BuildItem(block, _contentWidth, room, _options.Direction));
         }
         catch (InvalidOperationException error)
         {

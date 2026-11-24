@@ -702,6 +702,9 @@ internal sealed partial class DocumentRenderer
             }
 
             double top = _r._y;
+
+            // Tagged, a table is an artifact for now, its text included: the table's structure comes with the tagging of tables.
+            bool artifact = _r.BeginArtifact();
             DrawFills(row, top, height);
             for (int i = 0; i < n; i++)
             {
@@ -730,6 +733,7 @@ internal sealed partial class DocumentRenderer
             }
 
             DrawBorders(top, height);
+            _r.EndArtifact(artifact);
             _r._y = top + height;
             _r._hasContent = true;
             _rowsInFragment++;
@@ -825,7 +829,9 @@ internal sealed partial class DocumentRenderer
         {
             if (_fragmentOpen && _rowsInFragment > 0 && _r._page is not null)
             {
+                bool artifact = _r.BeginArtifact();
                 Line(_r._page.Content, _table.Borders.OuterHorizontal, _tableLeft, PdfY(_r._y), _tableLeft + _tableWidth, PdfY(_r._y));
+                _r.EndArtifact(artifact);
             }
 
             _fragmentOpen = false;
