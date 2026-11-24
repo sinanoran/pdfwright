@@ -105,6 +105,9 @@ render goldens with the absolute one-pixel rule, `qpdf --check`, the seeded prop
 
 ## 4. Tagged PDF after CJK
 
+> Replaced on 24 November 2026: tagged PDF ships in 0.1.6, before 0.2, as planned in [`plan-tagged-pdf.md`](plan-tagged-pdf.md). This
+> section and slices T1 and T2 above are kept as they were written.
+
 Section 6 of the 0.1 plan, with its note on the room the 0.1 API leaves, is the design. T1 adds the structure tree and the marked content in
 the writer and switches them on with `PdfDocumentOptions.Tagged`; roles follow from the block types, the header and footer are artifacts,
 `Image.AltText` and `Drawing.AltText` become `/Alt`, `TextStyle.Language` becomes the spans' `/Lang`. veraPDF runs in CI on the corpus with
