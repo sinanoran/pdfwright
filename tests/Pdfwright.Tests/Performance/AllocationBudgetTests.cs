@@ -26,6 +26,12 @@ public sealed class AllocationBudgetTests : IDisposable
     /// <summary>Regression guards: the highest reading on net8.0 to net11.0 (Debug), rounded up to a tenth of a megabyte. Not plan targets.</summary>
     private const long TableGuard = 207 * Megabyte / 10;
 
+    /// <summary>
+    /// The 1,000-row table tagged: 28.4 MB, the highest reading on net8.0 to net11.0, Debug and Release (net8.0 Release 28.37 MB, the others 26.9 to 28.2
+    /// MB), against 19.0 to 20.7 MB untagged in the same runs: about 1.2 KB for each of its 7,007 structure elements and their 6,006 marked contents.
+    /// </summary>
+    private const long TaggedTableGuard = 284 * Megabyte / 10;
+
     private const long ReportGuard = 63 * Megabyte / 10;
 
     private const long StressGuard = 329 * Megabyte / 10;
@@ -41,6 +47,14 @@ public sealed class AllocationBudgetTests : IDisposable
     /// <summary>The plan's target is 20 MB; net8.0 reads 20.5 MB and passes through the tolerance, so the name claims no figure.</summary>
     [Fact]
     public void Table_with_1000_rows_stays_within_its_budgets() => AssertWithin(fonts => ScenarioDocuments.Table(fonts), expectedPages: 21, TableTarget, TableGuard);
+
+    /// <summary>
+    /// A regression guard only, not a plan target: the same table tagged (the internal option), at its measured figure. The budgets stay those of
+    /// untagged output (plan of tagged PDF, section 1); the structure costs a few objects for each row, its cells and their marked content, written
+    /// as each row is placed.
+    /// </summary>
+    [Fact]
+    public void Tagged_table_with_1000_rows_stays_within_its_guard() => AssertWithin(fonts => ScenarioDocuments.Table(fonts, tagged: true), expectedPages: 21, null, TaggedTableGuard);
 
     /// <summary>The plan's target (20 pages under 10 MB) and a guard at the measured figure.</summary>
     [Fact]

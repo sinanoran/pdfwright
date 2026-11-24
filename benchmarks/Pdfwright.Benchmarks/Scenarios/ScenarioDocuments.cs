@@ -40,9 +40,12 @@ internal static class ScenarioDocuments
         return fonts;
     }
 
-    /// <summary>The 1,000-row table of the baselines. The Chromium baseline printed with its default header and footer (title and date, page x/y); here the header carries the title and the footer "Page x of y".</summary>
-    internal static PdfDocument Table(FontCollection fonts, int rows = 1000) =>
-        TableDocument(fonts, TableData.Header, TableData.Rows(rows), new TextStyle { Size = Length.Pt(9) }, null);
+    /// <summary>
+    /// The 1,000-row table of the baselines. The Chromium baseline printed with its default header and footer (title and date, page x/y); here the header carries the title and the footer "Page x of y".
+    /// <paramref name="tagged"/> writes it as a tagged PDF (the internal option), for the tests' guard of tagged output.
+    /// </summary>
+    internal static PdfDocument Table(FontCollection fonts, int rows = 1000, bool tagged = false) =>
+        TableDocument(fonts, TableData.Header, TableData.Rows(rows), new TextStyle { Size = Length.Pt(9) }, null, tagged);
 
     /// <summary>The same table with the cell texts in Arabic (right to left, Noto Sans Arabic, Latin digits): "Row r cell c text" as "صف r خلية c نص", the columns running from the right edge.</summary>
     internal static PdfDocument TableArabic(FontCollection fonts, int rows = 1000) =>
@@ -166,7 +169,7 @@ internal static class ScenarioDocuments
         return values;
     }
 
-    private static PdfDocument TableDocument(FontCollection fonts, IReadOnlyList<string> header, IEnumerable<string[]> rows, TextStyle tableStyle, TextDirection? direction)
+    private static PdfDocument TableDocument(FontCollection fonts, IReadOnlyList<string> header, IEnumerable<string[]> rows, TextStyle tableStyle, TextDirection? direction, bool tagged = false)
     {
         PdfDocument document = new(new PdfDocumentOptions
         {
@@ -178,6 +181,7 @@ internal static class ScenarioDocuments
             Language = "en",
             Header = page => new Paragraph("Report") { Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
             Footer = page => new Paragraph($"Page {page.Number} of {page.Count}") { Alignment = TextAlignment.End, Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
+            Tagged = tagged,
         });
 
         document.Add(new Heading(1, "Report"));
