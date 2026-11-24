@@ -8,7 +8,7 @@ namespace Pdfwright.Benchmarks.Scenarios;
 /// report of about ten pages with headings, paragraphs, two tables, two charts, a header and a footer, in Latin and Arabic.
 /// The others are the scenarios of section 7 of the plan: <see cref="Report20"/>, <see cref="Stress"/>, <see cref="TableArabic"/>
 /// and <see cref="TableDevanagari"/>. The allocation-budget tests compile this file too, so that the tests and the benchmarks measure the same documents.
-/// Every scenario is written tagged, as the library writes a document by default; <c>tagged: false</c> writes it untagged (the file of 0.1.5 and earlier), so
+/// Every scenario is written tagged, as the library writes a document by default; <c>tagged: false</c> writes it untagged (the file of 0.1.5), so
 /// that the two can be measured side by side, and <c>pinned: true</c> writes it uncompressed and deterministic, so that a test can pin its bytes (the
 /// benchmarks write it compressed and dated by the clock, as a caller would).
 /// </summary>

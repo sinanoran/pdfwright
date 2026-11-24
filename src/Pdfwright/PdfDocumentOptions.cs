@@ -155,16 +155,18 @@ public sealed class PdfDocumentOptions
     /// columns and for each column; <c>L</c>, <c>LI</c>, <c>Lbl</c> and <c>LBody</c> for lists; <c>Table</c>, <c>THead</c>, <c>TBody</c>, <c>TR</c>,
     /// <c>TH</c> (with <c>/Scope /Column</c>) and <c>TD</c> for tables; and <c>Figure</c> for an <see cref="Image"/> or a <see cref="Drawing"/> with alternative
     /// text, which is the figure's <c>/Alt</c>. Every piece of text is in the marked content of its element, and an element or a run in another language than
-    /// the document's carries its own <c>/Lang</c>. What is not content is an artifact, which a screen reader skips: the header and the footer, table fills and
+    /// the document's carries its own <c>/Lang</c> (text drawn on a <see cref="DrawingCanvas"/> does not: it is part of its figure, which its <c>/Alt</c> stands for, or of an artifact).
+    /// What is not content is an artifact, which a screen reader skips: the header and the footer, table fills and
     /// borders, callout boxes, a table's header rows repeated on later pages, and an image or a drawing without alternative text (decorative).
     /// <para>
     /// A tagged document claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its metadata) only when the save found no accessibility issue. A document without a
     /// <see cref="Title"/> or a <see cref="Language"/>, with a character no font has a glyph for, or with headings out of order is written tagged all the same,
     /// without the claim, and the save lists what is in the way in <see cref="DocumentDiagnostics.AccessibilityIssues"/>; <see cref="DocumentDiagnostics.IsPdfUA"/>
-    /// says whether the claim was written. Tagging changes nothing that is drawn; it makes the file larger.
+    /// says whether the claim was written. Tagging changes nothing that is drawn; it makes the file larger (about 1.2 to 2.5 times the untagged file of the benchmark documents), so a
+    /// <see cref="DocumentLimits.MaxBytes"/> chosen for untagged files may need raising.
     /// </para>
     /// <para>
-    /// <see langword="false"/> writes an untagged file, byte for byte the output of the versions before tagged PDF (0.1.5 and earlier): no structure tree,
+    /// <see langword="false"/> writes an untagged file, byte for byte the output of 0.1.5, the last version before tagged PDF: no structure tree,
     /// no claim, and no accessibility issue checked or reported.
     /// </para>
     /// </summary>
@@ -198,6 +200,8 @@ public sealed class DocumentLimits
     /// The most bytes the file may have, or <see langword="null"/> for no limit. The size is checked after every page, to stop early, and once more when the file is complete (the fonts are
     /// written last), so a file over the limit is never returned: <see cref="PdfLimitExceededException"/> is thrown and nothing at all has been written to the caller's stream.
     /// The file is built in memory before it is written to the stream.
+    /// A tagged file (<see cref="PdfDocumentOptions.Tagged"/>, the default since 0.1.6) is larger than the untagged file of the same document (about 1.2 to 2.5 times for the
+    /// benchmark documents), so a limit chosen for the files of 0.1.5 can now be exceeded: raise it, or set <see cref="PdfDocumentOptions.Tagged"/> to <see langword="false"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is less than 1.</exception>
     public long? MaxBytes
@@ -397,7 +401,8 @@ public sealed class DocumentDiagnostics
 
     /// <summary>
     /// What keeps a tagged document from being PDF/UA-1, in the order found: no title, no language or one that is not a language tag, a character drawn
-    /// without a glyph (once for each page it is on), a heading out of order. Empty when the file claims PDF/UA-1 (<see cref="IsPdfUA"/>), and empty for
+    /// without a glyph (one issue for each page that has any, however many characters; its message names the first such character when it was found missing
+    /// from every font), a heading out of order. Empty when the file claims PDF/UA-1 (<see cref="IsPdfUA"/>), and empty for
     /// an untagged document (<see cref="PdfDocumentOptions.Tagged"/> set to <see langword="false"/>), which is not checked.
     /// </summary>
     public IReadOnlyList<AccessibilityIssue> AccessibilityIssues { get; }

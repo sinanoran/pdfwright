@@ -480,6 +480,35 @@ public class PdfUAValidationTests
     }
 
     /// <summary>
+    /// The upgrade note of <see cref="DocumentLimits.MaxBytes"/>: a tagged file is larger than the untagged one, so a limit sized for the untagged file
+    /// (the output of 0.1.5) stops the tagged save, and <c>Tagged = false</c> or a higher limit saves it again.
+    /// </summary>
+    [Fact]
+    public void A_byte_limit_sized_for_the_untagged_file_stops_the_tagged_one()
+    {
+        PdfDocument Limited(bool isTagged, long maxBytes)
+        {
+            PdfDocument document = new(DocumentTestKit.Options(o =>
+            {
+                o.Tagged = isTagged;
+                o.Compress = true;
+                o.Limits = new DocumentLimits { MaxBytes = maxBytes };
+            }));
+            document.Add(new Heading(1, "Report"));
+            document.Add(new Table([new TableColumn(), new TableColumn()], new TableRow("Row", "Text"), Enumerable.Range(0, 300).Select(i => new TableRow($"{i}", $"Row {i} text"))));
+            return document;
+        }
+
+        long fits = DocumentTestKit.Save(Limited(isTagged: false, long.MaxValue)).Length;
+        Assert.Equal(fits, DocumentTestKit.Save(Limited(isTagged: false, fits)).Length);
+        PdfLimitExceededException exceeded = Assert.Throws<PdfLimitExceededException>(() => DocumentTestKit.Save(Limited(isTagged: true, fits)));
+        Assert.Equal(DocumentLimit.MaxBytes, exceeded.Limit);
+        long taggedSize = DocumentTestKit.Save(Limited(isTagged: true, long.MaxValue)).Length;
+        Assert.True(taggedSize > fits * 6 / 5, $"tagged {taggedSize} bytes, untagged {fits}");
+        Assert.Equal(taggedSize, DocumentTestKit.Save(Limited(isTagged: true, taggedSize)).Length);
+    }
+
+    /// <summary>
     /// The tagged golden files (<c>Golden/*-tagged.pdf</c>), as committed: the structure tree of each holds what any tagged file of the writer must
     /// (<see cref="StructureTreeReader.AssertConsistent"/>), each claims PDF/UA-1, and veraPDF finds each compliant.
     /// </summary>

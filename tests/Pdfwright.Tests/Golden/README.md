@@ -11,8 +11,8 @@ font subsetter or the writer that moves a byte fails a test, and the person maki
 | `readme-report.pdf` | the sample report of the README (`SampleDocumentTests.ReadmeReport`: heading, paragraph, callout with columns, table over several pages, drawing, image, header and footer) |
 | `<group>-short-tagged.pdf`, `readme-report-tagged.pdf` | the same documents tagged, the library's default (`PdfDocumentOptions.Tagged`) |
 
-**Untagged and tagged.** The document goldens come in pairs. `<name>.pdf` is written with `Tagged = false`: it is the untagged output of the versions before tagged PDF (0.1.5 and earlier),
-and its bytes have not changed since then, which is what proves that `Tagged = false` still writes them. `<name>-tagged.pdf` is the default output. Each tagged golden has a title and a language,
+**Untagged and tagged.** The document goldens come in pairs. `<name>.pdf` is written with `Tagged = false`: it is the untagged output of 0.1.5, the last version before tagged PDF,
+and its bytes have not changed since 0.1.5, which is what proves that `Tagged = false` still writes them. `<name>-tagged.pdf` is the default output. Each tagged golden has a title and a language,
 claims PDF/UA-1, passes veraPDF (`--flavour ua1`) and the structure checks of `StructureTreeReader.AssertConsistent` (`PdfUAValidationTests.The_tagged_goldens_are_pdf_ua`, which reads the committed files).
 `three-pages.pdf` is made by the writer, below the document layer, and has no tagged twin.
 
