@@ -63,15 +63,15 @@ The memory a save holds is about the size of the file, plus the page being built
 ## Fonts
 
 Fonts are **supplied, never discovered.** Pdfwright does not look in the operating system's font folders, so the same code produces the same file on a developer's machine, a Linux container
-and a build server. The package ships no font. Give the collection TrueType files (`glyf` outlines; Noto, Roboto, Open Sans, Arial and most `.ttf` files are) as bytes:
+and a build server. The package ships no font. Give the collection TrueType files (`glyf` outlines; Noto, Roboto, Open Sans, Arial and most `.ttf` files are) as files, streams or bytes (`AddFile`, `Add(Stream)` and `Add(byte[])`; `AddFile` and `Add(Stream)` read the font straight into the collection's own copy, where `Add(File.ReadAllBytes(...))` makes an array of the file that the collection copies):
 
 <!-- snippet: guide-fonts -->
 ```csharp
-// One collection for the whole application: it parses each font once and keeps a native copy of it.
+// One collection for the whole application: it parses each font once and keeps one copy of it, into which AddFile reads the file.
 FontCollection fonts = new();
-fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Regular.ttf")));
-fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSans-Bold.ttf")));
-fonts.Add(File.ReadAllBytes(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf")));
+fonts.AddFile(Path.Combine(fontDirectory, "NotoSans-Regular.ttf"));
+fonts.AddFile(Path.Combine(fontDirectory, "NotoSans-Bold.ttf"));
+fonts.AddFile(Path.Combine(fontDirectory, "NotoSansArabic-Regular.ttf"));
 
 string families = string.Join(", ", fonts.Families); // Noto Sans, Noto Sans Arabic
 

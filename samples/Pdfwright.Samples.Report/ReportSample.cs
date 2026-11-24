@@ -21,7 +21,7 @@ public static class ReportSample
         FontCollection fonts = new();
         foreach (string file in FontFiles)
         {
-            fonts.Add(File.ReadAllBytes(Path.Combine(directory, file)));
+            fonts.AddFile(Path.Combine(directory, file));
         }
 
         return fonts;

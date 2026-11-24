@@ -49,6 +49,112 @@ public class FontCollectionTests
     }
 
     [Fact]
+    public void A_font_added_from_a_file_or_a_stream_is_the_font_added_from_its_bytes()
+    {
+        string path = TestPaths.Font("NotoSans-Regular.ttf");
+        byte[] bytes = Bytes("NotoSans-Regular.ttf");
+        using FontCollection fromFile = new();
+        using FontCollection fromSeekable = new();
+        using FontCollection fromForwardOnly = new();
+        using MemoryStream seekable = new([0xAA, 0xBB, .. bytes]);
+        seekable.Position = 2;
+        using ForwardOnlyStream forwardOnly = new(bytes);
+
+        Assert.Same(fromFile, fromFile.AddFile(path));
+        Assert.Same(fromSeekable, fromSeekable.Add(seekable));
+        Assert.Same(fromForwardOnly, fromForwardOnly.Add(forwardOnly));
+
+        // Read from the stream's position to its end, and the stream is left open.
+        Assert.Equal(seekable.Length, seekable.Position);
+        Assert.True(seekable.CanRead);
+        foreach (FontCollection fonts in new[] { fromFile, fromSeekable, fromForwardOnly })
+        {
+            Assert.Equal(1, fonts.Count);
+            Assert.Equal(bytes, fonts.Current.Entries[0].Font.RawBytes);
+            Assert.Equal(1, fonts.Add(bytes).Count); // the same font: kept once
+        }
+
+        // The same file again is kept once, as the same bytes are.
+        Assert.Equal(1, fromFile.AddFile(path).Count);
+    }
+
+    [Fact]
+    public void A_file_or_stream_that_cannot_be_read_as_a_font_is_refused_with_the_argument_named()
+    {
+        using FontCollection fonts = new();
+        string missing = Path.Combine(Path.GetTempPath(), "pdfwright-no-such-font-" + Guid.NewGuid().ToString("N") + ".ttf");
+        string notAFont = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(notAFont, [1, 2, 3, 4, 5]);
+            Assert.Throws<ArgumentNullException>("path", () => fonts.AddFile(null!));
+            Assert.Throws<ArgumentException>("path", () => fonts.AddFile(string.Empty));
+            Assert.Throws<FileNotFoundException>(() => fonts.AddFile(missing));
+            Assert.Throws<ArgumentException>("path", () => fonts.AddFile(notAFont));
+            Assert.Throws<ArgumentNullException>("stream", () => fonts.Add((Stream)null!));
+            Assert.Throws<ArgumentException>("stream", () => fonts.Add(new MemoryStream([1, 2, 3])));
+            Assert.Throws<ArgumentException>("stream", () => fonts.Add(new ForwardOnlyStream([1, 2, 3])));
+            MemoryStream closed = new(Bytes("NotoSans-Regular.ttf"));
+            closed.Dispose();
+            Assert.Throws<ArgumentException>("stream", () => fonts.Add(closed));
+            Assert.Equal(0, fonts.Count);
+        }
+        finally
+        {
+            File.Delete(notAFont);
+        }
+    }
+
+    [Fact]
+    public void A_font_that_may_not_be_embedded_is_refused_from_a_stream_with_the_stream_named()
+    {
+        byte[] font = Bytes("NotoSans-Regular.ttf");
+        SetFsType(font, 0x0002);
+        using FontCollection fonts = new();
+
+        FontNotEmbeddableException error = Assert.Throws<FontNotEmbeddableException>(() => fonts.Add(new MemoryStream(font)));
+        Assert.Equal("stream", error.ParamName);
+    }
+
+    /// <summary>A stream that cannot seek and hands out at most a thousand bytes a read, as a network stream may.</summary>
+    private sealed class ForwardOnlyStream(byte[] data) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int take = Math.Min(Math.Min(count, 1000), data.Length - _position);
+            data.AsSpan(_position, take).CopyTo(buffer.AsSpan(offset));
+            _position += take;
+            return take;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
     public void A_font_added_twice_is_kept_once()
     {
         FontCollection fonts = new FontCollection().Add(Bytes("NotoSans-Regular.ttf")).Add(Bytes("NotoSans-Regular.ttf"));

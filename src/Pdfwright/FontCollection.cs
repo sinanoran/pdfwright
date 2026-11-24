@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Collections.Concurrent;
+using Microsoft.Win32.SafeHandles;
 using Pdfwright.Fonts;
 using Pdfwright.Text;
 
@@ -72,24 +74,163 @@ public sealed class FontCollection : IDisposable
     /// <exception cref="FontNotEmbeddableException">The font's licence does not allow embedding a subset.</exception>
     public FontCollection Add(ReadOnlyMemory<byte> fontData)
     {
+        byte[] copy = NewFontArray(fontData.Length);
+        fontData.Span.CopyTo(copy);
+        return AddOwned(copy, nameof(fontData));
+    }
+
+    /// <summary>
+    /// Adds a font from a TrueType file on disk, read straight into the collection's own copy of it: no array of the file is made for the caller to hand over, so adding a font costs the
+    /// memory of one copy of it and not two (<c>Add(File.ReadAllBytes(path))</c> makes an array of the file, which the collection then copies and the caller drops).
+    /// </summary>
+    /// <param name="path">The path of the font file.</param>
+    /// <returns>This collection, so that calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The path is empty, or the file is not a usable TrueType font (including a font with CFF outlines).</exception>
+    /// <exception cref="FontNotEmbeddableException">The font's licence does not allow embedding a subset.</exception>
+    /// <exception cref="FileNotFoundException">The file does not exist.</exception>
+    /// <exception cref="DirectoryNotFoundException">A directory of the path does not exist.</exception>
+    /// <exception cref="UnauthorizedAccessException">The file may not be read.</exception>
+    /// <exception cref="IOException">The file could not be read, or it became shorter while it was read.</exception>
+    public FontCollection AddFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        byte[] copy;
+        using (SafeFileHandle file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan))
+        {
+            long length = RandomAccess.GetLength(file);
+            if (length > Array.MaxLength)
+            {
+                throw new ArgumentException($"The file is {length} bytes long, too long to be a font.", nameof(path));
+            }
+
+            copy = NewFontArray((int)length);
+            int read = 0;
+            while (read < copy.Length)
+            {
+                int got = RandomAccess.Read(file, copy.AsSpan(read), read);
+                if (got == 0)
+                {
+                    throw new IOException($"The file {path} ended after {read} of its {copy.Length} bytes: it changed while it was read.");
+                }
+
+                read += got;
+            }
+        }
+
+        return AddOwned(copy, nameof(path));
+    }
+
+    /// <summary>
+    /// Adds a font from a stream of a TrueType file, read from its position to its end straight into the collection's own copy of it: a stream that can seek is read into a copy of the length it has
+    /// left, one that cannot is read in pieces borrowed from the shared array pool and copied once. The stream is not closed.
+    /// </summary>
+    /// <param name="stream">A readable stream that holds the font file from its position on.</param>
+    /// <returns>This collection, so that calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The stream cannot be read, or what it holds is not a usable TrueType font (including a font with CFF outlines).</exception>
+    /// <exception cref="FontNotEmbeddableException">The font's licence does not allow embedding a subset.</exception>
+    /// <exception cref="IOException">The stream could not be read, or a stream that can seek ended before the length it gave.</exception>
+    public FontCollection Add(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (!stream.CanRead)
+        {
+            throw new ArgumentException("The stream cannot be read.", nameof(stream));
+        }
+
+        byte[] copy = stream.CanSeek ? ReadSeekable(stream) : ReadToEnd(stream);
+        return AddOwned(copy, nameof(stream));
+    }
+
+    /// <summary>What is left of a stream that can seek, read into a font array of its length.</summary>
+    private static byte[] ReadSeekable(Stream stream)
+    {
+        long length = Math.Max(0, stream.Length - stream.Position);
+        if (length > Array.MaxLength)
+        {
+            throw new ArgumentException($"The stream holds {length} bytes, too many to be a font.", nameof(stream));
+        }
+
+        byte[] copy = NewFontArray((int)length);
+        stream.ReadExactly(copy);
+        return copy;
+    }
+
+    /// <summary>What is left of a stream of unknown length, read in pieces borrowed from the shared pool (and given back, cleared) and copied once into a font array.</summary>
+    private static byte[] ReadToEnd(Stream stream)
+    {
+        const int PieceSize = 64 * 1024;
+        List<byte[]> pieces = [];
+        int last = 0;
+        long total = 0;
+        try
+        {
+            while (true)
+            {
+                if (pieces.Count == 0 || last == PieceSize)
+                {
+                    pieces.Add(ArrayPool<byte>.Shared.Rent(PieceSize));
+                    last = 0;
+                }
+
+                int got = stream.Read(pieces[^1], last, PieceSize - last);
+                if (got == 0)
+                {
+                    break;
+                }
+
+                last += got;
+                total += got;
+                if (total > Array.MaxLength)
+                {
+                    throw new ArgumentException("The stream holds too many bytes to be a font.", nameof(stream));
+                }
+            }
+
+            byte[] copy = NewFontArray((int)total);
+            int at = 0;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                int used = i == pieces.Count - 1 ? last : PieceSize;
+                pieces[i].AsSpan(0, used).CopyTo(copy.AsSpan(at));
+                at += used;
+            }
+
+            return copy;
+        }
+        finally
+        {
+            foreach (byte[] piece in pieces)
+            {
+                ArrayPool<byte>.Shared.Return(piece, clearArray: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The array the collection keeps a font in, not yet filled. The one copy of the font is made on the pinned object heap and given to the parser, which keeps it without copying it again: the shaping
+    /// engine reads this same array in place for the life of the collection, pinned, and an array that is pinned where it was allocated does not hold the garbage collector back from compacting the heap
+    /// around it, which a small font pinned on the ordinary heap would.
+    /// </summary>
+    private static byte[] NewFontArray(int length) => GC.AllocateUninitializedArray<byte>(length, pinned: true);
+
+    /// <summary>Adds the font in <paramref name="copy"/>, an array of <see cref="NewFontArray"/> that the collection now owns; <paramref name="parameter"/> names the argument it came from in an error.</summary>
+    private FontCollection AddOwned(byte[] copy, string parameter)
+    {
         TrueTypeFont font;
         try
         {
-            // The one copy of the font is made on the pinned object heap and given to the parser, which keeps it without copying it again: the shaping engine reads this same array in place for the
-            // life of the collection, pinned, and an array that is pinned where it was allocated does not hold the garbage collector back from compacting the heap around it, which a small font pinned on
-            // the ordinary heap would.
-            byte[] copy = GC.AllocateUninitializedArray<byte>(fontData.Length, pinned: true);
-            fontData.Span.CopyTo(copy);
             font = TrueTypeFont.ParseOwned(copy);
         }
         catch (Exception error) when (error is InvalidDataException or NotSupportedException)
         {
-            throw new ArgumentException("The data is not a usable TrueType font: " + error.Message, nameof(fontData), error);
+            throw new ArgumentException("The data is not a usable TrueType font: " + error.Message, parameter, error);
         }
 
         if (!font.MayEmbedSubset)
         {
-            throw new FontNotEmbeddableException(font.FamilyName, font.EmbeddingPermission, nameof(fontData));
+            throw new FontNotEmbeddableException(font.FamilyName, font.EmbeddingPermission, parameter);
         }
 
         lock (_gate)
