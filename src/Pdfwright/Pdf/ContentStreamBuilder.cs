@@ -373,8 +373,9 @@ internal sealed class ContentStreamBuilder
 
     /// <summary>
     /// Begins a pagination artifact, the page's running header or footer: <c>/Artifact &lt;&lt;/Type /Pagination /Subtype /Header&gt;&gt; BDC</c>
-    /// (or <c>/Footer</c>), which a reader can tell apart from the body and leave out of what it reads aloud. It nests as
-    /// <see cref="BeginArtifact"/> does. End it with <see cref="EndMarkedContent"/>.
+    /// (or <c>/Footer</c>), or content repeated because the page broke, with no subtype (<see cref="PdfPaginationArtifact.Repeated"/>), which a
+    /// reader can tell apart from the body and leave out of what it reads aloud. It nests as <see cref="BeginArtifact"/> does. End it with
+    /// <see cref="EndMarkedContent"/>.
     /// </summary>
     internal ContentStreamBuilder BeginPaginationArtifact(PdfPaginationArtifact subtype)
     {
@@ -382,7 +383,8 @@ internal sealed class ContentStreamBuilder
         {
             PdfPaginationArtifact.Header => "/Artifact <</Type /Pagination /Subtype /Header>> BDC\n"u8,
             PdfPaginationArtifact.Footer => "/Artifact <</Type /Pagination /Subtype /Footer>> BDC\n"u8,
-            _ => throw new ArgumentOutOfRangeException(nameof(subtype), subtype, "A pagination artifact is a header or a footer."),
+            PdfPaginationArtifact.Repeated => "/Artifact <</Type /Pagination>> BDC\n"u8,
+            _ => throw new ArgumentOutOfRangeException(nameof(subtype), subtype, "A pagination artifact is a header, a footer or repeated content."),
         };
         OpenArtifact();
         return Op(op);
@@ -592,4 +594,10 @@ internal enum PdfPaginationArtifact
 
     /// <summary>The running footer, below the body.</summary>
     Footer,
+
+    /// <summary>
+    /// Content of the body drawn again because the page broke, written with no subtype (ISO 32000-1, table 330, where the subtypes are the running
+    /// parts of the page): a table's header rows repeated at the top of a later page, whose first drawing is the table's header in the structure.
+    /// </summary>
+    Repeated,
 }

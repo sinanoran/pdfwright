@@ -79,6 +79,16 @@ internal sealed class PdfStructureElement
     /// <summary>The child that is open now, which is closed before another child is added.</summary>
     internal PdfStructureElement? OpenChild { get; set; }
 
+    /// <summary>
+    /// Whether the element's children stay open together until it closes, instead of each closing when the next begins: a table row split between
+    /// pages draws a part of each of its cells on each page, so a cell's content comes back after the next cell's. Set it before the element has
+    /// children. A row has as many children as cells, so the memory is still the depth of the tree (times the columns), not its size.
+    /// </summary>
+    internal bool KeepsChildrenOpen { get; set; }
+
+    /// <summary>The children materialised while <see cref="KeepsChildrenOpen"/>, in order; they are closed when the element closes.</summary>
+    internal List<PdfStructureElement>? OpenChildren { get; set; }
+
     /// <summary>The element's object is written.</summary>
     internal bool IsClosed { get; set; }
 
@@ -95,7 +105,8 @@ internal sealed class PdfStructureElement
 /// <para>
 /// <b>Opening and closing.</b> An element is materialised under its parent, which is materialised first if it is not yet. When a parent gets a
 /// new child, the child it had open is closed, and with it that child's own open subtree: the content of a document arrives in reading order, so
-/// a sibling that starts means the one before it is done. <see cref="Close"/> closes an element (and its open subtree) explicitly, and
+/// a sibling that starts means the one before it is done; a table row keeps its cells open together instead
+/// (<see cref="PdfStructureElement.KeepsChildrenOpen"/>), because a row split between pages returns to each cell on the next page. <see cref="Close"/> closes an element (and its open subtree) explicitly, and
 /// <see cref="Complete"/> closes what is left. So the memory is the depth of the tree, not its size.
 /// </para>
 /// <para>
@@ -200,7 +211,14 @@ internal sealed class PdfStructureTree
 
             element.Reference = _writer.AllocateObject();
             parent.Kids!.Add(element.Reference);
-            parent.OpenChild = element;
+            if (parent.KeepsChildrenOpen)
+            {
+                (parent.OpenChildren ??= []).Add(element);
+            }
+            else
+            {
+                parent.OpenChild = element;
+            }
         }
         else
         {
@@ -238,11 +256,7 @@ internal sealed class PdfStructureTree
             return;
         }
 
-        if (element.OpenChild is { } child)
-        {
-            CloseElement(child);
-        }
-
+        CloseChildren(element);
         PdfDictionary dictionary = new PdfDictionary()
             .Set("Type", "StructElem")
             .Set("S", element.Type)
@@ -281,6 +295,24 @@ internal sealed class PdfStructureTree
         }
     }
 
+    /// <summary>Closes the open children of an element: the one open now, or all those it keeps open (<see cref="PdfStructureElement.KeepsChildrenOpen"/>), in order.</summary>
+    private void CloseChildren(PdfStructureElement element)
+    {
+        if (element.OpenChild is { } child)
+        {
+            CloseElement(child);
+        }
+
+        if (element.OpenChildren is { } children)
+        {
+            element.OpenChildren = null;
+            foreach (PdfStructureElement open in children)
+            {
+                CloseElement(open);
+            }
+        }
+    }
+
     /// <summary>
     /// Records marked content numbered <paramref name="mcid"/> on <paramref name="page"/> as the next kid of <paramref name="element"/>, which is
     /// materialised if it is not yet: an <c>MCID</c> on the element's own page, a marked-content reference on another.
@@ -288,11 +320,9 @@ internal sealed class PdfStructureTree
     internal void AddMarkedContent(PdfStructureElement element, PdfReference page, int mcid)
     {
         Open(element);
-        if (element.OpenChild is { } child)
-        {
-            // Content of the element itself after a child's content: the child is done.
-            CloseElement(child);
-        }
+
+        // Content of the element itself after a child's content: the child is done.
+        CloseChildren(element);
 
         element.Page ??= page;
         element.Kids!.Add(element.Page.Number == page.Number
