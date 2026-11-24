@@ -150,9 +150,10 @@ public sealed class PdfDocumentOptions
     public bool Compress { get; init; } = true;
 
     /// <summary>
-    /// Whether the document is written as a tagged PDF: a structure tree of its text (<c>Document</c>, headings, paragraphs, callouts and columns as
-    /// <c>Div</c>), every piece of text in the marked content of its element, and the header, the footer and decoration as artifacts. Internal and off
-    /// while tagged output is built slice by slice (lists, figures and tables are artifacts for now); with it off the file is the one it always was.
+    /// Whether the document is written as a tagged PDF: a structure tree of its content (<c>Document</c>, headings, paragraphs, callouts and columns as
+    /// <c>Div</c>, lists, figures with their alternative text, tables), every piece of text in the marked content of its element, and the header, the
+    /// footer, decoration and pictures without alternative text as artifacts. A tagged document with no accessibility issue claims PDF/UA-1
+    /// (<see cref="DocumentDiagnostics.IsPdfUA"/>). Internal and off until the option is made public; with it off the file is the one it always was.
     /// </summary>
     internal bool Tagged
     {
