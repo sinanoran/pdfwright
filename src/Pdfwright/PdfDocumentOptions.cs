@@ -149,6 +149,13 @@ public sealed class PdfDocumentOptions
     /// </summary>
     public bool Compress { get; init; } = true;
 
+    /// <summary>
+    /// Whether the document is written as a tagged PDF: a structure tree of its text (<c>Document</c>, headings, paragraphs, callouts and columns as
+    /// <c>Div</c>), every piece of text in the marked content of its element, and the header, the footer and decoration as artifacts. Internal and off
+    /// while tagged output is built slice by slice (lists, figures and tables are artifacts for now); with it off the file is the one it always was.
+    /// </summary>
+    internal bool Tagged { get; init; }
+
     /// <summary>Limits that stop a runaway document with a <see cref="PdfLimitExceededException"/>. None by default.</summary>
     /// <exception cref="ArgumentNullException">The value is <see langword="null"/>.</exception>
     public DocumentLimits Limits

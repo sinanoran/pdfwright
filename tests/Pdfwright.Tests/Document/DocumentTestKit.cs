@@ -55,6 +55,7 @@ internal static class DocumentTestKit
             Footer = b.Footer,
             HeaderOffset = b.HeaderOffset,
             FooterOffset = b.FooterOffset,
+            Tagged = b.Tagged,
         };
     }
 
@@ -98,6 +99,9 @@ internal static class DocumentTestKit
         internal Length? HeaderOffset { get; set; }
 
         internal Length? FooterOffset { get; set; }
+
+        /// <summary>The internal <see cref="PdfDocumentOptions.Tagged"/>, off by default.</summary>
+        internal bool Tagged { get; set; }
     }
 
     internal static byte[] Save(PdfDocument document)

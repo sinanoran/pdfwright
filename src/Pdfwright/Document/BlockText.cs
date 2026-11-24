@@ -1,4 +1,5 @@
 using System.Text;
+using Pdfwright.Pdf;
 using Pdfwright.Text;
 using Pdfwright.Unicode;
 
@@ -56,6 +57,12 @@ internal sealed class StyledLayout
 
     /// <summary>Where the paragraph stands in a list (the room its marker takes, and the marker), or <see langword="null"/> for a paragraph that is not in one.</summary>
     internal ListPlacement? List { get; init; }
+
+    /// <summary>
+    /// The structure element of the paragraph in a tagged document (a <c>P</c>, an <c>H1</c>), still light: it gets its object when its first line is drawn,
+    /// and every piece of the paragraph drawn on a page is marked content of it. <see langword="null"/> for text with no element of its own.
+    /// </summary>
+    internal PdfStructureElement? Tag { get; set; }
 
     /// <summary>The language of the character at a UTF-16 index of the paragraph's text.</summary>
     internal string? LanguageAt(int index)
