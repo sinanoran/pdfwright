@@ -44,7 +44,7 @@ public partial class TaggedObjectStreamTests
     public void A_long_tagged_table_fills_its_object_streams_to_their_limit_and_each_object_is_in_one()
     {
         using FontCollection fonts = ScenarioDocuments.LoadFonts(TestPaths.FontsDirectory);
-        PdfDocument document = ScenarioDocuments.Table(fonts, tagged: true);
+        PdfDocument document = ScenarioDocuments.Table(fonts);
         byte[] pdf = DocumentTestKit.Save(document);
 
         StructureTreeReader tree = TaggedFlowTests.Read(pdf);
@@ -60,7 +60,7 @@ public partial class TaggedObjectStreamTests
     public void Untagged_and_uncompressed_files_have_no_object_streams_and_a_plain_cross_reference_stream()
     {
         using FontCollection fonts = ScenarioDocuments.LoadFonts(TestPaths.FontsDirectory);
-        byte[] untagged = DocumentTestKit.Save(ScenarioDocuments.Table(fonts, rows: 50));
+        byte[] untagged = DocumentTestKit.Save(ScenarioDocuments.Table(fonts, rows: 50, tagged: false));
         byte[] uncompressed = DocumentTestKit.Save(TaggedOutputEquivalenceTests.Documents().Single(d => d.Name == "tables").Build());
 
         foreach (byte[] pdf in new[] { untagged, uncompressed })
@@ -92,7 +92,7 @@ public partial class TaggedObjectStreamTests
 
         Func<PdfDocument> build = TaggedOutputEquivalenceTests.Documents().Single(d => d.Name == name).Build;
         byte[] tagged = DocumentTestKit.Save(Compressed(build()));
-        byte[] untagged = DocumentTestKit.Save(Compressed(build()).WithTagged(false));
+        byte[] untagged = DocumentTestKit.Save(Compressed(build(), tagged: false));
         Assert.NotEmpty(StructureTreeReader.ObjectStreams(tagged));
         Assert.Empty(StructureTreeReader.ObjectStreams(untagged));
 
@@ -262,13 +262,16 @@ public partial class TaggedObjectStreamTests
         return parts;
     }
 
-    /// <summary>A copy of a document written compressed (its options are its own, so they are changed through their init-only setter).</summary>
-    internal static PdfDocument Compressed(PdfDocument document)
+    /// <summary>
+    /// The document written compressed, tagged or not. Each build of the pinned documents makes options of its own, uncompressed, so they are changed
+    /// in place through their init-only setters.
+    /// </summary>
+    internal static PdfDocument Compressed(PdfDocument document, bool tagged = true)
     {
-        PdfDocument copy = document.WithTagged(true);
-        PdfDocumentOptions options = (PdfDocumentOptions)typeof(PdfDocument).GetField("_options", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(copy)!;
+        PdfDocumentOptions options = (PdfDocumentOptions)typeof(PdfDocument).GetField("_options", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(document)!;
         typeof(PdfDocumentOptions).GetProperty(nameof(PdfDocumentOptions.Compress))!.SetValue(options, true);
-        return copy;
+        typeof(PdfDocumentOptions).GetProperty(nameof(PdfDocumentOptions.Tagged))!.SetValue(options, tagged);
+        return document;
     }
 
     /// <summary>The tree as lines that do not depend on object numbers (which object streams change): each element by its place in the tree's order.</summary>

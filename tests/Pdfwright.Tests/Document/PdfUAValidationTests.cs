@@ -78,7 +78,7 @@ public class PdfUAValidationTests
         {
             foreach (bool isLong in new[] { false, true })
             {
-                files.Add(Save($"corpus-{corpus.Group}-{(isLong ? "long" : "short")}", corpus.Build(isLong, o => o.Tagged = true).Document));
+                files.Add(Save($"corpus-{corpus.Group}-{(isLong ? "long" : "short")}", corpus.Build(isLong).Document));
             }
         }
 
@@ -93,10 +93,10 @@ public class PdfUAValidationTests
         byte[] logo = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Images", "Files", "gradient-24x16.jpg"));
         List<Saved> files =
         [
-            Save("readme-report", SampleDocumentTests.ReadmeReport(o => o.Tagged = true)),
-            Save("readme-report-uncompressed", SampleDocumentTests.ReadmeReport(o => { o.Tagged = true; o.Compress = false; })),
-            Save("sample-report", ReportSample.Build(sampleFonts, logo).WithTagged(true)),
-            Save("rtl-report", SampleDocumentTests.RightToLeftReport(o => { o.Tagged = true; o.Title = "تقرير المبيعات الشهري"; })),
+            Save("readme-report", SampleDocumentTests.ReadmeReport()),
+            Save("readme-report-uncompressed", SampleDocumentTests.ReadmeReport(o => o.Compress = false)),
+            Save("sample-report", ReportSample.Build(sampleFonts, logo)),
+            Save("rtl-report", SampleDocumentTests.RightToLeftReport(o => { o.Title = "تقرير المبيعات الشهري"; })),
         ];
 
         // The table's header repeated on later pages is a pagination artifact with no subtype, which PDF/UA-1 accepts as any artifact.
@@ -111,11 +111,11 @@ public class PdfUAValidationTests
         using FontCollection fonts = ScenarioDocuments.LoadFonts(TestPaths.FontsDirectory);
         List<Saved> files =
         [
-            Save("table-1000", ScenarioDocuments.Table(fonts, tagged: true)),
-            Save("report-20", ScenarioDocuments.Report20(fonts).WithTagged(true)),
-            Save("report-10", ScenarioDocuments.Report(fonts).WithTagged(true)),
-            Save("table-arabic", ScenarioDocuments.TableArabic(fonts).WithTagged(true)),
-            Save("table-devanagari", ScenarioDocuments.TableDevanagari(fonts).WithTagged(true)),
+            Save("table-1000", ScenarioDocuments.Table(fonts)),
+            Save("report-20", ScenarioDocuments.Report20(fonts)),
+            Save("report-10", ScenarioDocuments.Report(fonts)),
+            Save("table-arabic", ScenarioDocuments.TableArabic(fonts)),
+            Save("table-devanagari", ScenarioDocuments.TableDevanagari(fonts)),
         ];
 
         AssertPdfUA(files);
@@ -437,7 +437,7 @@ public class PdfUAValidationTests
     [Fact]
     public void An_untagged_document_has_no_claim_and_no_issue_and_a_tagged_one_with_none_has_the_claim()
     {
-        PdfDocument untagged = new(DocumentTestKit.Options());
+        PdfDocument untagged = new(DocumentTestKit.Options(o => o.Tagged = false));
         untagged.Add(new Heading(3, "No title, no language, a skipped level: \u4E00"));
         byte[] plain = DocumentTestKit.Save(untagged);
         Assert.False(untagged.Diagnostics.IsPdfUA);
@@ -450,6 +450,57 @@ public class PdfUAValidationTests
         Assert.True(tagged.Diagnostics.IsPdfUA);
         Assert.Empty(tagged.Diagnostics.AccessibilityIssues);
         Assert.Contains("<pdfuaid:part>1</pdfuaid:part>", Metadata(pdf), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Options that say nothing of tagging are tagged: the default of <see cref="PdfDocumentOptions.Tagged"/> is <see langword="true"/>, and a document with a title
+    /// and a language claims PDF/UA-1 without asking for it. Without them it is tagged all the same and lists what is missing.
+    /// </summary>
+    [Fact]
+    public void A_document_is_tagged_by_default_and_claims_pdf_ua_when_it_has_a_title_and_a_language()
+    {
+        Assert.True(new PdfDocumentOptions { Fonts = DocumentTestKit.Fonts }.Tagged);
+
+        PdfDocument document = new(new PdfDocumentOptions { Fonts = DocumentTestKit.Fonts, Title = "Default", Language = "en", Deterministic = true, Compress = false });
+        document.Add(new Heading(1, "Default")).Add(new Paragraph("Text."));
+        byte[] pdf = DocumentTestKit.Save(document);
+        Assert.True(document.Diagnostics.IsPdfUA);
+        Assert.Empty(document.Diagnostics.AccessibilityIssues);
+        Assert.Equal("Document[H1,P]", TaggedFlowTests.Read(pdf).Root.Outline());
+        Assert.Contains("<pdfuaid:part>1</pdfuaid:part>", Metadata(pdf), StringComparison.Ordinal);
+
+        PdfDocument bare = new(new PdfDocumentOptions { Fonts = DocumentTestKit.Fonts, Deterministic = true, Compress = false });
+        bare.Add(new Paragraph("Text."));
+        byte[] barePdf = DocumentTestKit.Save(bare);
+        Assert.False(bare.Diagnostics.IsPdfUA);
+        Assert.Equal([AccessibilityIssueKind.MissingTitle, AccessibilityIssueKind.MissingLanguage], bare.Diagnostics.AccessibilityIssues.Select(i => i.Kind));
+        Assert.All(bare.Diagnostics.AccessibilityIssues, i => Assert.Null(i.Page));
+        Assert.Equal("Document[P]", TaggedFlowTests.Read(barePdf).Root.Outline());
+        Assert.DoesNotContain("pdfuaid", Metadata(barePdf), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The tagged golden files (<c>Golden/*-tagged.pdf</c>), as committed: the structure tree of each holds what any tagged file of the writer must
+    /// (<see cref="StructureTreeReader.AssertConsistent"/>), each claims PDF/UA-1, and veraPDF finds each compliant.
+    /// </summary>
+    [Fact]
+    public void The_tagged_goldens_are_pdf_ua()
+    {
+        List<(string Name, byte[] Pdf)> files = [.. Directory.GetFiles(Golden.Folder, "*-tagged.pdf")
+            .Order(StringComparer.Ordinal)
+            .Select(path => (Path.GetFileNameWithoutExtension(path), File.ReadAllBytes(path)))];
+        Assert.Equal(11, files.Count);
+        foreach ((string name, byte[] pdf) in files)
+        {
+            _ = TaggedFlowTests.Read(pdf);
+            Assert.True(Metadata(pdf).Contains("<pdfuaid:part>1</pdfuaid:part>", StringComparison.Ordinal), $"{name} does not claim PDF/UA-1");
+        }
+
+        // Last, so that a machine without veraPDF skips the test after the checks above have run.
+        _ = VeraPdf.Require();
+        IReadOnlyDictionary<string, VeraPdf.Result> results = VeraPdf.Validate(files);
+        List<string> failures = [.. results.Values.Where(r => !r.Compliant).Select(r => r.ToString())];
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
     [Theory]

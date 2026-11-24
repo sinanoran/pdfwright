@@ -7,7 +7,7 @@ using UglyToad.PdfPig.Tokens;
 namespace Pdfwright.Tests.Document;
 
 /// <summary>
-/// The document layer of tagged PDF for tables, behind the internal <see cref="PdfDocumentOptions.Tagged"/>: a table is a <c>Table</c> with a
+/// The document layer of tagged PDF for tables, written with <see cref="PdfDocumentOptions.Tagged"/> (the default): a table is a <c>Table</c> with a
 /// <c>THead</c> of <c>TR</c> rows of <c>TH</c> column headers (<c>/Scope /Column</c>) and a <c>TBody</c> of <c>TR</c> rows of <c>TD</c> cells, a
 /// cell for each column in logical order (a header with no body has its <c>TR</c> rows straight under the <c>Table</c>); the fills and borders are artifacts outside the cells' marked content, a header row repeated on a later page
 /// is a pagination artifact, and a row split between pages is one row whose cells have marked content on both pages. The documents are made through

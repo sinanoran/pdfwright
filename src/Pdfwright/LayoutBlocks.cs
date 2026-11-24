@@ -306,8 +306,8 @@ public sealed record Callout : Block
 /// <summary>
 /// A figure drawn with code, usually a chart: a box of a fixed size and a callback that draws on a <see cref="DrawingCanvas"/> inside it. The callback runs while the document is saved, once each time the drawing is placed
 /// (a drawing in a header runs once for each page), so it should be a pure function of its data. The drawing is never split and never scaled: it moves to the next page when it does not fit, and one wider than the space
-/// it is in, or taller than a page, fails the save with an <see cref="InvalidOperationException"/>. It is placed at the start edge of the available width. <see cref="DrawingCanvas.DrawText"/> uses the direction of the <see cref="Columns"/> or <see cref="Callout"/> the drawing is in (their <c>Direction</c>, else the document's) when it is not given one. <see cref="AltText"/> is kept for tagged output, which does not exist yet:
-/// it is written nowhere in the file today. Two drawings are equal when their size, callback (the same delegate) and settings are equal.
+/// it is in, or taller than a page, fails the save with an <see cref="InvalidOperationException"/>. It is placed at the start edge of the available width. <see cref="DrawingCanvas.DrawText"/> uses the direction of the <see cref="Columns"/> or <see cref="Callout"/> the drawing is in (their <c>Direction</c>, else the document's) when it is not given one. In a tagged document (<see cref="PdfDocumentOptions.Tagged"/>) a drawing with
+/// <see cref="AltText"/> is a <c>Figure</c> and one without is decorative. Two drawings are equal when their size, callback (the same delegate) and settings are equal.
 /// </summary>
 public sealed record Drawing : Block
 {
@@ -347,7 +347,11 @@ public sealed record Drawing : Block
     /// <summary>The callback that draws the figure.</summary>
     public Action<DrawingCanvas> Draw { get; }
 
-    /// <summary>A text that says what the figure shows, for readers who cannot see it. It is kept for tagged output and written nowhere in the file yet.</summary>
+    /// <summary>
+    /// A text that says what the figure shows, for readers who cannot see it. In a tagged document (<see cref="PdfDocumentOptions.Tagged"/>) it is the <c>/Alt</c> of the drawing's
+    /// <c>Figure</c> element, which holds everything the drawing paints, its canvas text included. Without it (or with one that is empty or blank) the drawing is decorative: an artifact,
+    /// which a screen reader skips. A drawing in a header or a footer is an artifact either way. An untagged document writes it nowhere.
+    /// </summary>
     public string? AltText { get; init; }
 
     /// <summary>The space above the drawing, or <see langword="null"/> for none. It is dropped at the top of a page.</summary>
@@ -370,8 +374,8 @@ public sealed record Drawing : Block
 /// <summary>
 /// A picture in the flow of blocks. With neither a <see cref="Width"/> nor a <see cref="Height"/> it has its natural size (a pixel is 0.75 point, 96 pixels to the inch); with one, the other follows the picture's proportions;
 /// with both, the picture is stretched to them (<see cref="DrawingCanvas.DrawImage"/> always stretches a picture to its rectangle). It is never wider than the space it is in or taller than a page: it is scaled down, in proportion, to fit. It is never split, and moves to the next page when it does not fit.
-/// <see cref="Alignment"/> places a picture that is narrower than the space (logical: start is the left edge in a left-to-right document). <see cref="AltText"/> is kept for tagged output, which does not exist yet,
-/// and is written nowhere in the file today. The names <c>Image</c> and <c>Drawing</c> are also in <c>System.Drawing</c>: where both namespaces are imported, write <c>using Image = Pdfwright.Image;</c>. Two images are equal when they are the same <see cref="PdfImage"/> object and their settings are equal.
+/// <see cref="Alignment"/> places a picture that is narrower than the space (logical: start is the left edge in a left-to-right document). In a tagged document (<see cref="PdfDocumentOptions.Tagged"/>) a picture with <see cref="AltText"/> is a <c>Figure</c>
+/// and one without is decorative. The names <c>Image</c> and <c>Drawing</c> are also in <c>System.Drawing</c>: where both namespaces are imported, write <c>using Image = Pdfwright.Image;</c>. Two images are equal when they are the same <see cref="PdfImage"/> object and their settings are equal.
 /// </summary>
 public sealed record Image : Block
 {
@@ -417,7 +421,11 @@ public sealed record Image : Block
         init => _alignment = Check.Defined(value, nameof(Alignment));
     }
 
-    /// <summary>A text that says what the picture shows, for readers who cannot see it. It is kept for tagged output and written nowhere in the file yet.</summary>
+    /// <summary>
+    /// A text that says what the picture shows, for readers who cannot see it. In a tagged document (<see cref="PdfDocumentOptions.Tagged"/>) it is the <c>/Alt</c> of the picture's
+    /// <c>Figure</c> element. Without it (or with one that is empty or blank) the picture is decorative: an artifact, which a screen reader skips. A picture in a header or a footer
+    /// is an artifact either way. An untagged document writes it nowhere.
+    /// </summary>
     public string? AltText { get; init; }
 
     /// <summary>The space above the picture, or <see langword="null"/> for none. It is dropped at the top of a page.</summary>

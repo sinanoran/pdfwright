@@ -8,6 +8,9 @@ namespace Pdfwright.Benchmarks.Scenarios;
 /// report of about ten pages with headings, paragraphs, two tables, two charts, a header and a footer, in Latin and Arabic.
 /// The others are the scenarios of section 7 of the plan: <see cref="Report20"/>, <see cref="Stress"/>, <see cref="TableArabic"/>
 /// and <see cref="TableDevanagari"/>. The allocation-budget tests compile this file too, so that the tests and the benchmarks measure the same documents.
+/// Every scenario is written tagged, as the library writes a document by default; <c>tagged: false</c> writes it untagged (the file of 0.1.5 and earlier), so
+/// that the two can be measured side by side, and <c>pinned: true</c> writes it uncompressed and deterministic, so that a test can pin its bytes (the
+/// benchmarks write it compressed and dated by the clock, as a caller would).
 /// </summary>
 internal static class ScenarioDocuments
 {
@@ -42,36 +45,39 @@ internal static class ScenarioDocuments
 
     /// <summary>
     /// The 1,000-row table of the baselines. The Chromium baseline printed with its default header and footer (title and date, page x/y); here the header carries the title and the footer "Page x of y".
-    /// <paramref name="tagged"/> writes it as a tagged PDF (the internal option), for the tests' guard of tagged output.
     /// </summary>
-    internal static PdfDocument Table(FontCollection fonts, int rows = 1000, bool tagged = false) =>
-        TableDocument(fonts, TableData.Header, TableData.Rows(rows), new TextStyle { Size = Length.Pt(9) }, null, tagged);
+    internal static PdfDocument Table(FontCollection fonts, int rows = 1000, bool tagged = true, bool pinned = false) =>
+        TableDocument(fonts, TableData.Header, TableData.Rows(rows), new TextStyle { Size = Length.Pt(9) }, null, tagged, pinned);
 
     /// <summary>The same table with the cell texts in Arabic (right to left, Noto Sans Arabic, Latin digits): "Row r cell c text" as "صف r خلية c نص", the columns running from the right edge.</summary>
-    internal static PdfDocument TableArabic(FontCollection fonts, int rows = 1000) =>
+    internal static PdfDocument TableArabic(FontCollection fonts, int rows = 1000, bool tagged = true, bool pinned = false) =>
         TableDocument(
             fonts,
             TableData.LocalizedHeader("عمود"),
             TableData.LocalizedRows(rows, "صف", "خلية", "نص"),
             new TextStyle { Family = "Noto Sans Arabic", Size = Length.Pt(9), Language = "ar" },
-            TextDirection.RightToLeft);
+            TextDirection.RightToLeft,
+            tagged,
+            pinned);
 
     /// <summary>The same table with the cell texts in Devanagari (Hindi, Noto Sans Devanagari, Latin digits): "Row r cell c text" as "पंक्ति r कक्ष c पाठ".</summary>
-    internal static PdfDocument TableDevanagari(FontCollection fonts, int rows = 1000) =>
+    internal static PdfDocument TableDevanagari(FontCollection fonts, int rows = 1000, bool tagged = true, bool pinned = false) =>
         TableDocument(
             fonts,
             TableData.LocalizedHeader("स्तंभ"),
             TableData.LocalizedRows(rows, "पंक्ति", "कक्ष", "पाठ"),
             new TextStyle { Family = "Noto Sans Devanagari", Size = Length.Pt(9), Language = "hi" },
-            null);
+            null,
+            tagged,
+            pinned);
 
     /// <summary>
     /// The 20-page report of the plan: a heading, a row of four KPI boxes, three charts, two tables of 40 rows, prose, notes, a header and a footer, in Latin.
     /// About 20 A4 pages (the diagnostics say how many).
     /// </summary>
-    internal static PdfDocument Report20(FontCollection fonts)
+    internal static PdfDocument Report20(FontCollection fonts, bool tagged = true, bool pinned = false)
     {
-        PdfDocument document = ReportShell(fonts, "Annual report 2026");
+        PdfDocument document = ReportShell(fonts, "Annual report 2026", tagged, pinned);
         document.Add(new Heading(1, "Annual report 2026"));
         document.Add(Kpis());
         document.Add(new Paragraph(Prose(0)));
@@ -106,9 +112,9 @@ internal static class ScenarioDocuments
     }
 
     /// <summary>The stress document of the plan: about 100 A4 pages, 12 charts and 20 tables mixed with prose, with a header and a footer, in Latin.</summary>
-    internal static PdfDocument Stress(FontCollection fonts)
+    internal static PdfDocument Stress(FontCollection fonts, bool tagged = true, bool pinned = false)
     {
-        PdfDocument document = ReportShell(fonts, "Stress document");
+        PdfDocument document = ReportShell(fonts, "Stress document", tagged, pinned);
         document.Add(new Heading(1, "Stress document"));
         document.Add(Kpis());
         int charts = 0;
@@ -135,9 +141,12 @@ internal static class ScenarioDocuments
         return document;
     }
 
-    private static PdfDocument ReportShell(FontCollection fonts, string title) => new(new PdfDocumentOptions
+    private static PdfDocument ReportShell(FontCollection fonts, string title, bool tagged, bool pinned) => new(new PdfDocumentOptions
     {
         Fonts = fonts,
+        Tagged = tagged,
+        Compress = !pinned,
+        Deterministic = pinned,
         DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
         PageSize = PageSize.A4,
         Margins = Margins.Mm(top: 25, right: 15, bottom: 20, left: 15),
@@ -169,11 +178,14 @@ internal static class ScenarioDocuments
         return values;
     }
 
-    private static PdfDocument TableDocument(FontCollection fonts, IReadOnlyList<string> header, IEnumerable<string[]> rows, TextStyle tableStyle, TextDirection? direction, bool tagged = false)
+    private static PdfDocument TableDocument(FontCollection fonts, IReadOnlyList<string> header, IEnumerable<string[]> rows, TextStyle tableStyle, TextDirection? direction, bool tagged, bool pinned)
     {
         PdfDocument document = new(new PdfDocumentOptions
         {
             Fonts = fonts,
+            Tagged = tagged,
+            Compress = !pinned,
+            Deterministic = pinned,
             DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
             PageSize = PageSize.A4,
             Margins = Margins.Mm(top: 20, right: 8, bottom: 20, left: 8),
@@ -181,7 +193,6 @@ internal static class ScenarioDocuments
             Language = "en",
             Header = page => new Paragraph("Report") { Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
             Footer = page => new Paragraph($"Page {page.Number} of {page.Count}") { Alignment = TextAlignment.End, Style = new TextStyle { Size = Length.Pt(8), Color = Color.MidGray } },
-            Tagged = tagged,
         });
 
         document.Add(new Heading(1, "Report"));
@@ -199,11 +210,14 @@ internal static class ScenarioDocuments
     }
 
     /// <summary>A report of about ten pages: three sections, a long table that spans pages, a small table, a bar chart and a line chart, and an Arabic section with Latin words in it.</summary>
-    internal static PdfDocument Report(FontCollection fonts, int invoiceRows = 200)
+    internal static PdfDocument Report(FontCollection fonts, int invoiceRows = 200, bool tagged = true, bool pinned = false)
     {
         PdfDocument document = new(new PdfDocumentOptions
         {
             Fonts = fonts,
+            Tagged = tagged,
+            Compress = !pinned,
+            Deterministic = pinned,
             DefaultStyle = new TextStyle { Family = "Noto Sans", Size = Length.Pt(10), Language = "en" },
             PageSize = PageSize.A4,
             Margins = Margins.Mm(top: 25, right: 15, bottom: 20, left: 15),

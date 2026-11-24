@@ -177,6 +177,7 @@ public class TextInputFuzzTests
     /// <summary>
     /// The text layer holds what was laid out: with white space and the combining grapheme joiner left out, the text of the pages contains each body string (as the one rule reads it) in the order
     /// the strings were given, so that a character the rule keeps is not lost on the way to the file and one it removes does not come back.
+    /// The documents are tagged (the default), whose text map writes U+FEFF as U+2060 and U+FFFE as U+FFFD (PDF/UA-1 7.21.7), so the expected text is read the same way.
     /// </summary>
     private static void AssertBodyTextOnPages(UglyToad.PdfPig.PdfDocument read, List<string> body, string name)
     {
@@ -184,7 +185,7 @@ public class TextInputFuzzTests
         int at = 0;
         foreach (string input in body)
         {
-            string expected = Comparable(Pdfwright.Text.TextNormalizer.Normalize(input));
+            string expected = Comparable(Pdfwright.Text.TextNormalizer.Normalize(input)).Replace('﻿', '⁠').Replace('￾', '�');
             int found = text.IndexOf(expected, at, StringComparison.Ordinal);
             Assert.True(found >= 0, $"{name}: the text layer does not have, in order, the text of {Hex(input)} (expected {Hex(expected)})");
             at = found + expected.Length;

@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Security.Cryptography;
 using Pdfwright.Benchmarks.Scenarios;
 using Pdfwright.Tests.Conformance;
@@ -87,12 +86,12 @@ public class TaggedOutputEquivalenceTests
         {
             foreach (bool isLong in new[] { false, true })
             {
-                yield return ($"corpus-{corpus.Group}-{(isLong ? "long" : "short")}", () => corpus.Build(isLong, o => { o.Tagged = true; o.Compress = false; }).Document);
+                yield return ($"corpus-{corpus.Group}-{(isLong ? "long" : "short")}", () => corpus.Build(isLong, o => o.Compress = false).Document);
             }
         }
 
-        yield return ("readme-report", () => SampleDocumentTests.ReadmeReport(o => { o.Tagged = true; o.Compress = false; }));
-        yield return ("rtl-report", () => SampleDocumentTests.RightToLeftReport(o => { o.Tagged = true; o.Compress = false; o.Title = "تقرير المبيعات الشهري"; }));
+        yield return ("readme-report", () => SampleDocumentTests.ReadmeReport(o => o.Compress = false));
+        yield return ("rtl-report", () => SampleDocumentTests.RightToLeftReport(o => { o.Compress = false; o.Title = "تقرير المبيعات الشهري"; }));
         yield return ("flow", Flow);
         yield return ("lists", Lists);
         yield return ("figures", Figures);
@@ -101,31 +100,18 @@ public class TaggedOutputEquivalenceTests
         yield return ("empty", () => new PdfDocument(Tagged()));
 
         FontCollection fonts = Fonts.Value;
-        yield return ("table-1000", () => Plain(ScenarioDocuments.Table(fonts), tagged: true));
-        yield return ("table-1000-untagged", () => Plain(ScenarioDocuments.Table(fonts), tagged: false));
-        yield return ("report-20", () => Plain(ScenarioDocuments.Report20(fonts), tagged: true));
-        yield return ("report-20-untagged", () => Plain(ScenarioDocuments.Report20(fonts), tagged: false));
-        yield return ("stress", () => Plain(ScenarioDocuments.Stress(fonts), tagged: true));
-        yield return ("table-arabic", () => Plain(ScenarioDocuments.TableArabic(fonts, rows: 200), tagged: true));
-        yield return ("table-devanagari", () => Plain(ScenarioDocuments.TableDevanagari(fonts, rows: 200), tagged: true));
+        yield return ("table-1000", () => ScenarioDocuments.Table(fonts, pinned: true));
+        yield return ("table-1000-untagged", () => ScenarioDocuments.Table(fonts, tagged: false, pinned: true));
+        yield return ("report-20", () => ScenarioDocuments.Report20(fonts, pinned: true));
+        yield return ("report-20-untagged", () => ScenarioDocuments.Report20(fonts, tagged: false, pinned: true));
+        yield return ("stress", () => ScenarioDocuments.Stress(fonts, pinned: true));
+        yield return ("table-arabic", () => ScenarioDocuments.TableArabic(fonts, rows: 200, pinned: true));
+        yield return ("table-devanagari", () => ScenarioDocuments.TableDevanagari(fonts, rows: 200, pinned: true));
     }
 
     private static readonly Lazy<FontCollection> Fonts = new(() => ScenarioDocuments.LoadFonts(TestPaths.FontsDirectory));
 
     private static PdfDocumentOptions Tagged(Action<DocumentTestKit.OptionsBuilder>? change = null) => TaggedFlowTests.Tagged(change);
-
-    /// <summary>
-    /// A copy of a document of the benchmark scenarios, which are compressed and dated by the clock, written uncompressed and deterministic: the copy's
-    /// options are its own (<see cref="PdfDocument.WithTagged"/> copies them), so they are changed through their init-only setters.
-    /// </summary>
-    private static PdfDocument Plain(PdfDocument document, bool tagged)
-    {
-        PdfDocument copy = document.WithTagged(tagged);
-        PdfDocumentOptions options = (PdfDocumentOptions)typeof(PdfDocument).GetField("_options", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(copy)!;
-        typeof(PdfDocumentOptions).GetProperty(nameof(PdfDocumentOptions.Compress))!.SetValue(options, false);
-        typeof(PdfDocumentOptions).GetProperty(nameof(PdfDocumentOptions.Deterministic))!.SetValue(options, true);
-        return copy;
-    }
 
     private static PdfDocument Flow()
     {

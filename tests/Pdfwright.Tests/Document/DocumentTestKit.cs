@@ -100,8 +100,8 @@ internal static class DocumentTestKit
 
         internal Length? FooterOffset { get; set; }
 
-        /// <summary>The internal <see cref="PdfDocumentOptions.Tagged"/>, off by default.</summary>
-        internal bool Tagged { get; set; }
+        /// <summary><see cref="PdfDocumentOptions.Tagged"/>, on by default as in the library: a test of untagged output sets it to <see langword="false"/>.</summary>
+        internal bool Tagged { get; set; } = true;
     }
 
     internal static byte[] Save(PdfDocument document)

@@ -6,24 +6,25 @@ namespace Pdfwright.Benchmarks.Scenarios;
 /// <summary>The scenarios as verbs of the program: one run of a fresh process, and a warm in-process loop.</summary>
 internal static class Warm
 {
-    internal static Func<FontCollection, PdfDocument>? Find(string name) => name switch
+    /// <summary>The suffix of a scenario's name that writes it untagged (<see cref="PdfDocumentOptions.Tagged"/> <see langword="false"/>), to time it beside the tagged default.</summary>
+    internal const string UntaggedSuffix = "-untagged";
+
+    /// <summary>The scenario of a name, tagged (the library's default), or untagged when the name ends with <see cref="UntaggedSuffix"/>; <see langword="null"/> for an unknown name.</summary>
+    internal static Func<FontCollection, PdfDocument>? Find(string name)
     {
-        "table" => fonts => ScenarioDocuments.Table(fonts),
-        "report" => fonts => ScenarioDocuments.Report(fonts),
-        "report20" => fonts => ScenarioDocuments.Report20(fonts),
-        "stress" => fonts => ScenarioDocuments.Stress(fonts),
-        "table-arabic" => fonts => ScenarioDocuments.TableArabic(fonts),
-        "table-devanagari" => fonts => ScenarioDocuments.TableDevanagari(fonts),
-        "table10k" => fonts => ScenarioDocuments.Table(fonts, 10000),
-        "table-tagged" => fonts => ScenarioDocuments.Table(fonts, tagged: true),
-        "report-tagged" => fonts => ScenarioDocuments.Report(fonts).WithTagged(true),
-        "report20-tagged" => fonts => ScenarioDocuments.Report20(fonts).WithTagged(true),
-        "stress-tagged" => fonts => ScenarioDocuments.Stress(fonts).WithTagged(true),
-        "table-arabic-tagged" => fonts => ScenarioDocuments.TableArabic(fonts).WithTagged(true),
-        "table-devanagari-tagged" => fonts => ScenarioDocuments.TableDevanagari(fonts).WithTagged(true),
-        "table10k-tagged" => fonts => ScenarioDocuments.Table(fonts, 10000, tagged: true),
-        _ => null,
-    };
+        bool tagged = !name.EndsWith(UntaggedSuffix, StringComparison.Ordinal);
+        return (tagged ? name : name[..^UntaggedSuffix.Length]) switch
+        {
+            "table" => fonts => ScenarioDocuments.Table(fonts, tagged: tagged),
+            "report" => fonts => ScenarioDocuments.Report(fonts, tagged: tagged),
+            "report20" => fonts => ScenarioDocuments.Report20(fonts, tagged: tagged),
+            "stress" => fonts => ScenarioDocuments.Stress(fonts, tagged: tagged),
+            "table-arabic" => fonts => ScenarioDocuments.TableArabic(fonts, tagged: tagged),
+            "table-devanagari" => fonts => ScenarioDocuments.TableDevanagari(fonts, tagged: tagged),
+            "table10k" => fonts => ScenarioDocuments.Table(fonts, 10000, tagged: tagged),
+            _ => null,
+        };
+    }
 
     /// <summary>One run of a fresh process: load the fonts, build, save to a file, and print what the process itself saw as one JSON line.</summary>
     internal static int Once(Func<FontCollection, PdfDocument> build, string path, TextWriter output)

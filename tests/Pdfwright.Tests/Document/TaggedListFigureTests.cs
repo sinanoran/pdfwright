@@ -9,7 +9,7 @@ using DrawingBlock = Pdfwright.Drawing;
 namespace Pdfwright.Tests.Document;
 
 /// <summary>
-/// The document layer of tagged PDF for lists and figures, behind the internal <see cref="PdfDocumentOptions.Tagged"/>: a list is an <c>L</c> with
+/// The document layer of tagged PDF for lists and figures, written with <see cref="PdfDocumentOptions.Tagged"/> (the default): a list is an <c>L</c> with
 /// an <c>LI</c> for each item, the marker its <c>Lbl</c> and the item's paragraphs and nested list its <c>LBody</c>; an image or a drawing with
 /// alternative text is a <c>Figure</c> with <c>/Alt</c> and a bounding box, and one without is an artifact. The documents are made through the
 /// public API and read back by <see cref="StructureTreeReader"/>.
@@ -457,7 +457,7 @@ public class TaggedListFigureTests
     [Fact]
     public void An_untagged_document_with_lists_and_figures_has_no_marked_content_or_structure()
     {
-        PdfDocument document = new(DocumentTestKit.Options());
+        PdfDocument document = new(DocumentTestKit.Options(o => o.Tagged = false));
         document.Add(new ItemList([new ListItem([new Paragraph("One"), new ItemList(["One a"])]), new ListItem("Two")]));
         document.Add(new Image(Png) { Width = Length.Mm(20), AltText = "Picture" });
         document.Add(new DrawingBlock(Length.Mm(20), Length.Mm(10), canvas => canvas.DrawText("x", 1, 8)) { AltText = "Drawing" });

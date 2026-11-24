@@ -10,8 +10,9 @@ using Pdfwright.Benchmarks.Scenarios;
 //   warm <scenario> [--runs N] [--warmup W]   the scenario N times in one process, after W unmeasured runs
 //   start                                the runtime baseline: starts, prints its own time and peak working set, does nothing
 //   bench [BenchmarkDotNet args]         warm time and allocations of the scenarios (BenchmarkDotNet)
-//   scenarios: table, report (ten pages), report20, stress, table-arabic, table-devanagari, table10k, and each as <name>-tagged (a tagged PDF)
-const string scenarios = "table|report|report20|stress|table-arabic|table-devanagari|table10k, each also as <name>-tagged";
+//   scenarios: table, report (ten pages), report20, stress, table-arabic, table-devanagari, table10k, written tagged (the library's default);
+//   the same name with "-untagged" (table-untagged, report20-untagged, ...) writes it untagged, to time the two side by side
+const string scenarios = "table|report|report20|stress|table-arabic|table-devanagari|table10k";
 string verb = args.Length > 0 ? args[0] : "help";
 switch (verb)
 {
@@ -41,7 +42,7 @@ switch (verb)
         Func<FontCollection, PdfDocument>? build = args.Length == 3 ? Warm.Find(args[1]) : null;
         if (build is null)
         {
-            Console.Error.WriteLine($"usage: once <{scenarios}> <output.pdf>");
+            Console.Error.WriteLine($"usage: once <{scenarios}>[-untagged] <output.pdf>");
             return 2;
         }
 
@@ -53,7 +54,7 @@ switch (verb)
         Func<FontCollection, PdfDocument>? build = args.Length >= 2 ? Warm.Find(args[1]) : null;
         if (build is null || !TryNumber(args, "--runs", 100, out int runs) || !TryNumber(args, "--warmup", 10, out int warmup))
         {
-            Console.Error.WriteLine($"usage: warm <{scenarios}> [--runs N] [--warmup W]");
+            Console.Error.WriteLine($"usage: warm <{scenarios}>[-untagged] [--runs N] [--warmup W]");
             return 2;
         }
 
@@ -74,7 +75,7 @@ switch (verb)
         return 0;
 
     default:
-        Console.WriteLine($"verbs: cold --runs N -- <command...> | once <{scenarios}> <output.pdf> | warm <{scenarios}> [--runs N] [--warmup W] | start | bench [BenchmarkDotNet arguments]");
+        Console.WriteLine($"verbs: cold --runs N -- <command...> | once <{scenarios}>[-untagged] <output.pdf> | warm <{scenarios}>[-untagged] [--runs N] [--warmup W] | start | bench [BenchmarkDotNet arguments]");
         return verb == "help" ? 0 : 2;
 }
 

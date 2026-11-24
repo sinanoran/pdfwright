@@ -4,9 +4,9 @@ namespace Pdfwright.Tests.Performance;
 
 /// <summary>
 /// Output-size budgets (section 7 of the plan) of tagged output, which is compressed with object streams: the documents of the measuring scenarios,
-/// built as the benchmark program builds them (the default options: compressed) and written tagged, may not exceed the plan's target where the plan
+/// built as the benchmark program builds them (the default options: compressed and tagged), may not exceed the plan's target where the plan
 /// has one and the tagged file meets it, and a regression guard at the highest size measured on net8.0 to net11.0 (the bytes of a compressed stream
-/// depend on the runtime's zlib) plus <see cref="Tolerance"/>. The untagged files are held to the plan's targets too.
+/// depend on the runtime's zlib) plus <see cref="Tolerance"/>. The same documents untagged (<c>Tagged = false</c>) are held to the plan's targets too.
 /// </summary>
 public sealed class SizeBudgetTests : IDisposable
 {
@@ -49,35 +49,35 @@ public sealed class SizeBudgetTests : IDisposable
     /// </summary>
     [Fact]
     public void Table_with_1000_rows_tagged_stays_within_its_guard() =>
-        AssertWithin(ScenarioDocuments.Table(_fonts, tagged: true), expectedPages: 21, null, TaggedTableGuard);
+        AssertWithin(ScenarioDocuments.Table(_fonts), expectedPages: 21, null, TaggedTableGuard);
 
     /// <summary>The plan's 150 KB for the table, which applies to untagged output.</summary>
     [Fact]
-    public void Table_with_1000_rows_untagged_is_under_150_KB() => AssertWithin(ScenarioDocuments.Table(_fonts), expectedPages: 21, TableTarget, null);
+    public void Table_with_1000_rows_untagged_is_under_150_KB() => AssertWithin(ScenarioDocuments.Table(_fonts, tagged: false), expectedPages: 21, TableTarget, null);
 
     [Fact]
     public void Report_of_20_pages_tagged_is_under_120_KB() =>
-        AssertWithin(ScenarioDocuments.Report20(_fonts).WithTagged(true), expectedPages: 20, ReportTarget, TaggedReportGuard);
+        AssertWithin(ScenarioDocuments.Report20(_fonts), expectedPages: 20, ReportTarget, TaggedReportGuard);
 
     [Fact]
-    public void Report_of_20_pages_untagged_is_under_120_KB() => AssertWithin(ScenarioDocuments.Report20(_fonts), expectedPages: 20, ReportTarget, null);
+    public void Report_of_20_pages_untagged_is_under_120_KB() => AssertWithin(ScenarioDocuments.Report20(_fonts, tagged: false), expectedPages: 20, ReportTarget, null);
 
     [Fact]
     public void Stress_document_tagged_is_under_600_KB() =>
-        AssertWithin(ScenarioDocuments.Stress(_fonts).WithTagged(true), expectedPages: 101, StressTarget, TaggedStressGuard);
+        AssertWithin(ScenarioDocuments.Stress(_fonts), expectedPages: 101, StressTarget, TaggedStressGuard);
 
     [Fact]
-    public void Stress_document_untagged_is_under_600_KB() => AssertWithin(ScenarioDocuments.Stress(_fonts), expectedPages: 101, StressTarget, null);
+    public void Stress_document_untagged_is_under_600_KB() => AssertWithin(ScenarioDocuments.Stress(_fonts, tagged: false), expectedPages: 101, StressTarget, null);
 
     /// <summary>The plan asks for the "same" size as the Latin table, which the untagged Arabic table (372,479 bytes against 75,661: the fonts and the positioned glyphs) does not meet either; a guard only.</summary>
     [Fact]
     public void Arabic_table_tagged_stays_within_its_guard() =>
-        AssertWithin(ScenarioDocuments.TableArabic(_fonts).WithTagged(true), expectedPages: 31, null, TaggedArabicGuard);
+        AssertWithin(ScenarioDocuments.TableArabic(_fonts), expectedPages: 31, null, TaggedArabicGuard);
 
     /// <summary>As the Arabic table: a guard only (the untagged Devanagari table is 306,719 bytes).</summary>
     [Fact]
     public void Devanagari_table_tagged_stays_within_its_guard() =>
-        AssertWithin(ScenarioDocuments.TableDevanagari(_fonts).WithTagged(true), expectedPages: 20, null, TaggedDevanagariGuard);
+        AssertWithin(ScenarioDocuments.TableDevanagari(_fonts), expectedPages: 20, null, TaggedDevanagariGuard);
 
     private static void AssertWithin(PdfDocument document, int expectedPages, long? target, long? guard)
     {

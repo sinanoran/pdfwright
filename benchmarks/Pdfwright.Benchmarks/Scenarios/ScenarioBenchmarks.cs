@@ -2,11 +2,15 @@ using BenchmarkDotNet.Attributes;
 
 namespace Pdfwright.Benchmarks.Scenarios;
 
-/// <summary>Warm time and allocations of the scenarios (BenchmarkDotNet). Not run in CI.</summary>
+/// <summary>Warm time and allocations of the scenarios (BenchmarkDotNet), tagged (the library's default) and untagged side by side. Not run in CI.</summary>
 [MemoryDiagnoser]
 public class ScenarioBenchmarks
 {
     private FontCollection fonts = null!;
+
+    /// <summary>Whether the scenarios are written tagged (<see cref="PdfDocumentOptions.Tagged"/>): both, so that the cost of tagging is measured.</summary>
+    [Params(true, false)]
+    public bool Tagged { get; set; }
 
     [GlobalSetup]
     public void Setup() => fonts = ScenarioDocuments.LoadFonts();
@@ -18,7 +22,7 @@ public class ScenarioBenchmarks
     public long Table1000Rows()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.Table(fonts).Save(stream);
+        ScenarioDocuments.Table(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -26,7 +30,7 @@ public class ScenarioBenchmarks
     public long TenPageReport()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.Report(fonts).Save(stream);
+        ScenarioDocuments.Report(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -34,7 +38,7 @@ public class ScenarioBenchmarks
     public long Report20Pages()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.Report20(fonts).Save(stream);
+        ScenarioDocuments.Report20(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -42,7 +46,7 @@ public class ScenarioBenchmarks
     public long StressHundredPages()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.Stress(fonts).Save(stream);
+        ScenarioDocuments.Stress(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -50,7 +54,7 @@ public class ScenarioBenchmarks
     public long TableArabic1000Rows()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.TableArabic(fonts).Save(stream);
+        ScenarioDocuments.TableArabic(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -58,7 +62,7 @@ public class ScenarioBenchmarks
     public long TableDevanagari1000Rows()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.TableDevanagari(fonts).Save(stream);
+        ScenarioDocuments.TableDevanagari(fonts, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 
@@ -66,7 +70,7 @@ public class ScenarioBenchmarks
     public long Table10000Rows()
     {
         using MemoryStream stream = new();
-        ScenarioDocuments.Table(fonts, 10000).Save(stream);
+        ScenarioDocuments.Table(fonts, 10000, tagged: Tagged).Save(stream);
         return stream.Length;
     }
 }

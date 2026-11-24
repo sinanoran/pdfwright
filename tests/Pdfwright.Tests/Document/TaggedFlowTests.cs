@@ -9,7 +9,7 @@ using DrawingBlock = Pdfwright.Drawing;
 namespace Pdfwright.Tests.Document;
 
 /// <summary>
-/// The document layer of tagged PDF for flow text, behind the internal <see cref="PdfDocumentOptions.Tagged"/>: the <c>Document</c> element,
+/// The document layer of tagged PDF for flow text, written with <see cref="PdfDocumentOptions.Tagged"/> (the default): the <c>Document</c> element,
 /// headings and paragraphs, a paragraph split between pages, <c>/Lang</c> on elements and spans, the header and the footer as pagination artifacts,
 /// callouts and columns as <c>Div</c>. The documents are made through the public API and read back by <see cref="StructureTreeReader"/>, and the
 /// text of each element by PdfPig's marked content.
@@ -580,7 +580,7 @@ public partial class TaggedFlowTests
     [Fact]
     public void An_untagged_document_has_no_marked_content_or_structure()
     {
-        string file = Encoding.Latin1.GetString(DocumentTestKit.Save(SampleDocumentTests.ReadmeReport(o => o.Compress = false)));
+        string file = Encoding.Latin1.GetString(DocumentTestKit.Save(SampleDocumentTests.ReadmeReport(o => { o.Compress = false; o.Tagged = false; })));
 
         foreach (string key in new[] { "/StructTreeRoot", "/MarkInfo", "/StructParents", "/MCID", "/Artifact", "/Span <</Lang" })
         {
