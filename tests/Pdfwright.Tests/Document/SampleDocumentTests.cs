@@ -99,8 +99,8 @@ public class SampleDocumentTests
         DocumentTestKit.AssertValid(pdf, "sample-report");
     }
 
-    [Fact]
-    public void A_right_to_left_report_with_columns_a_split_callout_and_a_footer_is_a_valid_file()
+    /// <summary>A right-to-left report in Arabic with columns of callouts, a callout split between pages and a footer.</summary>
+    internal static PdfDocument RightToLeftReport(Action<DocumentTestKit.OptionsBuilder>? change = null)
     {
         PdfDocument document = new(Options(b =>
         {
@@ -108,6 +108,7 @@ public class SampleDocumentTests
             b.Language = "ar";
             b.DefaultStyle = new TextStyle { Family = "Noto Sans Arabic", Size = Length.Pt(11), Language = "ar" };
             b.Footer = page => new Paragraph($"{page.Number} / {page.Count}") { Alignment = TextAlignment.Center };
+            change?.Invoke(b);
         }));
         document.Add(new Heading(1, "تقرير المبيعات الشهري"));
         document.Add(new Columns(
@@ -121,6 +122,13 @@ public class SampleDocumentTests
             CornerRadius = Length.Pt(6),
             Border = new BorderLine(Length.Pt(1), Color.FromHex("#3366CC")),
         });
+        return document;
+    }
+
+    [Fact]
+    public void A_right_to_left_report_with_columns_a_split_callout_and_a_footer_is_a_valid_file()
+    {
+        PdfDocument document = RightToLeftReport();
 
         byte[] pdf = DocumentTestKit.Save(document);
 
