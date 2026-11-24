@@ -9,6 +9,10 @@
 > Latin table's time against the 2 times aimed at; a word cache for scripts whose rules do not involve the space, checked for each script), a
 > measured first save of the 20-page report, and a CI job that fails on a speed regression against the last release. For the first save with the
 > default JIT, the guide's note on warming up (section "Startup time") is the answer; native AOT and ReadyToRun in the package are not planned.
+>
+> **Changed on 24 November 2026 (the maintainer):** 0.2 also takes four layout additions that ordinary reports miss: links on text, column
+> spans in table cells, justified paragraphs, and widow and orphan control with a heading kept with the table below it (slices L1 to L4,
+> section 7). Hyphenation, row spans, nested tables and columns, and synthetic bold and italic stay out of 0.2.
 
 ## 0. The answer in one page
 
@@ -61,10 +65,14 @@
 - Line height in a line that mixes a Latin font and a CJK font (the line takes the larger ascent and descent, as for any mixed run in 0.1; the
   corpus checks it).
 - **Tagged PDF**, after CJK (section 4).
+- **Layout additions** (section 7): links on text (external and internal), column spans in table cells, justified paragraphs, and widow
+  and orphan control with a heading kept with the table that follows it.
 
 **Out of 0.2, named so nobody assumes them:** vertical text (`vert`/`vrt2`, vertical metrics, rotated Latin); ruby (furigana); emphasis marks;
 CJK justification and inter-character spacing adjustment (JIS X 4051 in full); variable-font instances other than the default; emoji and
-colour fonts (COLR, SVG, sbix, CBDT); dictionary line breaking for Thai, Lao, Khmer and Burmese (a candidate for a later minor version).
+colour fonts (COLR, SVG, sbix, CBDT); dictionary line breaking for Thai, Lao, Khmer and Burmese (a candidate for a later minor version);
+hyphenation (it needs a pattern dictionary per language); row spans in tables (a table is streamed, so a cell that spans rows would hold
+rows back across a page break); tables inside tables or cells, and columns inside columns; synthetic bold and italic (supply the fonts).
 
 ## 2. Slices and estimate
 
@@ -79,11 +87,16 @@ and green CI on the three operating systems and both Linux runtime images.
 | **C4** | **CJK corpus and read-back:** Simplified Chinese, Traditional Chinese, Japanese and Korean, a short page and a long page with a table each (as the 0.1 corpus), with fonts under an open licence in the test project (Noto Sans CJK in its OpenType CFF form, subset for the repository if the full fonts are too large; their licence and source recorded as for the 0.1 fonts; a repository subset must keep every layout feature, `locl` alternates included, or the language-form goldens of C5 cannot pass); PdfPig and pdf.js read-back with the same strict matcher and position check as 0.1; byte goldens and PDFium render goldens | 4 |
 | **C5** | **Japanese and Korean line breaking and language forms:** the kinsoku rules and the Korean default of section 1 decided and tested on the corpus; `locl` forms by language checked by render goldens (one code point in four languages) | 2 |
 | **T1** | **Tagged PDF:** structure tree, marked content with MCIDs, role map, parent tree, `/Alt` from `AltText`, `/Lang` on spans, header and footer as artifacts, table header cells with scope, `OutputIntent`; a `Tagged` option; veraPDF (a test-time process that needs Java on the CI runners) for PDF/UA-1 on the whole corpus, no conformance claimed until it passes; a missing glyph drawn as `.notdef` fails PDF/UA-1 (Matterhorn 7.21.8), so a tagged document with missing glyphs is reported, not claimed | 8 |
+| **L1** | **Links on text** (section 7) | 3 |
+| **L2** | **Column spans in table cells** (section 7) | 3 |
+| **L3** | **Justified paragraphs** (section 7) | 3 |
+| **L4** | **Widow and orphan control, and a heading kept with its table** (section 7) | 2 |
 | **T2** | Documentation, the comparison table and the release checklist updated; **0.2.0** (tagged by the maintainer) | 2 |
-| | **Total to 0.2.0** | **23 days** |
+| | **Total to 0.2.0** | **34 days** (as written; T1's 8 were spent in 0.1.6 and C1's 2 are done, so 24 are left) |
 
 **Order:** C1, C2 (the critical path), then C3, C4 and C5 (C4 needs C2; C3 and C5 can run beside C4), then T1 and T2. CJK is usable after C4;
-a 0.2 preview package is the maintainer's choice.
+a 0.2 preview package is the maintainer's choice. L1 to L4 do not depend on CJK or on each other and can run beside C2 to C5; L3 and L4
+both touch paragraph layout, so they are not built at the same time.
 
 ## 3. Test strategy for CJK
 
@@ -158,3 +171,33 @@ Slice C1 is done: the shaping seam, the `hb-subset` binding, and the proof that 
 3. **Korean: break at spaces or between syllables** by default. *Recommended: at spaces (`keep-all`), as Korean text is usually set.*
 4. **Performance.** The 0.1.0 measurements (`docs/baselines.md`) miss the 0.1 plan's section 7 targets; whether a performance slice comes
    before, beside or after CJK is the maintainer's choice (a CJK document has more glyphs per page, so the cost per glyph matters more).
+5. **Widow and orphan control on by default?** *Recommended: on, at two lines. It moves lines and so changes the byte goldens of the pages it
+   touches; they are regenerated on purpose in L4, as they were for tagged PDF.*
+6. **The last line of a justified paragraph** is set at its start edge, as in every common tool. *Recommended: no option for it in 0.2.*
+
+## 7. Layout additions (L1 to L4)
+
+Each slice is additive to the public API, keeps the 0.1 behaviour when the new property is not used (byte goldens unchanged, except in L4 if
+widow and orphan control is on by default), is tagged (veraPDF PDF/UA-1 passes on new corpus pages), and is measured against the warm table
+and report (no regression over noise).
+
+- **L1, links on text.** A link on a run of a paragraph: an external URI or an internal destination (a heading, by a name the caller gives
+  it). The writer already writes both; the work is the layout: one rectangle per line the linked text wraps to, and per visual piece of a
+  bidirectional line (`/QuadPoints` as well as `/Rect`), on runs shaped in parts. Tagged: a `Link` structure element holding the text's
+  marked content and an object reference (`/OBJR`) to the annotation, `/StructParent` on the annotation and `/Contents` with a description
+  (PDF/UA-1 7.18.5), and `/Tabs /S` on the page. Read back: PdfPig finds every annotation with its URI or destination and a rectangle
+  covering its text. The README's and known limitations' "no links to tag" is removed.
+- **L2, column spans.** `TableCell.ColumnSpan` (default 1). The spanning cell's width is the sum of its columns and the gaps between them;
+  automatic widths leave spanning cells out of the sample, then widen the spanned columns evenly if a spanning cell's minimum does not fit.
+  Header rows may span too (grouped headers). Tagged: `/A << /O /Table /ColSpan n >>` on the `TH` or `TD`; a header cell's `/Scope` stays
+  `Column`. A row whose spans add up to more columns than the table has is an `ArgumentException`.
+- **L3, justified paragraphs.** `TextAlignment.Justify` (an added enum member). Each line of a paragraph but its last, and but a line ended
+  by a forced break, is widened by spreading the extra width over its spaces; a line with no space is set at its start edge. The extra space
+  is written as glyph positions (`TJ` adjustments), not with the `Tw` operator, which applies only to a one-byte code 32 while Pdfwright
+  writes two-byte codes. Right-to-left lines are justified the same way. Arabic kashida (tatweel) justification is out of 0.2: an Arabic
+  line is justified by its spaces; CJK inter-character justification is out too (section 1). Read back: the extracted text has no extra
+  spaces.
+- **L4, widow and orphan control, and a heading kept with its table.** `Paragraph.MinLinesAtBreak` (and a document default) keeps at least
+  that many lines of a paragraph at the bottom of a page and at the top of the next; a paragraph shorter than twice that moves whole when it
+  fits a page. A heading directly above a table is kept with the table's header rows and its first body row. List items follow the same
+  rule.

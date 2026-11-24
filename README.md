@@ -178,7 +178,8 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
   embedded and broken between characters by the Unicode rules, but no CJK text is in the test corpus. CJK is planned for 0.2. No vertical text, emoji or colour fonts.
 - Arabic and Hindi tables take about 5 and 6 times the time of the same Latin table (the plan aims at 2 times); faster shaping for them is planned for 0.2.
 - No dictionary line breaking for Thai, Lao, Khmer or Burmese: a run of such text without spaces is one word to the line breaker, so it breaks at spaces only, and a run wider than the line is cut between grapheme clusters, mid-word.
-- No links on text, no table cell spans, no nested tables or columns, no hyphenation, no justification, no widow or orphan control, no synthetic bold or italic.
+- No links on text, no table cell spans, no justification and no widow or orphan control yet: links, column spans, justified paragraphs and widow and orphan control are planned for 0.2.
+  Not planned: hyphenation, row spans, nested tables or columns, synthetic bold or italic.
 - A table's automatic column widths come from its header and first 100 rows; a table is never held whole, so give a column a width when later rows differ.
 - The whole file is built in memory before it is written; copying text from a PDF can carry an invisible U+034F; `pdftotext`'s default mode can put spaces inside words of Arabic, Indic and Thai text.
 - Pdfwright is not a PDF editor and does not read PDF files.
@@ -190,7 +191,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
 - [Plan for tagged PDF](docs/plan-tagged-pdf.md): tagged (accessible) PDF and PDF/UA-1, on by default; done in 0.1.6, with what is left for later.
-- [Draft plan for 0.2](docs/plan-0.2.md): CJK and the performance work left over from 0.1; tagged PDF, first planned there, came before 0.2, in 0.1.6. A draft, not a commitment.
+- [Draft plan for 0.2](docs/plan-0.2.md): CJK, the performance work left over from 0.1, links, column spans, justification and widow and orphan control; tagged PDF, first planned there, came before 0.2, in 0.1.6. A draft, not a commitment.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
 
