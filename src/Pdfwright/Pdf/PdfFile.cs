@@ -32,7 +32,7 @@ internal sealed class PdfFile : IDisposable
 
     private readonly HashingStream _output;
     private readonly PdfCompression _compression;
-    private readonly List<long> _offsets = [-1];
+    private readonly OffsetTable _offsets = new();
     private bool _finished;
 
     // Set when writing an object failed halfway: its bytes are in the file and cannot be taken back, so nothing more is written.
@@ -227,7 +227,7 @@ internal sealed class PdfFile : IDisposable
         // leave the dictionary saying one filter for bytes that need two, and /DecodeParms belong to the filter they were written for.
         if (_compression == PdfCompression.Flate && !stream.NeverCompress && dictionary["Filter"] is null && data.Length >= CompressionThreshold)
         {
-            byte[] deflated = Deflate(data.Span);
+            ReadOnlyMemory<byte> deflated = Deflate(data.Span);
             if (deflated.Length < data.Length)
             {
                 data = deflated;
@@ -242,15 +242,65 @@ internal sealed class PdfFile : IDisposable
         PdfSerializer.Ascii(_output, "\nendstream");
     }
 
-    private static byte[] Deflate(ReadOnlySpan<byte> data)
+    /// <summary>
+    /// The data compressed, in a buffer the file keeps for the next stream: the bytes are valid until the next call, and a stream's bytes are
+    /// written before the next stream is compressed. A new buffer for every stream would cost each stream about three times its compressed size.
+    /// </summary>
+    private ReadOnlyMemory<byte> Deflate(ReadOnlySpan<byte> data)
     {
-        using MemoryStream compressed = new();
+        MemoryStream compressed = _deflated ??= new MemoryStream();
+        compressed.SetLength(0);
         using (ZLibStream zlib = new(compressed, CompressionLevel.Optimal, leaveOpen: true))
         {
             zlib.Write(data);
         }
 
-        return compressed.ToArray();
+        return compressed.GetBuffer().AsMemory(0, (int)compressed.Length);
+    }
+
+    private MemoryStream? _deflated;
+
+    /// <summary>
+    /// The offset of each object by number (-1 until it is written; entry 0 is the head of the free list), in blocks of 256 that are never copied: a
+    /// tagged document has an object for each structure element, thousands of them, and a list that grows by doubling copies them at each step.
+    /// </summary>
+    private sealed class OffsetTable
+    {
+        private const int BlockSize = 256;
+
+        private readonly List<long[]> _blocks = [];
+
+        internal OffsetTable() => Add(-1);
+
+        internal int Count { get; private set; }
+
+        internal long this[int number]
+        {
+            get => _blocks[number / BlockSize][number % BlockSize];
+            set => _blocks[number / BlockSize][number % BlockSize] = value;
+        }
+
+        internal void Add(long offset)
+        {
+            if (Count % BlockSize == 0)
+            {
+                _blocks.Add(new long[BlockSize]);
+            }
+
+            _blocks[^1][Count % BlockSize] = offset;
+            Count++;
+        }
+
+        internal long Max()
+        {
+            long max = long.MinValue;
+            for (int number = 0; number < Count; number++)
+            {
+                max = Math.Max(max, this[number]);
+            }
+
+            return max;
+        }
     }
 
     /// <summary>A write-only stream that counts the bytes written and hashes them, so the output need not be seekable.</summary>
