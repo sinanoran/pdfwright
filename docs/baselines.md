@@ -333,4 +333,4 @@ dotnet publish ../../../Pdfwright.Benchmarks.csproj -c Release -r win-x64 --self
 ./Pdfwright.Benchmarks bench --filter "*" --job short
 ```
 
-On Windows the program is `Pdfwright.Benchmarks.exe`. `DOTNET_TieredPGO=0` in the environment turns tiered PGO off for a run. `once` prints one JSON line (time since the process started, its own peak working set, bytes, pages), and `cold` takes the peak from it, so the figures are the process's own. The benchmark project is built by `dotnet build Pdfwright.slnx` so it cannot rot; CI builds it and does not run it.
+On Windows the program is `Pdfwright.Benchmarks.exe`. `DOTNET_TieredPGO=0` in the environment turns tiered PGO off for a run. `once` prints one JSON line (time since the process started, its own peak working set, bytes, pages), and `cold` takes the peak from it, so the figures are the process's own. The benchmark project is built by `dotnet build Pdfwright.slnx` so it cannot rot; CI builds it and does not run it.
