@@ -111,7 +111,7 @@ internal sealed partial class DocumentRenderer
                 ResolvedStyle style = _base.Apply(paragraph.Style);
                 StyledLayout layout = BlockText.Layout(paragraph.Runs, style, _fonts, width, paragraph.Alignment, paragraph.Direction ?? direction, paragraph.LineSpacing);
                 NoteFamilies(layout);
-                layout.Tag = Tag("P", OwnLanguage(style));
+                layout.Tag = TextTag("P", layout, style);
                 return new TextItem
                 {
                     Styled = layout,
@@ -126,7 +126,7 @@ internal sealed partial class DocumentRenderer
                 ResolvedStyle style = _headings[heading.Level - 1];
                 StyledLayout layout = BlockText.Layout(heading.Runs, style, _fonts, width, heading.Alignment, heading.Direction ?? direction, 1.0);
                 NoteFamilies(layout);
-                layout.Tag = Tag(HeadingTypes[heading.Level - 1], OwnLanguage(style));
+                layout.Tag = TextTag(HeadingTypes[heading.Level - 1], layout, style);
                 return new TextItem
                 {
                     Styled = layout,
@@ -144,11 +144,21 @@ internal sealed partial class DocumentRenderer
     private static readonly string[] HeadingTypes = ["H1", "H2", "H3", "H4", "H5", "H6"];
 
     /// <summary>
-    /// The language of a paragraph set in <paramref name="style"/> when it is not the document's (the catalog's <c>/Lang</c>), for the element's own
-    /// <c>/Lang</c>; otherwise <see langword="null"/>. The default style's language counts as the paragraph's, as it does for shaping.
+    /// The light element of a paragraph or a heading under the current parent, or <see langword="null"/> when there is none (untagged, a header or a
+    /// footer) or the text has nothing to see (an empty or blank paragraph would be an element with no content: it is drawn as an artifact). Its
+    /// <c>/Lang</c> is the paragraph's language when that is set and not the document's; the default style's language counts as the paragraph's, as
+    /// it does for shaping.
     /// </summary>
-    private string? OwnLanguage(ResolvedStyle style) =>
-        style.Language is { } language && !string.Equals(language, _documentLanguage, StringComparison.OrdinalIgnoreCase) ? language : null;
+    private PdfStructureElement? TextTag(string type, StyledLayout layout, ResolvedStyle style)
+    {
+        if (_tagParent is not { } parent || string.IsNullOrWhiteSpace(layout.Layout.Text))
+        {
+            return null;
+        }
+
+        string? language = TaggedLanguage(style.Language);
+        return _writer.Structure!.Create(parent, type, language: string.Equals(language, _documentLanguage, StringComparison.OrdinalIgnoreCase) ? null : language);
+    }
 
     private Stack BuildStack(IReadOnlyList<Block> blocks, double width, double maxHeight, TextDirection direction) =>
         new([.. blocks.SelectMany(block => BuildItems(block, width, maxHeight, direction))]);
@@ -305,8 +315,28 @@ internal sealed partial class DocumentRenderer
 
         // Tagged, the columns are a Div with a Div for each cell, in the order of the cells (the logical order, which is the order they are drawn in
         // whichever way they stand on the page).
-        PdfStructureElement? division = Tag("Div");
-        Stack[] stacks = [.. columns.Cells.Select(blocks => BuildUnder(division is null ? null : _writer.Structure!.Create(division, "Div"), () => BuildStack(blocks, cell, maxHeight, own)))];
+        Stack[] stacks;
+        if (Tag("Div") is { } division)
+        {
+            stacks = new Stack[count];
+            PdfStructureElement? before = _tagParent;
+            try
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    _tagParent = _writer.Structure!.Create(division, "Div");
+                    stacks[i] = BuildStack(columns.Cells[i], cell, maxHeight, own);
+                }
+            }
+            finally
+            {
+                _tagParent = before;
+            }
+        }
+        else
+        {
+            stacks = [.. columns.Cells.Select(blocks => BuildStack(blocks, cell, maxHeight, own))];
+        }
         double height = stacks.Max(s => s.Height);
         bool rtl = IsRightToLeft(own);
         return new FixedItem
@@ -347,7 +377,18 @@ internal sealed partial class DocumentRenderer
         }
 
         // Tagged, the callout is a Div around its content; its box is an artifact. A callout split between pages is one Div.
-        Stack stack = BuildUnder(Tag("Div"), () => BuildStack(callout.Content, inner, innerMax, callout.Direction ?? direction));
+        PdfStructureElement? outside = _tagParent;
+        _tagParent = Tag("Div");
+        Stack stack;
+        try
+        {
+            stack = BuildStack(callout.Content, inner, innerMax, callout.Direction ?? direction);
+        }
+        finally
+        {
+            _tagParent = outside;
+        }
+
         if (stack.Items.Count > 0)
         {
             Item head = stack.Items[0];
@@ -727,6 +768,8 @@ internal sealed partial class DocumentRenderer
             return;
         }
 
+        // The body is done: what is built from now on, the headers and the footers, is an artifact with no structure element.
+        _tagParent = null;
         int count = _pending.Count;
         double headerOffset = _options.HeaderOffset?.Points ?? _options.Margins.Top.Points / 2;
         double footerOffset = _options.FooterOffset?.Points ?? _options.Margins.Bottom.Points / 2;
@@ -786,8 +829,8 @@ internal sealed partial class DocumentRenderer
     {
         try
         {
-            // A header or a footer is an artifact: its text has no structure element.
-            return BuildUnder(null, () => BuildItem(block, _contentWidth, room, _options.Direction));
+            // A header or a footer is an artifact: its text has no structure element (DrawOverlays has taken the parent away).
+            return BuildItem(block, _contentWidth, room, _options.Direction);
         }
         catch (InvalidOperationException error)
         {

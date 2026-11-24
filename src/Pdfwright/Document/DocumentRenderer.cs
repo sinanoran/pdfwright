@@ -78,10 +78,10 @@ internal sealed partial class DocumentRenderer
             Tagged = options.Tagged,
         });
         _tagParent = _writer.Structure?.Document;
-        _documentLanguage = ResolvedStyle.Base(fonts, null, options.Language).Language;
+        _documentLanguage = TaggedLanguage(ResolvedStyle.Base(fonts, null, options.Language).Language);
     }
 
-    /// <summary>The document's language as the catalog's <c>/Lang</c> has it, read by the same rule as a style's.</summary>
+    /// <summary>The document's language as the catalog's <c>/Lang</c> has it, read by the same rule as a style's; <see langword="null"/> when it is not set or empty.</summary>
     private readonly string? _documentLanguage;
 
     /// <summary>Checks the options once, so that a bad document fails when it is made and not halfway through a save.</summary>
@@ -431,6 +431,12 @@ internal sealed partial class DocumentRenderer
         {
             if (styled.Tag is { } element)
             {
+                if (_inArtifact)
+                {
+                    // Text with an element drawn inside an artifact would be the document's text and not at once: a defect of the renderer, never output.
+                    throw new InvalidOperationException($"The text of a {element.Type} element is drawn inside an artifact.");
+                }
+
                 _ = page.BeginMarkedContent(element);
                 marked = true;
             }
@@ -440,7 +446,7 @@ internal sealed partial class DocumentRenderer
             }
         }
 
-        layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count, marked, styled.Styles[0].Language);
+        layout.Draw(page.Content, embedded, names, x, _pageHeight - _top - y, firstLine, count, marked, TaggedLanguage(styled.Styles[0].Language) ?? _documentLanguage);
         if (marked)
         {
             page.EndMarkedContent();
@@ -453,27 +459,18 @@ internal sealed partial class DocumentRenderer
     /// <summary>The element the text items built now belong to (<see cref="BuildTextItem"/>): the <c>Document</c>, a callout's or a column cell's <c>Div</c>, or <see langword="null"/> for none (untagged, or a header or footer).</summary>
     private PdfStructureElement? _tagParent;
 
-    /// <summary>The content drawn now is inside an artifact (a header or a footer, a table's fragment), so drawing does not begin another.</summary>
+    /// <summary>
+    /// The content drawn now is inside an artifact (a header or a footer, a table's fragment): drawing does not begin another, and text with an element
+    /// is refused there (<see cref="Draw(StyledLayout, int, int, double, double)"/>).
+    /// </summary>
     private bool _inArtifact;
 
     /// <summary>Makes a light structure element under the current parent (<see cref="_tagParent"/>), or nothing when there is none.</summary>
-    private PdfStructureElement? Tag(string type, string? language = null) =>
-        _tagParent is { } parent ? _writer.Structure!.Create(parent, type, language: language) : null;
+    private PdfStructureElement? Tag(string type) =>
+        _tagParent is { } parent ? _writer.Structure!.Create(parent, type) : null;
 
-    /// <summary>Builds with <paramref name="parent"/> as the parent of the elements made meanwhile, and the parent before it afterwards.</summary>
-    private T BuildUnder<T>(PdfStructureElement? parent, Func<T> build)
-    {
-        PdfStructureElement? before = _tagParent;
-        _tagParent = parent;
-        try
-        {
-            return build();
-        }
-        finally
-        {
-            _tagParent = before;
-        }
-    }
+    /// <summary>A language as tagging uses it: an empty one is not set (no <c>/Lang</c>, no span; the language around it applies).</summary>
+    private static string? TaggedLanguage(string? language) => string.IsNullOrEmpty(language) ? null : language;
 
     /// <summary>
     /// Begins an artifact on the page's current stream when the document is tagged and none is open, for content that is not the document's text
