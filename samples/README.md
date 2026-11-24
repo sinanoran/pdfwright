@@ -4,7 +4,7 @@
 
 A multi-page report made only with the public API of Pdfwright: a heading, a row of KPIs in a callout, a bar chart drawn on the canvas, a table of 90 invoices that paginates with its header repeated, a
 header (from the second page) and a footer reading "Page x of y", and a section in Arabic with Latin words in it, with a small right-to-left table. The code is in
-[`ReportSample.cs`](Pdfwright.Samples.Report/ReportSample.cs); `Program.cs` loads the fonts, saves the document to a file and prints the page count and any missing glyph.
+[`ReportSample.cs`](Pdfwright.Samples.Report/ReportSample.cs); `Program.cs` loads the fonts, saves the document to a file and prints the page count, whether the file is PDF/UA-1 (the report is tagged, the default, and has a title and a language), any missing glyph and any accessibility issue.
 
 ```bash
 dotnet run --project samples/Pdfwright.Samples.Report -- report.pdf

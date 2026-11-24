@@ -4,7 +4,8 @@ namespace Pdfwright.Samples;
 
 /// <summary>
 /// A monthly report of several pages: a heading, a row of KPIs in a callout, a bar chart drawn on the canvas, a table of invoices that runs over several pages with its header
-/// repeated, a header and a footer with "Page x of y", and a section in Arabic with Latin words in it. It uses only the public API of Pdfwright, and the test suite builds the same
+/// repeated, a header and a footer with "Page x of y", and a section in Arabic with Latin words in it. It is written tagged (the default), and its title and language make it
+/// PDF/UA-1. It uses only the public API of Pdfwright, and the test suite builds the same
 /// document (<c>ReportSampleTests</c>) so that this file is known to work.
 /// </summary>
 public static class ReportSample
