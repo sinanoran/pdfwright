@@ -1,4 +1,5 @@
 using System.Text;
+using Pdfwright.Pdf;
 using Pdfwright.Text;
 
 namespace Pdfwright.Document;
@@ -93,11 +94,42 @@ internal sealed partial class DocumentRenderer
             throw new InvalidOperationException($"The list's indent and markers take {inset:0.##} pt of the {width:0.##} pt available and leave {Math.Max(0, textWidth):0.##} pt for its text: it is at least {MinimumWidth:0.##} pt wide (make the indent or the marker gap smaller).");
         }
 
+        // Tagged, the list is an L with an LI for each item, which holds the marker's Lbl and an LBody: a P for each paragraph of the item and the L of a
+        // nested list, in the item's order. The paragraphs and the nested lists are built with the LBody as their parent; untagged, there is none.
+        PdfStructureElement? outside = _tagParent;
+        PdfStructureElement? listTag = Tag("L");
+        if (listTag is not null)
+        {
+            listTag.Attributes = new PdfDictionary().Set("O", "List").Set("ListNumbering", ListNumbering(list.Marker));
+        }
+
         List<TextItem> result = [];
+        try
+        {
+            BuildListItems(list, width, textWidth, own, listStyle, itemGap, lastAfter, inset, markerInset, listTag, result);
+        }
+        finally
+        {
+            _tagParent = outside;
+        }
+
+        return result;
+    }
+
+    /// <summary>The paragraphs of the items of a list, for <see cref="BuildList"/>; <paramref name="listTag"/> is the list's <c>L</c>, or <see langword="null"/> untagged.</summary>
+    private void BuildListItems(ItemList list, double width, double textWidth, TextDirection own, ResolvedStyle listStyle, double itemGap, double lastAfter, double inset, double markerInset, PdfStructureElement? listTag, List<TextItem> result)
+    {
         for (int i = 0; i < list.Items.Count; i++)
         {
             ListItem item = list.Items[i];
             bool lastItem = i == list.Items.Count - 1;
+            PdfStructureElement? entry = null;
+            if (listTag is not null)
+            {
+                entry = _writer.Structure!.Create(listTag, "LI");
+                _tagParent = _writer.Structure.Create(entry, "LBody");
+            }
+
             for (int j = 0; j < item.Content.Count; j++)
             {
                 bool last = lastItem && j == item.Content.Count - 1;
@@ -125,6 +157,9 @@ internal sealed partial class DocumentRenderer
                         rtl ? TextDirection.RightToLeft : TextDirection.LeftToRight,
                         1.0);
                     NoteFamilies(marker);
+
+                    // The marker is the item's Lbl, drawn before the paragraph's own marked content and outside it (see Draw).
+                    marker.Tag = TextTag(entry, "Lbl", marker, markerStyle);
                 }
 
                 // A marker larger than the text: the first line is made as tall as the marker needs, so that the marker does not reach into the paragraph above (the baseline moves down by the excess ascent).
@@ -143,6 +178,7 @@ internal sealed partial class DocumentRenderer
                     Styles = text.Styles,
                     Spans = text.Spans,
                     List = new ListPlacement { ContainerWidth = width, Inset = inset, MarkerInset = markerInset, RightToLeft = rtl, Marker = marker },
+                    Tag = TextTag("P", text, style),
                 };
                 result.Add(new TextItem
                 {
@@ -154,9 +190,19 @@ internal sealed partial class DocumentRenderer
                 });
             }
         }
-
-        return result;
     }
+
+    /// <summary>
+    /// The <c>/ListNumbering</c> of a list's <c>L</c> (ISO 32000-1, table 347): a disc for a bullet, the kind of number or letter otherwise. The
+    /// Arabic-Indic numbers are decimal numbers in other digits, and the attribute has no value of its own for them.
+    /// </summary>
+    private static string ListNumbering(ListMarker marker) => marker switch
+    {
+        ListMarker.Bullet => "Disc",
+        ListMarker.LowerAlpha => "LowerAlpha",
+        ListMarker.UpperAlpha => "UpperAlpha",
+        _ => "Decimal",
+    };
 
     /// <summary>The style of the marker of an item: the list's, the item's first paragraph's, then the list's marker style over them.</summary>
     private static ResolvedStyle MarkerStyle(ItemList list, ResolvedStyle listStyle, ListItem item) =>

@@ -19,7 +19,7 @@ internal sealed class PdfStructureElement
         Type = type;
         Alt = alt;
         Language = language;
-        Attributes = attributes;
+        _attributes = attributes;
     }
 
     /// <summary>The tree the element belongs to.</summary>
@@ -37,8 +37,25 @@ internal sealed class PdfStructureElement
     /// <summary>The element's language (<c>/Lang</c>), a BCP 47 tag, when it is not the language of the element around it.</summary>
     internal string? Language { get; }
 
-    /// <summary>The attribute dictionary (<c>/A</c>), such as <c>&lt;&lt;/O /Table /Scope /Column&gt;&gt;</c>.</summary>
-    internal PdfDictionary? Attributes { get; }
+    /// <summary>
+    /// The attribute dictionary (<c>/A</c>), such as <c>&lt;&lt;/O /Table /Scope /Column&gt;&gt;</c>. It may be set late, until the element closes:
+    /// a figure's bounding box is known only when the figure is drawn. Once the element's object is written it cannot change.
+    /// </summary>
+    internal PdfDictionary? Attributes
+    {
+        get => _attributes;
+        set
+        {
+            if (IsClosed)
+            {
+                throw new InvalidOperationException($"The {Type} element is closed and its object is written: its attributes cannot change.");
+            }
+
+            _attributes = value;
+        }
+    }
+
+    private PdfDictionary? _attributes;
 
     /// <summary>The element's object number, from the moment it is materialised.</summary>
     internal PdfReference? Reference { get; set; }
