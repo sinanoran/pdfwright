@@ -261,6 +261,138 @@ public partial class TaggedFlowTests
     [GeneratedRegex(@"(?:/Span <</Lang \((?<lang>[^)]*)\)>> BDC|/[A-Za-z0-9]+ <<[^\n]*>> BDC|/[A-Za-z0-9]+ BMC|(?<emc>EMC))\n")]
     private static partial Regex MarkedContentPattern();
 
+    [Fact]
+    public void An_empty_language_is_not_set_on_an_element_or_a_span()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Paragraph([new TextRun("Some text, "), new TextRun("a run with an empty language", new TextStyle { Language = string.Empty }), new TextRun(".")]));
+        document.Add(new Paragraph([new TextRun("A paragraph with an empty language and a "), new TextRun("mot", new TextStyle { Language = "fr" })])
+        {
+            Style = new TextStyle { Language = string.Empty },
+        });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[P,P]", tree.Root.Outline());
+        Assert.All(tree.Root.Descendants(), e => Assert.Null(e.Language));
+        Assert.DoesNotContain("/Lang ()", Encoding.Latin1.GetString(pdf), StringComparison.Ordinal);
+        Assert.Empty(SpansIn(tree.ContentText[0], "P", 0));
+        Assert.Equal("fr", SpansIn(tree.ContentText[0], "P", 1).Single());
+    }
+
+    [Fact]
+    public void A_document_with_an_empty_language_gives_a_paragraph_in_a_language_its_lang()
+    {
+        PdfDocument document = new(Tagged(o => o.Language = string.Empty));
+        document.Add(new Paragraph("Bonjour.") { Style = new TextStyle { Language = "fr" } });
+        document.Add(new Paragraph("No language."));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal(new string?[] { "fr", null }, tree.Root.Children.Select(e => e.Language));
+        Assert.DoesNotContain("/Lang ()", Encoding.Latin1.GetString(pdf), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_run_in_another_language_that_wraps_is_a_span_on_each_line()
+    {
+        PdfDocument document = new(Tagged(o => o.PageSize = new PageSize(Length.Mm(80), Length.Mm(150))));
+        document.Add(new Paragraph([new TextRun("English first, then "), new TextRun("une longue phrase en français qui passe sur plusieurs lignes du paragraphe", new TextStyle { Language = "fr" }), new TextRun(" and English again.")]));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        List<string> spans = SpansIn(tree.ContentText[0], "P", 0);
+        Assert.True(spans.Count >= 2, $"{spans.Count} span(s): the run wraps over two lines or more");
+        Assert.All(spans, s => Assert.Equal("fr", s));
+        Assert.Equal(
+            DocumentTestKit.Strip("English first, then une longue phrase en français qui passe sur plusieurs lignes du paragraphe and English again."),
+            Canonical(ElementTexts(pdf, tree).Single().Text));
+    }
+
+    [Fact]
+    public void A_run_in_another_language_with_several_colours_is_one_span()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Paragraph(
+        [
+            new TextRun("Red ", new TextStyle { Color = Color.Red }),
+            new TextRun("bleu", new TextStyle { Language = "fr", Color = Color.FromHex("#3366CC") }),
+            new TextRun("vert", new TextStyle { Language = "fr", Color = Color.Green }),
+            new TextRun(" end."),
+        ]));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        string content = tree.ContentText[0];
+        Assert.Equal("fr", SpansIn(content, "P", 0).Single());
+
+        // The two colours of the French run are set inside its one span.
+        int begin = content.IndexOf("/Span <</Lang (fr)>> BDC\n", StringComparison.Ordinal);
+        int end = content.IndexOf("EMC\n", begin, StringComparison.Ordinal);
+        Assert.Equal(2, Regex.Count(content[begin..end], @"\brg\n"));
+        Assert.Equal("Redbleuvertend.", ElementTexts(pdf, tree).Single().Text);
+    }
+
+    [Fact]
+    public void An_empty_or_blank_paragraph_or_heading_has_no_element_and_is_an_artifact()
+    {
+        PdfDocument document = new(Tagged());
+        document.Add(new Paragraph(string.Empty));
+        document.Add(new Heading(2, string.Empty));
+        document.Add(new Paragraph("Text."));
+        document.Add(new Paragraph("   "));
+        document.Add(new Callout(new Paragraph(" ")));
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[P]", tree.Root.Outline());
+        Assert.Equal("Text.", ElementTexts(pdf, tree).Single().Text);
+        Assert.Equal(4, Regex.Count(tree.ContentText[0], @"/Artifact BMC\nBT\n"));
+    }
+
+    [Fact]
+    public void A_paragraph_split_inside_a_split_callout_is_one_paragraph_in_one_division()
+    {
+        PdfDocument document = new(Tagged(o => o.PageSize = new PageSize(Length.Mm(100), Length.Mm(80))));
+        document.Add(new Paragraph("Before."));
+        document.Add(new Callout([new Paragraph("Opening."), new Paragraph(DocumentTestKit.LongText(150))]) { Border = new BorderLine(Length.Pt(1), Color.Black) });
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        StructureTreeReader tree = Read(pdf);
+        Assert.Equal("Document[P,Div[P,P]]", tree.Root.Outline());
+        StructureTreeReader.Element split = tree.Root.Children.ElementAt(1).Children.ElementAt(1);
+        List<StructureTreeReader.ContentKid> kids = [.. split.Kids.OfType<StructureTreeReader.ContentKid>()];
+        Assert.True(kids.Count >= 2, "the paragraph has content on two pages or more");
+        Assert.Equal(Enumerable.Range(0, kids.Count), kids.Select(k => k.Page));
+        Assert.False(kids[0].Reference);
+        Assert.All(kids.Skip(1), k => Assert.True(k.Reference));
+        Assert.Equal(DocumentTestKit.Strip(DocumentTestKit.LongText(150)), ElementTexts(pdf, tree)[^1].Text);
+        DocumentTestKit.AssertValid(pdf, "tagged-flow-split-in-callout");
+    }
+
+    [Fact]
+    public void The_consistency_check_finds_painting_outside_marked_content()
+    {
+        MemoryStream memory = new();
+        using (Pdfwright.Pdf.PdfDocumentWriter writer = new(memory, new Pdfwright.Pdf.PdfWriterOptions { Compression = Pdfwright.Pdf.PdfCompression.None, Tagged = true }))
+        {
+            Pdfwright.Pdf.PdfPageWriter page = writer.BeginPage(300, 300);
+            page.Content.FillGray(0.5).Rectangle(10, 10, 50, 50).Fill();
+            page.End();
+            writer.Complete();
+        }
+
+        StructureTreeReader tree = StructureTreeReader.Read(memory.ToArray());
+        Exception error = Assert.ThrowsAny<Exception>(tree.AssertConsistent);
+        Assert.Contains("'f' paints outside", error.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(TextDirection.LeftToRight)]
     [InlineData(TextDirection.RightToLeft)]

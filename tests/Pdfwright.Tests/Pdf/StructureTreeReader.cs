@@ -235,6 +235,7 @@ internal sealed partial class StructureTreeReader
                 }
 
                 Assert.True(depth == 0, $"{depth} marked-content sequence(s) left open in stream {stream + 1} of page {page + 1}");
+                AssertEverythingMarked(ContentStreams[page][stream], $"stream {stream + 1} of page {page + 1}");
             }
         }
 
@@ -267,6 +268,123 @@ internal sealed partial class StructureTreeReader
             }
 
             Assert.Equal(drawn.Count, owners.Keys.Count(k => k.Page == page));
+        }
+    }
+
+    /// <summary>The operators that paint or show something (ISO 32000-1, tables 51, 57, 60, 92 and 107): what PDF/UA-1 wants inside marked content of the structure or an artifact.</summary>
+    private static readonly HashSet<string> PaintingOperators = ["Tj", "TJ", "'", "\"", "f", "F", "f*", "B", "B*", "b", "b*", "S", "s", "Do", "sh", "BI"];
+
+    private enum Marking
+    {
+        Structure,
+        Artifact,
+        Other,
+    }
+
+    /// <summary>
+    /// The core rule of PDF/UA-1 (ISO 14289-1, 7.1): every operator that paints or shows is inside a sequence with an <c>MCID</c> or inside an artifact,
+    /// and no sequence with an <c>MCID</c> is inside an artifact (nor inside another one). A form XObject drawn by <c>Do</c> counts as the <c>Do</c>.
+    /// The stream is tokenised (strings, names, dictionaries and arrays read as tokens, an inline image skipped to its <c>EI</c>), not matched line by line.
+    /// </summary>
+    private static void AssertEverythingMarked(string content, string where)
+    {
+        List<Marking> open = [];
+        List<string> operands = [];
+        int i = 0;
+        while (i < content.Length)
+        {
+            char c = content[i];
+            if (char.IsWhiteSpace(c) || c is '[' or ']' or '{' or '}')
+            {
+                i++;
+            }
+            else if (c == '%')
+            {
+                while (i < content.Length && content[i] is not ('\n' or '\r'))
+                {
+                    i++;
+                }
+            }
+            else if (c == '(')
+            {
+                int depth = 0;
+                do
+                {
+                    if (content[i] == '\\')
+                    {
+                        i++;
+                    }
+                    else if (content[i] == '(')
+                    {
+                        depth++;
+                    }
+                    else if (content[i] == ')')
+                    {
+                        depth--;
+                    }
+
+                    i++;
+                }
+                while (depth > 0 && i < content.Length);
+                operands.Add("(string)");
+            }
+            else if (c is '<' or '>' && i + 1 < content.Length && content[i + 1] == c)
+            {
+                operands.Add(c == '<' ? "<<" : ">>");
+                i += 2;
+            }
+            else if (c == '<')
+            {
+                i = content.IndexOf('>', i) + 1;
+                operands.Add("<hex>");
+            }
+            else
+            {
+                int start = i;
+                i++;
+                while (i < content.Length && !char.IsWhiteSpace(content[i]) && content[i] is not ('(' or ')' or '<' or '>' or '[' or ']' or '{' or '}' or '/' or '%'))
+                {
+                    i++;
+                }
+
+                string token = content[start..i];
+                if (c is '/' or (>= '0' and <= '9') or '-' or '+' or '.' || token is "true" or "false" or "null")
+                {
+                    operands.Add(token);
+                    continue;
+                }
+
+                if (token is "BDC" or "BMC")
+                {
+                    Marking marking = operands.FirstOrDefault(o => o.StartsWith('/')) == "/Artifact" ? Marking.Artifact : operands.Contains("/MCID") ? Marking.Structure : Marking.Other;
+                    if (marking == Marking.Structure)
+                    {
+                        Assert.False(open.Contains(Marking.Artifact), $"marked content with an MCID inside an artifact in {where}");
+                        Assert.False(open.Contains(Marking.Structure), $"marked content with an MCID inside another in {where}");
+                    }
+
+                    open.Add(marking);
+                }
+                else if (token == "EMC")
+                {
+                    Assert.NotEmpty(open);
+                    open.RemoveAt(open.Count - 1);
+                }
+                else if (PaintingOperators.Contains(token))
+                {
+                    Assert.True(
+                        open.Contains(Marking.Structure) || open.Contains(Marking.Artifact),
+                        $"'{token}' paints outside marked content of the structure and outside an artifact in {where}");
+                    if (token == "BI")
+                    {
+                        // An inline image: its data runs to EI, which is skipped whole.
+                        int end = content.IndexOf("EI", i, StringComparison.Ordinal);
+                        i = end < 0 ? content.Length : end + 2;
+                    }
+                }
+
+                operands.Clear();
+            }
         }
     }
 
