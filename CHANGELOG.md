@@ -8,7 +8,7 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
-- **`FontCollection.AddFile(string path)` and `FontCollection.Add(Stream)`.** They read a font straight into the collection's own (pinned) copy of it, so adding a font no longer needs an array of the file that the collection copies and the caller drops (`Add(File.ReadAllBytes(path))` held each font twice while it was added, the caller's copy on the large object heap). `Add(Stream)` reads from the stream's position to its end and leaves the stream open. `Add(byte[])` and `Add(ReadOnlyMemory<byte>)` are unchanged and still copy. The benchmark scenarios, the report sample and the guide use `AddFile`.
+- **`FontCollection.AddFile(string path)` and `FontCollection.Add(Stream)`.** They read a font straight into the collection's own (pinned) copy of it, so adding a font no longer needs an array of the file that the collection copies and the caller drops (`Add(File.ReadAllBytes(path))` held each font twice while it was added, the caller's copy on the large object heap). `Add(Stream)` reads from the stream's position to its end and leaves the stream open; `AddFile` reads a file whose length the system gives as 0 (a pipe, a file of `/proc`) to its end. `Add(null)` with a literal `null` is now ambiguous between `Add(byte[])` and `Add(Stream)` (cast it, as with any such overloads). `Add(byte[])` and `Add(ReadOnlyMemory<byte>)` are unchanged and still copy. The benchmark scenarios, the report sample and the guide use `AddFile`.
 
 ### Changed
 

@@ -81,7 +81,7 @@ public sealed class FontCollection : IDisposable
 
     /// <summary>
     /// Adds a font from a TrueType file on disk, read straight into the collection's own copy of it: no array of the file is made for the caller to hand over, so adding a font costs the
-    /// memory of one copy of it and not two (<c>Add(File.ReadAllBytes(path))</c> makes an array of the file, which the collection then copies and the caller drops).
+    /// memory of one copy of it and not two (<c>Add(File.ReadAllBytes(path))</c> makes an array of the file, which the collection then copies and the caller drops). A file the system gives no length for (a pipe, a file of <c>/proc</c>) is read to its end.
     /// </summary>
     /// <param name="path">The path of the font file.</param>
     /// <returns>This collection, so that calls can be chained.</returns>
@@ -98,27 +98,43 @@ public sealed class FontCollection : IDisposable
         byte[] copy;
         using (SafeFileHandle file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan))
         {
-            long length = RandomAccess.GetLength(file);
-            if (length > Array.MaxLength)
-            {
-                throw new ArgumentException($"The file is {length} bytes long, too long to be a font.", nameof(path));
-            }
-
-            copy = NewFontArray((int)length);
-            int read = 0;
-            while (read < copy.Length)
-            {
-                int got = RandomAccess.Read(file, copy.AsSpan(read), read);
-                if (got == 0)
-                {
-                    throw new IOException($"The file {path} ended after {read} of its {copy.Length} bytes: it changed while it was read.");
-                }
-
-                read += got;
-            }
+            copy = ReadFile(file, RandomAccess.GetLength(file), path);
         }
 
         return AddOwned(copy, nameof(path));
+    }
+
+    /// <summary>
+    /// The bytes of an open file, read into a font array of <paramref name="length"/>, its length as the system gives it. A file whose length is given as 0 may be one that has no length to give
+    /// (a pipe, a file of <c>/proc</c>), not an empty one, so it is read to its end as a stream that cannot seek is (an empty file reads as nothing either way, and is then refused as no font).
+    /// </summary>
+    internal static byte[] ReadFile(SafeFileHandle file, long length, string path)
+    {
+        if (length == 0)
+        {
+            using FileStream stream = new(file, FileAccess.Read, bufferSize: 0);
+            return ReadToEnd(stream, nameof(path));
+        }
+
+        if (length > Array.MaxLength)
+        {
+            throw new ArgumentException($"The file is {length} bytes long, too long to be a font.", nameof(path));
+        }
+
+        byte[] copy = NewFontArray((int)length);
+        int read = 0;
+        while (read < copy.Length)
+        {
+            int got = RandomAccess.Read(file, copy.AsSpan(read), read);
+            if (got == 0)
+            {
+                throw new IOException($"The file {path} ended after {read} of its {copy.Length} bytes: it changed while it was read.");
+            }
+
+            read += got;
+        }
+
+        return copy;
     }
 
     /// <summary>
@@ -139,7 +155,7 @@ public sealed class FontCollection : IDisposable
             throw new ArgumentException("The stream cannot be read.", nameof(stream));
         }
 
-        byte[] copy = stream.CanSeek ? ReadSeekable(stream) : ReadToEnd(stream);
+        byte[] copy = stream.CanSeek ? ReadSeekable(stream) : ReadToEnd(stream, nameof(stream));
         return AddOwned(copy, nameof(stream));
     }
 
@@ -158,7 +174,7 @@ public sealed class FontCollection : IDisposable
     }
 
     /// <summary>What is left of a stream of unknown length, read in pieces borrowed from the shared pool (and given back, cleared) and copied once into a font array.</summary>
-    private static byte[] ReadToEnd(Stream stream)
+    private static byte[] ReadToEnd(Stream stream, string parameter)
     {
         const int PieceSize = 64 * 1024;
         List<byte[]> pieces = [];
@@ -184,7 +200,7 @@ public sealed class FontCollection : IDisposable
                 total += got;
                 if (total > Array.MaxLength)
                 {
-                    throw new ArgumentException("The stream holds too many bytes to be a font.", nameof(stream));
+                    throw new ArgumentException("The stream holds too many bytes to be a font.", parameter);
                 }
             }
 

@@ -78,6 +78,31 @@ public class FontCollectionTests
         Assert.Equal(1, fromFile.AddFile(path).Count);
     }
 
+    /// <summary>
+    /// A file whose length the system gives as 0 may be a pipe or a file of <c>/proc</c>, which has no length to give: it is read to its end. The path is tested with a font file given the length 0, and
+    /// an empty file is refused as no font.
+    /// </summary>
+    [Fact]
+    public void A_file_given_no_length_is_read_to_its_end()
+    {
+        string path = TestPaths.Font("NotoSans-Regular.ttf");
+        using (Microsoft.Win32.SafeHandles.SafeFileHandle file = File.OpenHandle(path))
+        {
+            Assert.Equal(Bytes("NotoSans-Regular.ttf"), FontCollection.ReadFile(file, 0, path));
+        }
+
+        string empty = Path.GetTempFileName();
+        try
+        {
+            using FontCollection fonts = new();
+            Assert.Throws<ArgumentException>("path", () => fonts.AddFile(empty));
+        }
+        finally
+        {
+            File.Delete(empty);
+        }
+    }
+
     [Fact]
     public void A_file_or_stream_that_cannot_be_read_as_a_font_is_refused_with_the_argument_named()
     {
