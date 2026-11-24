@@ -180,6 +180,7 @@ The full list, with the reason for each, is in [docs/known-limitations.md](docs/
 - [Known limitations](docs/known-limitations.md)
 - [Samples](samples/README.md)
 - [Plan for 0.1](docs/plan-0.1.md): the scope, the public API, the test strategy, the measurements and the decision to write the PDF writer.
+- [Plan for tagged PDF](docs/plan-tagged-pdf.md): tagged (accessible) PDF and PDF/UA-1, on by default, in 0.1.6.
 - [Draft plan for 0.2](docs/plan-0.2.md): CJK and the performance work left over from 0.1; tagged PDF, first planned there, comes before 0.2. A draft, not a commitment.
 - [Baselines](docs/baselines.md): the measured alternatives and how to repeat them
 - [Changelog](CHANGELOG.md), [Releasing](RELEASING.md), [NOTICE](NOTICE) (licences of what is used or carried)
