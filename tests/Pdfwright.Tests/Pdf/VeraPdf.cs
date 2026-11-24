@@ -57,9 +57,18 @@ internal static class VeraPdf
         return null;
     }
 
-    /// <summary>The tool, or a skip (a failure with <c>PDFWRIGHT_REQUIRE_VERAPDF=1</c>) when there is none. Call it before building the files, so a skipped test costs nothing.</summary>
+    /// <summary>
+    /// The tool, or a skip (a failure with <c>PDFWRIGHT_REQUIRE_VERAPDF=1</c>) when there is none. Call it before building the files, so a skipped test costs nothing.
+    /// With <c>PDFWRIGHT_VERAPDF_RUNTIME</c> set to a major version of .NET (CI sets 10), the validation runs on that runtime only and the other target
+    /// frameworks skip it: the files it checks are the same on every runtime but for compression, and each run starts Java. Without it, every runtime validates.
+    /// </summary>
     internal static string Require()
     {
+        if (Environment.GetEnvironmentVariable("PDFWRIGHT_VERAPDF_RUNTIME") is { Length: > 0 } runtime && runtime != Environment.Version.Major.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        {
+            Assert.Skip($"veraPDF validates on .NET {runtime} only (PDFWRIGHT_VERAPDF_RUNTIME); this is .NET {Environment.Version.Major}");
+        }
+
         string? tool = ToolPath();
         if (tool is null)
         {
@@ -102,7 +111,14 @@ internal static class VeraPdf
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            // A directory that cannot be deleted (a file still held open after a failure) is left in the temporary folder rather than hiding what failed.
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -118,6 +134,9 @@ internal static class VeraPdf
         File.WriteAllBytes(written, pdf);
         return written;
     }
+
+    /// <summary>How long one veraPDF run may take: the largest batch takes about a minute; a run that hangs fails the test instead of the whole job.</summary>
+    private static readonly TimeSpan RunLimit = TimeSpan.FromMinutes(5);
 
     private static string Run(string tool, string directory)
     {
@@ -136,12 +155,22 @@ internal static class VeraPdf
         using Process process = Process.Start(start) ?? throw new InvalidOperationException("veraPDF did not start");
         Task<string> output = process.StandardOutput.ReadToEndAsync();
         Task<string> errors = process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
+        if (!process.WaitForExit(RunLimit))
+        {
+            // The Java machine is a child of cmd on Windows: the whole tree goes.
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            Assert.Fail($"veraPDF did not finish in {RunLimit.TotalMinutes} minutes and was stopped:\n{errors.Result}");
+        }
 
-        // The exit code is 1 when a file is not compliant, so it says nothing here: the report does, and a run that wrote none failed.
-        string json = output.Result;
-        Assert.True(json.TrimStart().StartsWith('{'), $"veraPDF wrote no report (exit code {process.ExitCode}):\n{json}\n{errors.Result}");
-        return json;
+        process.WaitForExit(); // the redirected streams are read to their end
+
+        // The exit code is 1 when a file is not compliant, so it says nothing here: the report does, and a run that wrote none failed. A launcher may
+        // print a line before the report (a JVM notice), so the report starts at the first line that opens an object.
+        string text = output.Result;
+        int report = text.StartsWith('{') ? 0 : text.IndexOf("\n{", StringComparison.Ordinal) + 1;
+        Assert.True(report >= 0 && report < text.Length && text[report] == '{', $"veraPDF wrote no report (exit code {process.ExitCode}):\n{text}\n{errors.Result}");
+        return text[report..];
     }
 
     /// <summary>Reads veraPDF's JSON report: <c>report.jobs[]</c>, each with the file's name and a validation result of rule summaries.</summary>
