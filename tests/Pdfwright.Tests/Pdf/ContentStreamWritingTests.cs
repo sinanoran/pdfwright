@@ -361,12 +361,16 @@ public class ContentStreamWritingTests
 
                 default:
                 {
-                    int mcid = random.Next(-5, 100000);
+                    // An MCID is not negative, and every sequence is ended: the builder refuses a negative MCID, an MCID inside another
+                    // and an EMC with nothing open, so the two sequences are begun and ended in pairs.
+                    int mcid = random.Next(0, 100000);
                     string text = new([.. Enumerable.Range(0, random.Next(0, 6)).Select(_ => (char)random.Next(0x20, 0x2000))]);
                     _ = actual.BeginMarkedContent("P", mcid);
                     _ = expected.BeginMarkedContent("P", mcid);
                     _ = actual.BeginActualText(text);
                     _ = expected.BeginActualText(text);
+                    _ = actual.EndMarkedContent();
+                    _ = expected.EndMarkedContent();
                     _ = actual.EndMarkedContent();
                     _ = expected.EndMarkedContent();
                     break;

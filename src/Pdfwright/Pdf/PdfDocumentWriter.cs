@@ -30,6 +30,12 @@ internal sealed class PdfWriterOptions
     /// built twice from the same input is the same file.
     /// </summary>
     internal DateTimeOffset? Created { get; init; }
+
+    /// <summary>
+    /// Writes a tagged PDF: a structure tree (<see cref="PdfStructureTree"/>), <c>/StructParents</c> and <c>/Tabs /S</c> on every page and
+    /// <c>/MarkInfo</c> on the catalog. Off by default, and a document written with it off is the same file it always was.
+    /// </summary>
+    internal bool Tagged { get; init; }
 }
 
 /// <summary>A rectangle in the page's own space (origin bottom left, y up), for an annotation.</summary>
@@ -57,9 +63,16 @@ internal sealed class PdfDocumentWriter : IDisposable
         _options = options;
         _file = new PdfFile(output, options.Compression);
         _pagesRoot = _file.Allocate();
+        if (options.Tagged)
+        {
+            Structure = new PdfStructureTree(this);
+        }
     }
 
     internal int PageCount => _pages.Count;
+
+    /// <summary>The structure tree of a tagged document (<see cref="PdfWriterOptions.Tagged"/>), or <see langword="null"/> for an untagged one.</summary>
+    internal PdfStructureTree? Structure { get; }
 
     /// <summary>Writes an object of the document that pages refer to (a font, an image) and returns its reference.</summary>
     internal PdfReference AddObject(PdfObject value) => _file.Add(value);
@@ -114,6 +127,13 @@ internal sealed class PdfDocumentWriter : IDisposable
 
         _open = new PdfPageWriter(this, _pages.Count, width, height, _spareContent ?? new ContentStreamBuilder());
         _spareContent = null;
+        if (Structure is not null)
+        {
+            // A tagged page's number is reserved now, not when it ends: the structure elements drawn on it name it (/Pg) while it is open.
+            _open.Reference = _file.Allocate();
+            _open.StructParents = Structure.TakeKey();
+        }
+
         return _open;
     }
 
@@ -145,9 +165,11 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not the open one.");
         }
 
+        CheckBalanced(page.Content, "body");
         PdfReference contents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
         RecycleContent(page);
-        PdfReference pageReference = _file.Allocate();
+        PdfReference pageReference = page.Reference ?? _file.Allocate();
+        WriteParentTreeEntry(page);
         _file.Write(pageReference, BuildPage(page, contents));
         _pages.Add(pageReference);
         _open = null;
@@ -164,9 +186,11 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not the open one.");
         }
 
+        CheckBalanced(page.Content, "body");
         page.BodyContents = _file.Add(new PdfStream(new PdfDictionary(), page.Content.ToMemory()));
         RecycleContent(page);
-        page.Reference = _file.Allocate();
+        page.Reference ??= _file.Allocate();
+        WriteParentTreeEntry(page);
         page.HeaderContents = header ? _file.Allocate() : null;
         page.FooterContents = footer ? _file.Allocate() : null;
         _pages.Add(page.Reference);
@@ -182,6 +206,8 @@ internal sealed class PdfDocumentWriter : IDisposable
             throw new InvalidOperationException("That page is not waiting for its header and footer.");
         }
 
+        CheckBalanced(page.HeaderContent, "header");
+        CheckBalanced(page.FooterContent, "footer");
         PdfArray contents = new();
         if (page.HeaderContents is { } headerReference)
         {
@@ -201,6 +227,15 @@ internal sealed class PdfDocumentWriter : IDisposable
         _unfinished--;
     }
 
+    /// <summary>A content stream is written whole: every marked-content sequence, artifact and span it began is ended in it (ISO 32000-1, 14.6).</summary>
+    private static void CheckBalanced(ContentStreamBuilder content, string part)
+    {
+        if (content.MarkedContentDepth != 0)
+        {
+            throw new InvalidOperationException($"The page's {part} has {content.MarkedContentDepth} marked-content sequence(s) without their EMC.");
+        }
+    }
+
     private PdfDictionary BuildPage(PdfPageWriter page, PdfObject contents)
     {
         PdfDictionary dictionary = new PdfDictionary()
@@ -209,6 +244,11 @@ internal sealed class PdfDocumentWriter : IDisposable
             .Set("MediaBox", PdfArray.Of(0, 0, page.Width, page.Height))
             .Set("Resources", page.BuildResources())
             .Set("Contents", contents);
+        if (page.StructParents is { } key)
+        {
+            // Tab order follows the structure (PDF/UA-1 asks for /Tabs /S on a page with annotations; every page has it, so none is forgotten).
+            dictionary.Set("StructParents", key).Set("Tabs", "S");
+        }
 
         PdfArray? annotations = null;
         foreach (PdfDictionary link in page.Links)
@@ -231,6 +271,20 @@ internal sealed class PdfDocumentWriter : IDisposable
         }
 
         return dictionary;
+    }
+
+    /// <summary>
+    /// Writes a tagged page's entry of the parent tree when its body ends: the array of the elements its <c>MCID</c>s belong to, in order. A header
+    /// or a footer drawn after it is an artifact, so nothing is added to the array afterwards (<see cref="PdfPageWriter.BeginMarkedContent(PdfStructureElement)"/> refuses).
+    /// </summary>
+    private void WriteParentTreeEntry(PdfPageWriter page)
+    {
+        if (Structure is null || page.StructParents is not { } key)
+        {
+            return;
+        }
+
+        Structure.AddEntry(key, _file.Add(new PdfArray([.. page.TakeMarkedContentOwners()])));
     }
 
     /// <summary>Writes the page tree, the annotations that point at pages, the metadata and the catalog, and ends the file.</summary>
@@ -271,6 +325,8 @@ internal sealed class PdfDocumentWriter : IDisposable
             action(this);
         }
 
+        Structure?.Complete();
+
         foreach (PendingDestination destination in _destinations)
         {
             PdfDictionary annotation = LinkAnnotation(destination.Area)
@@ -290,6 +346,11 @@ internal sealed class PdfDocumentWriter : IDisposable
 
         PdfReference? info = WriteInfo();
         PdfDictionary catalog = new PdfDictionary().Set("Type", "Catalog").Set("Pages", _pagesRoot);
+        if (Structure is not null)
+        {
+            catalog.Set("MarkInfo", new PdfDictionary().Set("Marked", true)).Set("StructTreeRoot", Structure.Root);
+        }
+
         if (Meta(_options.Language) is { } language)
         {
             catalog.Set("Lang", PdfString.Text(language));
@@ -478,8 +539,67 @@ internal sealed class PdfPageWriter
 
     internal ContentStreamBuilder FooterContent { get; } = new();
 
-    /// <summary>The page's own reference, reserved when its body was written.</summary>
+    /// <summary>The page's own reference, reserved when its body was written, or when the page began in a tagged document.</summary>
     internal PdfReference? Reference { get; set; }
+
+    /// <summary>The page's key in the parent tree (<c>/StructParents</c>) in a tagged document, or <see langword="null"/>.</summary>
+    internal int? StructParents { get; set; }
+
+    /// <summary>The structure element of each <c>MCID</c> of the page, by number, made with the first one (an untagged page never makes it).</summary>
+    private List<PdfReference>? _markedContentOwners;
+
+    /// <summary>The page's entry of the parent tree is written: it takes no more marked content.</summary>
+    private bool _parentTreeEntryWritten;
+
+    /// <summary>
+    /// Begins the page's next marked content for <paramref name="element"/>: the page's next <c>MCID</c>, recorded for the parent tree, the element
+    /// materialised if it is not yet (and its parents), and <c>/Type &lt;&lt;/MCID n&gt;&gt; BDC</c> written. Returns the <c>MCID</c>. End it with
+    /// <see cref="EndMarkedContent"/>. Only the body has marked content: a header and a footer, drawn after it, are artifacts.
+    /// </summary>
+    internal int BeginMarkedContent(PdfStructureElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        PdfStructureTree structure = _document.Structure ?? throw new InvalidOperationException("The document is not tagged.");
+        if (!ReferenceEquals(element.Tree, structure))
+        {
+            throw new ArgumentException("The element belongs to another document.", nameof(element));
+        }
+
+        if (_parentTreeEntryWritten || Reference is null)
+        {
+            throw new InvalidOperationException("The page's body is written: a header or a footer is an artifact, with no marked content of the structure.");
+        }
+
+        // Nesting is checked before the tree records anything, so a refused call leaves the tree and the page as they were.
+        Content.CheckMarkedContentAllowed();
+        _markedContentOwners ??= [];
+        int mcid = _markedContentOwners.Count;
+        structure.AddMarkedContent(element, Reference, mcid);
+        _markedContentOwners.Add(element.Reference!);
+        Content.BeginMarkedContent(element.Type, mcid);
+        return mcid;
+    }
+
+    /// <summary>Begins the page's next marked content for the structure tree's current element (<see cref="PdfStructureTree.Current"/>).</summary>
+    internal int BeginMarkedContent() =>
+        BeginMarkedContent((_document.Structure ?? throw new InvalidOperationException("The document is not tagged.")).Current);
+
+    /// <summary>Ends marked content, an artifact or a language span: <c>EMC</c>.</summary>
+    internal void EndMarkedContent() => Content.EndMarkedContent();
+
+    /// <summary>The elements of the page's <c>MCID</c>s, for its entry of the parent tree; after this the page takes no more marked content.</summary>
+    internal List<PdfReference> TakeMarkedContentOwners()
+    {
+        if (_parentTreeEntryWritten)
+        {
+            throw new InvalidOperationException("The page's entry of the parent tree is written.");
+        }
+
+        List<PdfReference> owners = _markedContentOwners ?? [];
+        _markedContentOwners = null;
+        _parentTreeEntryWritten = true;
+        return owners;
+    }
 
     /// <summary>The page's header and footer have been written and so has its dictionary.</summary>
     internal bool Finished { get; set; }

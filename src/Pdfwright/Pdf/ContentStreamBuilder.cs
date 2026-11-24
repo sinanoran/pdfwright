@@ -41,6 +41,9 @@ internal sealed class ContentStreamBuilder
     {
         _bytes.ResetWrittenCount();
         CurrentFont = null;
+        MarkedContentDepth = 0;
+        _mcidDepth = 0;
+        _artifactDepth = 0;
         _lineKnown = false;
         _lineX = 0;
         _lineY = 0;
@@ -273,20 +276,131 @@ internal sealed class ContentStreamBuilder
         return Ascii("] TJ\n"u8);
     }
 
-    // ---- marked content (the structure of a tagged PDF, added in 0.2, is built from these)
+    // ---- marked content (the structure of a tagged PDF is built from these, see PdfStructureTree)
 
-    /// <summary>Begins a marked-content sequence with a property list that carries an <c>MCID</c>: <c>/Tag &lt;&lt;/MCID n&gt;&gt; BDC</c>.</summary>
+    /// <summary>How many marked-content sequences are open: a <c>BDC</c> or <c>BMC</c> without its <c>EMC</c> yet.</summary>
+    internal int MarkedContentDepth { get; private set; }
+
+    /// <summary>The depth at which the open sequence with an <c>MCID</c> began, or 0 when none is open.</summary>
+    private int _mcidDepth;
+
+    /// <summary>The depth at which the outermost open artifact began, or 0 when none is open.</summary>
+    private int _artifactDepth;
+
+    /// <summary>
+    /// Throws when a sequence with an <c>MCID</c> cannot begin here: inside another one (its content would belong to two elements, which PDF/UA-1
+    /// refuses) or inside an artifact (it would be the document's text and not at once). The page checks it before it records anything.
+    /// </summary>
+    internal void CheckMarkedContentAllowed()
+    {
+        if (_mcidDepth > 0)
+        {
+            throw new InvalidOperationException("Marked content with an MCID cannot begin inside another: end the element's content first.");
+        }
+
+        if (_artifactDepth > 0)
+        {
+            throw new InvalidOperationException("Marked content with an MCID cannot begin inside an artifact.");
+        }
+    }
+
+    /// <summary>
+    /// Begins a marked-content sequence with a property list that carries an <c>MCID</c>: <c>/Tag &lt;&lt;/MCID n&gt;&gt; BDC</c>. The tag is the
+    /// structure type of the element the content belongs to (<c>P</c>, <c>H1</c>, <c>TD</c>), and the number is the content's place in the page's
+    /// entry of the parent tree. It cannot begin inside another such sequence or inside an artifact. End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
     internal ContentStreamBuilder BeginMarkedContent(string tag, int mcid)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(mcid);
+        CheckMarkedContentAllowed();
         Name(tag);
         Ascii(" <</MCID "u8);
         Span<byte> span = _bytes.GetSpan(16);
         _ = mcid.TryFormat(span, out int written, default, CultureInfo.InvariantCulture);
         _bytes.Advance(written);
+        MarkedContentDepth++;
+        _mcidDepth = MarkedContentDepth;
         return Ascii(">> BDC\n"u8);
     }
 
-    internal ContentStreamBuilder EndMarkedContent() => Op("EMC\n"u8);
+    /// <summary>Ends the innermost open sequence (marked content, artifact or span): <c>EMC</c>. With none open it throws, rather than write an unbalanced stream.</summary>
+    internal ContentStreamBuilder EndMarkedContent()
+    {
+        if (MarkedContentDepth == 0)
+        {
+            throw new InvalidOperationException("No marked content is open: an EMC would have no BDC or BMC.");
+        }
+
+        if (_mcidDepth == MarkedContentDepth)
+        {
+            _mcidDepth = 0;
+        }
+
+        if (_artifactDepth == MarkedContentDepth)
+        {
+            _artifactDepth = 0;
+        }
+
+        MarkedContentDepth--;
+        return Op("EMC\n"u8);
+    }
+
+    /// <summary>
+    /// Begins a span in another language than the element around it, <c>/Span &lt;&lt;/Lang (de)&gt;&gt; BDC</c>. Its intended place is inside the
+    /// element's own marked content (a sequence with an <c>MCID</c>), so that a screen reader changes its voice for the span and back after it; it
+    /// has no <c>MCID</c> of its own, so it may also stand elsewhere. The language is a BCP 47 tag, written as a text string (ISO 32000-1, 14.9.2).
+    /// End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginLanguageSpan(string language)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(language);
+        Ascii("/Span <</Lang "u8);
+        TextString(language);
+        MarkedContentDepth++;
+        return Ascii(">> BDC\n"u8);
+    }
+
+    /// <summary>
+    /// Begins an artifact, content that is not part of the document's text (a table's fills and borders, a decorative image): <c>/Artifact BMC</c>.
+    /// A screen reader skips it; it has no <c>MCID</c> and no structure element. It cannot begin inside a sequence with an <c>MCID</c> (an artifact
+    /// inside tagged content fails PDF/UA-1); an artifact inside an artifact is allowed. End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginArtifact()
+    {
+        OpenArtifact();
+        return Op("/Artifact BMC\n"u8);
+    }
+
+    /// <summary>
+    /// Begins a pagination artifact, the page's running header or footer: <c>/Artifact &lt;&lt;/Type /Pagination /Subtype /Header&gt;&gt; BDC</c>
+    /// (or <c>/Footer</c>), which a reader can tell apart from the body and leave out of what it reads aloud. It nests as
+    /// <see cref="BeginArtifact"/> does. End it with <see cref="EndMarkedContent"/>.
+    /// </summary>
+    internal ContentStreamBuilder BeginPaginationArtifact(PdfPaginationArtifact subtype)
+    {
+        ReadOnlySpan<byte> op = subtype switch
+        {
+            PdfPaginationArtifact.Header => "/Artifact <</Type /Pagination /Subtype /Header>> BDC\n"u8,
+            PdfPaginationArtifact.Footer => "/Artifact <</Type /Pagination /Subtype /Footer>> BDC\n"u8,
+            _ => throw new ArgumentOutOfRangeException(nameof(subtype), subtype, "A pagination artifact is a header or a footer."),
+        };
+        OpenArtifact();
+        return Op(op);
+    }
+
+    private void OpenArtifact()
+    {
+        if (_mcidDepth > 0)
+        {
+            throw new InvalidOperationException("An artifact cannot begin inside marked content with an MCID: end the element's content first.");
+        }
+
+        MarkedContentDepth++;
+        if (_artifactDepth == 0)
+        {
+            _artifactDepth = MarkedContentDepth;
+        }
+    }
 
     /// <summary>
     /// Begins a span whose <c>ActualText</c> is what a reader gives back when the marked glyphs are copied or searched, in
@@ -298,7 +412,42 @@ internal sealed class ContentStreamBuilder
         byte[] utf16 = Encoding.BigEndianUnicode.GetBytes(text);
         Ascii("/Span <</ActualText <FEFF"u8);
         Hex(utf16);
+        MarkedContentDepth++;
         return Ascii(">>> BDC\n"u8);
+    }
+
+    /// <summary>
+    /// A text string as <see cref="PdfString.Text"/> makes it and the serializer writes it, straight into the buffer: printable ASCII as a literal
+    /// with its parentheses and backslashes escaped, anything else as UTF-16BE with a byte-order mark, in hexadecimal.
+    /// </summary>
+    private void TextString(string text)
+    {
+        foreach (char c in text)
+        {
+            if (c is < ' ' or > '~')
+            {
+                Ascii("<FEFF"u8);
+                Hex(Encoding.BigEndianUnicode.GetBytes(text));
+                Ascii(">"u8);
+                return;
+            }
+        }
+
+        Span<byte> span = _bytes.GetSpan((text.Length * 2) + 2);
+        int length = 0;
+        span[length++] = (byte)'(';
+        foreach (char c in text)
+        {
+            if (c is '(' or ')' or '\\')
+            {
+                span[length++] = (byte)'\\';
+            }
+
+            span[length++] = (byte)c;
+        }
+
+        span[length++] = (byte)')';
+        _bytes.Advance(length);
     }
 
     // ---- the places that write
@@ -433,4 +582,14 @@ internal sealed class ContentStreamBuilder
 
     private static ArgumentException NotPlain(string name) =>
         new($"'{name}' is not a plain name: use letters, digits, underscore, dot and hyphen.", nameof(name));
+}
+
+/// <summary>Which running part of the page a pagination artifact is (ISO 32000-1, 14.8.2.2).</summary>
+internal enum PdfPaginationArtifact
+{
+    /// <summary>The running header, above the body.</summary>
+    Header,
+
+    /// <summary>The running footer, below the body.</summary>
+    Footer,
 }
