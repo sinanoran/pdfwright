@@ -42,16 +42,19 @@ internal sealed class PdfFile : IDisposable
 
     /// <summary>
     /// The most objects in one object stream. More compress a little better and hold more in memory until the stream is written. Measured on the
-    /// tagged 1,000-row table: 195 KB at 100, 190 KB at 200, 186 KB at 400, 184 KB at 1,000; at 400 the open stream holds about 35 KB of structure
-    /// elements, under the large object heap's threshold.
+    /// tagged 1,000-row table: 195 KB at 100, 190 KB at 200, 186 KB at 400, 184 KB at 1,000; at 400 the open stream of that table holds about
+    /// 35 KB of structure elements.
     /// </summary>
     internal const int PackedObjectLimit = 400;
 
     /// <summary>
     /// The bytes of objects after which an object stream is written even when it holds fewer than <see cref="PackedObjectLimit"/> (long <c>/Alt</c>
-    /// texts, say), so that its buffers stay under the large object heap's threshold.
+    /// texts, say), so that what the open stream holds is bounded. It is checked after each object and an object is never split, so a stream holds at
+    /// most this plus its last object. The buffer of <see cref="_packed"/> therefore can grow past the large object heap's threshold (85,000 bytes):
+    /// a batch near the limit followed by an object of some 40 KB, or one larger object on its own (the <c>/K</c> of the <c>TBody</c> of a table of
+    /// 10,000 rows is about 116 KB). That costs a larger buffer, kept for the rest of the save, and nothing else.
     /// </summary>
-    private const int PackedByteLimit = 48 * 1024;
+    internal const int PackedByteLimit = 48 * 1024;
 
     /// <summary>The level object streams are compressed at.</summary>
     private const CompressionLevel PackedCompression = CompressionLevel.SmallestSize;
@@ -75,7 +78,10 @@ internal sealed class PdfFile : IDisposable
     private readonly int[] _packedOffsets;
     private int _packedCount;
 
-    /// <summary>The bytes of the objects of the open object stream, one after another; kept from one stream to the next.</summary>
+    /// <summary>
+    /// The bytes of the objects of the open object stream, one after another; kept from one stream to the next. Usually under 64 KB, it grows to hold
+    /// whatever object comes, past the large object heap's threshold for a large one (see <see cref="PackedByteLimit"/>).
+    /// </summary>
     private readonly MemoryStream _packed = new();
 
     /// <summary>The pairs of numbers that begin an object stream (each object's number and offset); kept from one stream to the next.</summary>

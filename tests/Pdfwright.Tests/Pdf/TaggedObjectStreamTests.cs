@@ -120,6 +120,148 @@ public partial class TaggedObjectStreamTests
         Assert.Throws<InvalidOperationException>(() => file.Write(packed, new Pdfwright.Pdf.PdfDictionary()));
     }
 
+    /// <summary>
+    /// Figures with an <c>/Alt</c> of about 2 KB fill an object stream by its bytes long before its 400 objects: each stream but the last is written
+    /// once its objects pass the byte limit, so it holds fewer than 400 objects and at most the limit plus one object (and a separator).
+    /// </summary>
+    [Fact]
+    public void Object_streams_of_large_objects_are_written_when_their_bytes_pass_the_limit()
+    {
+        PdfImage png = PdfImage.FromBytes(Pdfwright.Tests.Images.ImageTestKit.Png(4, 4, 8, 2));
+        PdfDocument document = new(TaggedFlowTests.Tagged(o => o.Compress = true));
+        for (int i = 0; i < 120; i++)
+        {
+            document.Add(new Image(png) { Width = Length.Mm(5), AltText = $"Figure {i}: " + new string('x', 2000) });
+        }
+
+        byte[] pdf = DocumentTestKit.Save(document);
+
+        List<(int Count, int First, byte[] Data)> streams = ObjectStreamParts(pdf);
+        Assert.True(streams.Count >= 4, $"{streams.Count} object streams");
+        int largest = 0;
+        foreach ((int count, int first, byte[] data) in streams)
+        {
+            Assert.InRange(count, 1, Pdfwright.Pdf.PdfFile.PackedObjectLimit - 1);
+            largest = Math.Max(largest, data.Length - first);
+        }
+
+        // About 2 KB an element: an object is at most a few kilobytes, and a stream's objects end within one object past the limit.
+        foreach ((int count, int first, byte[] data) in streams.SkipLast(1))
+        {
+            int objects = data.Length - first;
+            Assert.InRange(objects, Pdfwright.Pdf.PdfFile.PackedByteLimit, Pdfwright.Pdf.PdfFile.PackedByteLimit + 4096);
+        }
+
+        Assert.InRange(largest, 1, Pdfwright.Pdf.PdfFile.PackedByteLimit + 4096);
+        Assert.Equal(streams.Select(s => s.Count).ToList(), AssertCrossReference(pdf));
+        TaggedFlowTests.Read(pdf);
+    }
+
+    /// <summary>
+    /// A batch that is exactly full when the file is finished was written when it filled: the finish writes no second copy of it and no empty
+    /// object stream, and every object is in exactly one stream.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void A_batch_exactly_full_at_the_finish_is_written_once_and_no_empty_stream_follows(int batches)
+    {
+        int objects = batches * Pdfwright.Pdf.PdfFile.PackedObjectLimit;
+        using MemoryStream output = new();
+        using (Pdfwright.Pdf.PdfFile file = new(output, Pdfwright.Pdf.PdfCompression.Flate, objectStreams: true))
+        {
+            for (int i = 0; i < objects; i++)
+            {
+                file.WritePacked(file.AllocateNumber(), Encoding.ASCII.GetBytes($"<<\n/Index {i}\n>>"));
+            }
+
+            Pdfwright.Pdf.PdfReference root = file.Add(new Pdfwright.Pdf.PdfDictionary().Set("Type", "Catalog"));
+            file.Finish(root, null);
+        }
+
+        byte[] pdf = output.ToArray();
+        List<int> counts = AssertCrossReference(pdf);
+        Assert.Equal(Enumerable.Repeat(Pdfwright.Pdf.PdfFile.PackedObjectLimit, batches), counts);
+        Assert.Equal(batches, Regex.Count(Encoding.Latin1.GetString(pdf), "/Type /ObjStm"));
+        Assert.All(ObjectStreamParts(pdf), s => Assert.Equal(Pdfwright.Pdf.PdfFile.PackedObjectLimit, s.Count));
+    }
+
+    /// <summary>
+    /// The byte limit holds for a compressed tagged file, whose last object stream is written only when the file is finished: one byte under its
+    /// size and the save throws and writes nothing; its size and the file is saved, the same bytes as without a limit.
+    /// </summary>
+    [Fact]
+    public void The_byte_limit_holds_for_a_compressed_tagged_file_to_the_byte()
+    {
+        static PdfDocument Build(long? maxBytes) => TableDocument(o =>
+        {
+            o.Compress = true;
+            if (maxBytes is { } limit)
+            {
+                o.Limits = new DocumentLimits { MaxBytes = limit };
+            }
+        });
+
+        byte[] unlimited = DocumentTestKit.Save(Build(null));
+        Assert.True(ObjectStreamParts(unlimited).Count >= 2, "the file has several object streams");
+
+        using MemoryStream refused = new();
+        PdfLimitExceededException error = Assert.Throws<PdfLimitExceededException>(() => Build(unlimited.Length - 1).Save(refused));
+        Assert.Equal(DocumentLimit.MaxBytes, error.Limit);
+        Assert.Equal(0, refused.Length);
+
+        Assert.Equal(unlimited, DocumentTestKit.Save(Build(unlimited.Length)));
+    }
+
+    /// <summary>A compressed tagged document with a creation date (and not otherwise deterministic) is the same file each time it is saved, and when built again.</summary>
+    [Fact]
+    public void A_compressed_tagged_document_with_a_creation_date_is_the_same_file_each_time()
+    {
+        static PdfDocument Build() => TableDocument(o =>
+        {
+            o.Compress = true;
+            o.Deterministic = false;
+            o.Creation = PdfTestKit.Created;
+        });
+
+        PdfDocument document = Build();
+        byte[] first = DocumentTestKit.Save(document);
+        byte[] second = DocumentTestKit.Save(document);
+        byte[] rebuilt = DocumentTestKit.Save(Build());
+
+        Assert.True(ObjectStreamParts(first).Count >= 2, "the file has several object streams");
+        Assert.Equal(first, second);
+        Assert.Equal(first, rebuilt);
+    }
+
+    /// <summary>A tagged table of 300 rows (more than 1,200 elements, so several object streams), with the given options.</summary>
+    private static PdfDocument TableDocument(Action<DocumentTestKit.OptionsBuilder> change)
+    {
+        PdfDocument document = new(TaggedFlowTests.Tagged(change));
+        document.Add(new Table(
+            [new TableColumn(), new TableColumn(), new TableColumn()],
+            new TableRow("Name", "Amount", "Status"),
+            Enumerable.Range(0, 300).Select(i => new TableRow($"Row {i}", $"{i * 37 % 1000}.50", i % 3 == 0 ? "Open" : "Paid"))));
+        return document;
+    }
+
+    /// <summary>Each object stream of a file, in the order of the file: its <c>/N</c>, its <c>/First</c> and its data inflated.</summary>
+    private static List<(int Count, int First, byte[] Data)> ObjectStreamParts(byte[] pdf)
+    {
+        string text = Encoding.Latin1.GetString(pdf);
+        List<(int, int, byte[])> parts = [];
+        foreach (Match match in ObjectStreamPattern().Matches(text))
+        {
+            int length = int.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture);
+            parts.Add((
+                int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture),
+                int.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture),
+                StructureTreeReader.Inflate(pdf.AsSpan(match.Index + match.Length, length))));
+        }
+
+        return parts;
+    }
+
     /// <summary>A copy of a document written compressed (its options are its own, so they are changed through their init-only setter).</summary>
     internal static PdfDocument Compressed(PdfDocument document)
     {

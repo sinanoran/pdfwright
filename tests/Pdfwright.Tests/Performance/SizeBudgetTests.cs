@@ -41,15 +41,17 @@ public sealed class SizeBudgetTests : IDisposable
     public void Dispose() => _fonts.Dispose();
 
     /// <summary>
-    /// The plan's target of 150 KB is <b>not met</b> by the tagged table (186,276 to 187,636 bytes; 793,991 before object streams), so it has a guard only. What is
-    /// left over the untagged 75,661 bytes is the structure of 7,012 elements: about 21 KB of marked content in the content streams and about 87 KB of object
-    /// streams (each element's number and offset in its stream, its kids and its parent's number, and its entry in the parent tree), numbers that
-    /// Flate cannot predict.
+    /// The tagged table is 186,276 to 187,636 bytes (793,991 before object streams), over the plan's 150 KB: <b>the maintainer accepted about 186 KB
+    /// for tagged output on 24 November 2026</b>, and the plan's 150 KB target applies to untagged output (the next test). So the tagged table has a
+    /// guard only. What is left over the untagged 75,661 bytes is the structure of 7,012 elements: about 21 KB of marked content in the content
+    /// streams and about 87 KB of object streams (each element's number and offset in its stream, its kids and its parent's number, and its entry in
+    /// the parent tree), numbers that Flate cannot predict.
     /// </summary>
     [Fact]
     public void Table_with_1000_rows_tagged_stays_within_its_guard() =>
         AssertWithin(ScenarioDocuments.Table(_fonts, tagged: true), expectedPages: 21, null, TaggedTableGuard);
 
+    /// <summary>The plan's 150 KB for the table, which applies to untagged output.</summary>
     [Fact]
     public void Table_with_1000_rows_untagged_is_under_150_KB() => AssertWithin(ScenarioDocuments.Table(_fonts), expectedPages: 21, TableTarget, null);
 
