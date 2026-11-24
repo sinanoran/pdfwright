@@ -154,7 +154,24 @@ public sealed class PdfDocumentOptions
     /// <c>Div</c>), every piece of text in the marked content of its element, and the header, the footer and decoration as artifacts. Internal and off
     /// while tagged output is built slice by slice (lists, figures and tables are artifacts for now); with it off the file is the one it always was.
     /// </summary>
-    internal bool Tagged { get; init; }
+    internal bool Tagged
+    {
+        get => _tagged;
+        init => _tagged = value;
+    }
+
+    private bool _tagged;
+
+    /// <summary>
+    /// A copy of these options with <see cref="Tagged"/> set to <paramref name="tagged"/>, everything else the same: the tests validate documents whose
+    /// options are made elsewhere (the sample report, the benchmark scenarios) as tagged PDF while the option is internal.
+    /// </summary>
+    internal PdfDocumentOptions WithTagged(bool tagged)
+    {
+        PdfDocumentOptions copy = (PdfDocumentOptions)MemberwiseClone();
+        copy._tagged = tagged;
+        return copy;
+    }
 
     /// <summary>Limits that stop a runaway document with a <see cref="PdfLimitExceededException"/>. None by default.</summary>
     /// <exception cref="ArgumentNullException">The value is <see langword="null"/>.</exception>
@@ -264,6 +281,54 @@ public sealed record MissingGlyph
     public override string ToString() => $"U+{CodePoint:X4} (language {Language ?? "none"}, page {Page})";
 }
 
+/// <summary>What keeps a tagged document from being PDF/UA-1. Internal until the diagnostics API is public (slice T1f of the tagged PDF plan).</summary>
+internal enum AccessibilityIssueKind
+{
+    /// <summary>The document has no title (<see cref="PdfDocumentOptions.Title"/>): PDF/UA-1 7.1 asks for <c>dc:title</c> in the metadata.</summary>
+    MissingTitle,
+
+    /// <summary>The document has no language (<see cref="PdfDocumentOptions.Language"/>): PDF/UA-1 7.2 asks for the natural language of the text.</summary>
+    MissingLanguage,
+
+    /// <summary>
+    /// A language written as <c>/Lang</c> (the document's, a paragraph's or a run's) is not a language tag of letters and digits in hyphenated subtags,
+    /// such as <c>en_US</c>: PDF/UA-1 7.2 asks for one. The issue names the page the text is first on, none for the document's language.
+    /// </summary>
+    InvalidLanguage,
+
+    /// <summary>A character no font has a glyph for was drawn as the font's <c>.notdef</c>, which PDF/UA-1 7.21.8 forbids. The issue names the page.</summary>
+    MissingGlyph,
+
+    /// <summary>The first heading of the document is not a level 1 heading (Matterhorn 14-002). The issue names the page.</summary>
+    FirstHeadingNotH1,
+
+    /// <summary>A heading is more than one level below the heading before it, such as a level 3 after a level 1 (Matterhorn 14-003). The issue names the page.</summary>
+    SkippedHeadingLevel,
+}
+
+/// <summary>One accessibility issue a save found in a tagged document: its kind, the page it is on when it is on one, and what it is in words.</summary>
+internal sealed record AccessibilityIssue
+{
+    internal AccessibilityIssue(AccessibilityIssueKind kind, int? page, string message)
+    {
+        Kind = kind;
+        Page = page;
+        Message = message;
+    }
+
+    /// <summary>What the issue is.</summary>
+    internal AccessibilityIssueKind Kind { get; }
+
+    /// <summary>The page, from 1, or <see langword="null"/> for an issue of the whole document (no title, no language).</summary>
+    internal int? Page { get; }
+
+    /// <summary>The issue in words.</summary>
+    internal string Message { get; }
+
+    /// <inheritdoc />
+    public override string ToString() => Page is { } page ? $"{Kind} on page {page}: {Message}" : $"{Kind}: {Message}";
+}
+
 /// <summary>A table that had more rows than its <see cref="Table.MaxRows"/>: the first rows were drawn and the rest were left out.</summary>
 public sealed record TruncatedTable
 {
@@ -286,7 +351,14 @@ public sealed record TruncatedTable
 /// <summary>What the last save of a document found: data to inspect, not exceptions. A report is made by a save; it is read, never made.</summary>
 public sealed class DocumentDiagnostics
 {
-    internal DocumentDiagnostics(IReadOnlyList<MissingGlyph> missingGlyphs, IReadOnlyList<string> missingFamilies, int pageCount, long byteCount, IReadOnlyList<TruncatedTable>? truncatedTables = null)
+    internal DocumentDiagnostics(
+        IReadOnlyList<MissingGlyph> missingGlyphs,
+        IReadOnlyList<string> missingFamilies,
+        int pageCount,
+        long byteCount,
+        IReadOnlyList<TruncatedTable>? truncatedTables = null,
+        IReadOnlyList<AccessibilityIssue>? accessibilityIssues = null,
+        bool isPdfUA = false)
     {
         ArgumentNullException.ThrowIfNull(missingGlyphs);
         ArgumentNullException.ThrowIfNull(missingFamilies);
@@ -295,6 +367,8 @@ public sealed class DocumentDiagnostics
         PageCount = pageCount;
         ByteCount = byteCount;
         TruncatedTables = truncatedTables ?? [];
+        AccessibilityIssues = accessibilityIssues ?? [];
+        IsPdfUA = isPdfUA;
     }
 
     /// <summary>An empty report: nothing has been saved.</summary>
@@ -319,4 +393,13 @@ public sealed class DocumentDiagnostics
 
     /// <summary>The number of bytes of the file.</summary>
     public long ByteCount { get; }
+
+    /// <summary>
+    /// What keeps a tagged document from being PDF/UA-1, in the order found: no title, no language, a missing glyph, a heading out of order. Empty for
+    /// an untagged document, which is not checked. Internal until slice T1f of the tagged PDF plan makes it public.
+    /// </summary>
+    internal IReadOnlyList<AccessibilityIssue> AccessibilityIssues { get; }
+
+    /// <summary>Whether the file claims PDF/UA-1 (<c>pdfuaid:part</c> 1 in its metadata): it is tagged and no accessibility issue was found.</summary>
+    internal bool IsPdfUA { get; }
 }

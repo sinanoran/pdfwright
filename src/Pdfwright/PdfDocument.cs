@@ -25,6 +25,17 @@ public sealed class PdfDocument
         _options = options;
     }
 
+    /// <summary>
+    /// A copy of this document, with the same blocks, written tagged or not (<see cref="PdfDocumentOptions.WithTagged"/>): the tests validate the sample
+    /// report and the benchmark scenarios, made elsewhere, as tagged PDF while the option is internal.
+    /// </summary>
+    internal PdfDocument WithTagged(bool tagged)
+    {
+        PdfDocument copy = new(_options.WithTagged(tagged));
+        copy._blocks.AddRange(_blocks);
+        return copy;
+    }
+
     /// <summary>The number of blocks added so far.</summary>
     public int BlockCount => _blocks.Count;
 
