@@ -33,8 +33,9 @@ and veraPDF validates PDF/UA-1 in CI. The slices, one pull request each, with th
 
 **What remains, unchanged.** 0.2 is still CJK (slices C1 to C5 of [`plan-0.2.md`](plan-0.2.md)) and the performance work left over from 0.1
 (the Arabic and Hindi tables, a measured first save of the 20-page report, a CI job for speed regressions); nothing of it is started. Of tagged
-PDF, what was settled as not in 0.1.6 (section 1) stays out and is not scheduled: row headers (`TH` with `/Scope /Row`), roles set by the caller,
-an `OutputIntent` (which PDF/A needs and PDF/UA-1 does not), and a `/Lang` of its own for canvas text; links have nothing to tag while the API has
+PDF, what was settled as not in 0.1.6 stays out and is not scheduled: row headers (`TH` with `/Scope /Row`), roles set by the caller and
+an `OutputIntent` (which PDF/A needs and PDF/UA-1 does not), settled in section 1, and a `/Lang` of its own for canvas text, settled in section 2 (the
+canvas text is part of its figure); links have nothing to tag while the API has
 none. [`known-limitations.md`](known-limitations.md) lists them.
 
 ## 1. Decisions (the maintainer, 23 November 2026)

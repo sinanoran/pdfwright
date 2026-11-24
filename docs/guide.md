@@ -679,11 +679,11 @@ columns in their order, whatever its direction.
 | `Callout` | `Div`, holding the elements of its blocks |
 | `Columns` | `Div` for the row and a `Div` for each cell |
 | `ItemList` | `L`, with an `LI` for each item, its marker as `Lbl` and its paragraphs and nested list in `LBody` |
-| `Table` | `Table`, with `THead` (the header rows), `TBody`, `TR` for each row, `TH` with `/Scope /Column` for a header cell and `TD` for a body cell (one `P` for each paragraph when a cell has several; an empty cell is an empty `TD`) |
+| `Table` | `Table`, with `THead` (the header rows), `TBody`, `TR` for each row, `TH` with `/Scope /Column` for a header cell and `TD` for a body cell (one `P` for each paragraph when a cell has several; an empty cell is an empty `TD`); a table with header rows and no body row has its header rows straight under the `Table`, with no `THead` |
 | `Image`, `Drawing` with `AltText` | `Figure`, with the `AltText` as its `/Alt` and its bounding box; the text drawn on a drawing's canvas is part of the figure |
 
 Everything that is not content is an **artifact**, which a screen reader skips: the header and the footer (whatever block they are, a picture with `AltText` too), the fills and borders of a table (`HeaderFill`, `ZebraFill`,
-a row's or a cell's `Fill`), the box of a callout, the header rows of a table drawn again at the top of later pages (the header on the table's first page is the `THead`), and every `Image` or `Drawing` without `AltText`.
+a row's or a cell's `Fill`), the box of a callout, the header rows of a table drawn again at the top of later pages (the header on the table's first page is the `THead`), blank paragraphs and headings, the marker of a list item with nothing to read, and every `Image` or `Drawing` without `AltText`.
 
 **Alternative text.** `Image.AltText` and `Drawing.AltText` are the alternative text of a figure. A picture or a drawing without it, or with one that is empty or blank, is **decorative**: right for a rule, a background or a logo
 that repeats the text beside it, wrong for a chart. For a chart, write what a reader should take from it ("Sales rose every month from June to October, from 4 to 9 thousand units"), not only its title: the
@@ -721,9 +721,9 @@ if (!document.Diagnostics.IsPdfUA)
 | `AccessibilityIssueKind` | What it means | How to fix it |
 |---|---|---|
 | `MissingTitle` | The document has no `Title` (or one that is blank). No page. | Set `PdfDocumentOptions.Title`. |
-| `MissingLanguage` | The document has no `Language`. No page. | Set `PdfDocumentOptions.Language` (a language on `DefaultStyle` is not enough). |
+| `MissingLanguage` | The document has no `Language` (or one that is blank). No page. | Set `PdfDocumentOptions.Language` (a language on `DefaultStyle` is not enough). |
 | `InvalidLanguage` | A language written as `/Lang` (the document's, a paragraph's or a run's) is not a language tag, such as `en_US`. No page for the document's language, else the page the text is first on. | Write a BCP 47 tag: `en-US`, `tr`, `ar`. |
-| `MissingGlyph` | A character that no font has was drawn as the font's `.notdef`, which PDF/UA-1 forbids. One issue for each page that has any. The characters are also in `MissingGlyphs`. | Add a font that has the character to the collection, or leave the character out. |
+| `MissingGlyph` | A character that no font has was drawn as the font's `.notdef`, which PDF/UA-1 forbids. One issue for each page that has any. Characters that no font has are also listed in `MissingGlyphs` (up to its 1,000 entries); a `.notdef` that the shaper itself leaves, such as for a Hangul filler, is not. | Add a font that has the character to the collection, or leave the character out. |
 | `FirstHeadingNotH1` | The first heading of the document is not a level 1 heading. | Start with `new Heading(1, ...)`. |
 | `SkippedHeadingLevel` | A heading is more than one level below the heading before it, such as a level 3 after a level 1. | Go down one level at a time; the levels are not changed for you. |
 
@@ -738,7 +738,7 @@ Headings are checked in reading order, those inside callouts and columns too. La
 PdfDocument document = new(new PdfDocumentOptions { Fonts = fonts, Title = "Monthly report", Language = "en", Tagged = false });
 ```
 
-**What it costs.** A tagged file is larger: about 1.2 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10: the 1,000-row table 186 KB against 76 KB, the ten-page report 73 KB against 57 KB,
+**What it costs.** A tagged file is larger: about 1.15 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10: the 1,000-row table 186 KB against 76 KB, the ten-page report 73 KB against 57 KB,
 the 20-page report 100 KB against 87 KB). **A `DocumentLimits.MaxBytes` chosen for the files of 0.1.5 can now be exceeded**, and the save then throws `PdfLimitExceededException`: raise the limit, or set
 `Tagged = false`. The allocation per save is about the same (the 1,000-row table 18.3 to 19.5 MB against 18.1 to 19.2 MB untagged), and a warm save of that table took about 15 ms more on a busy machine (51.6 and
 56.7 ms against 38.0 and 39.6 ms). [baselines.md](baselines.md) has every figure and how they were taken.
@@ -757,7 +757,7 @@ A document is made for a report, so a character no font has is **data to inspect
 | `MissingFamilies` | The families a style asked for that the collection does not have |
 | `TruncatedTables` | The tables that went past their `MaxRows` |
 | `IsPdfUA` | Whether the file claims PDF/UA-1 (see [Tagged PDF and accessibility](#tagged-pdf-and-accessibility)) |
-| `AccessibilityIssues` | What kept a tagged document from claiming PDF/UA-1: no title, no language, a missing glyph, a heading out of order |
+| `AccessibilityIssues` | What kept a tagged document from claiming PDF/UA-1: no title, no language or an invalid language tag, a missing glyph, a heading out of order |
 | `PageCount`, `ByteCount` | The size of what was written |
 
 `PdfDocumentOptions.Limits` stops a runaway document with a `PdfLimitExceededException` whose `Limit` says which limit and `Maximum` its value: `MaxPages`, `MaxBytes` (checked after every page and once more when the file is complete,

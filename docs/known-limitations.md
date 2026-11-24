@@ -103,7 +103,7 @@ Tagged output is on by default since 0.1.6 (see the guide, section "Tagged PDF a
 - **A document claims PDF/UA-1 only with a title, a language, a glyph for every character and headings in order.** Without `PdfDocumentOptions.Title` or `PdfDocumentOptions.Language` (a language set only on `DefaultStyle`
   does not count), with a language that is not a language tag, with a character no font has, with a first heading that is not level 1 or with a skipped heading level, the file is written tagged but without the
   claim, and `DocumentDiagnostics.AccessibilityIssues` says why. Heading levels are reported, not remapped. A missing glyph is still drawn as the font's `.notdef`.
-- **A tagged file is larger.** About 1.2 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10). The 1,000-row table is 186 KB tagged against 76 KB untagged, over the plan's 150 KB: the
+- **A tagged file is larger.** About 1.15 to 2.5 times the untagged file for the benchmark documents (compressed, .NET 10). The 1,000-row table is 186 KB tagged against 76 KB untagged, over the plan's 150 KB: the
   maintainer accepted about 186 KB for tagged output on 24 November 2026, as what is left is the structure of its 7,012 elements, numbers that Flate cannot predict; the 150 KB target applies to untagged output. The
   20-page report (100 KB) and the stress document (452 KB) stay under the plan's 120 and 600 KB. A `DocumentLimits.MaxBytes` chosen for the files of 0.1.5 can be exceeded; raise it, or set `Tagged = false`, which
   writes the untagged bytes of 0.1.5.

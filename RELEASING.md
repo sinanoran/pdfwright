@@ -128,8 +128,8 @@ Recorded on 22 November 2026, so that nobody reads the list above as a list of t
 - CI is green on `main` for the commit being tagged. The release workflow runs
   the tests again, but finding out at push time is worse than finding out before.
 - **veraPDF ran (since 0.1.6).** CI's ubuntu leg installs a pinned veraPDF and
-  validates the tagged documents against PDF/UA-1 (`PdfUAValidationTests` and the
-  other tests that call veraPDF, on .NET 10, with `PDFWRIGHT_REQUIRE_VERAPDF=1`, so
+  validates the tagged documents against PDF/UA-1 (the tests in
+  `PdfUAValidationTests`, on .NET 10, with `PDFWRIGHT_REQUIRE_VERAPDF=1`, so
   a missing veraPDF fails the job there); the other legs and the release workflow
   have no veraPDF and skip those tests. Nothing to do by hand,
   unless that leg skipped them: then look at its log, and run the tests with

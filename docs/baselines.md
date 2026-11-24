@@ -226,7 +226,7 @@ The warm table is about half of the 55 to 58 ms measured in the ASCII-paths sitt
 ## Tagged output (0.1.6)
 
 Since 0.1.6 a document is tagged unless `PdfDocumentOptions.Tagged` is `false`. The benchmark program measures both: every scenario name takes `-untagged` (`warm table-untagged`, `once table-untagged table.pdf`),
-and the BenchmarkDotNet scenarios run with `Tagged` true and false. The figures are those of the CHANGELOG, compressed, `net10.0`, on the machine described above. "Untagged" is the output of 0.1.5, which
+and the BenchmarkDotNet scenarios run with `Tagged` true and false. The figures are those of the CHANGELOG, measured on 24 November 2026, compressed, `net10.0`, on the machine described above. "Untagged" is the output of 0.1.5, which
 `Tagged = false` still writes byte for byte.
 
 **Size of the file.**
@@ -255,10 +255,11 @@ guards for the tables.
 | `table-arabic` | 42.1 MB | 40.5 MB |
 | `table-devanagari` | 37.7 MB | 36.3 MB |
 
-A range is that of several measurements. All are within the plan's budgets (the table's 20 MB included), which `AllocationBudgetTests` holds for tagged and untagged output.
+A range is that of several measurements, on `net10.0`. The table, the 20-page report and the stress document are within the plan's budgets there (the table's 20 MB included); `net8.0` reads about 7 percent
+more, and the table passes there through the 25 percent tolerance of `AllocationBudgetTests`, which holds tagged and untagged output to these budgets. The Arabic and Devanagari tables have regression guards only.
 
 **Time.** Tagged and untagged were run **alternating, in two rounds**, at **5 to 8 GB free** (`Available MBytes`) on a **busy machine**, so the figures are noisy: compare tagged with untagged within this sitting, not with
-the quieter sitting of 23 November above (where the warm table was about 30 ms). The cold figures are of **40 fresh processes** each.
+the quieter sitting of 23 November above (where the warm table was about 30 ms). The cold figures are the medians of **40 fresh processes** each.
 
 | | Tagged | Untagged |
 |---|---|---|
@@ -270,7 +271,7 @@ the quieter sitting of 23 November above (where the warm table was about 30 ms).
 | `report20`, warm (the two rounds) | 29.4 and 46.1 ms | 34.6 and 44.4 ms |
 
 So the warm table takes about 15 ms more tagged (under the plan's 60 ms), its first save in a fresh process 46 ms more with the default JIT and level within noise with ReadyToRun, and the 20-page report is
-level within noise. The untagged cold table with ReadyToRun was 283 ms in this sitting against 240 ms on 23 November, so this sitting, not tagging, is what puts both over the plan's 250 ms.
+level within noise. With ReadyToRun, 288 ms is over the 250 ms target in that busier sitting, where the untagged build measured 283 ms (240 ms in the quiet sitting of 23 November).
 
 ## What the Skia spike showed about text (why Pdfwright writes its own writer)
 
