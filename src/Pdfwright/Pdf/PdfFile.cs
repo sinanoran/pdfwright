@@ -23,12 +23,38 @@ internal enum PdfCompression
 /// but the offset of each object, so the memory of a document is the pages not yet written.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The document <c>/ID</c> is the SHA-256 of every byte written before the cross-reference stream, so it identifies the
 /// content and two equal documents are equal files, with no clock and no random number in them.
+/// </para>
+/// <para>
+/// With <b>object streams</b> (ISO 32000-1, 7.5.7), which a tagged document asks for and which are used only when the file is compressed, the
+/// objects written by <see cref="WritePacked(int, ReadOnlySpan{byte})"/> go into compressed object streams of up to <see cref="PackedObjectLimit"/>
+/// objects instead of one after another: a tagged table has an object for each structure element, thousands of small dictionaries that compress
+/// well together and not at all one by one. The objects of a stream are held until it is full, so the memory is one stream's worth and not the
+/// document's, and the cross-reference stream gives each object its stream and its index there. Without object streams, and for every object
+/// written by <see cref="Write"/> or <see cref="WriteRaw"/>, the file is the one a writer without them makes.
+/// </para>
 /// </remarks>
 internal sealed class PdfFile : IDisposable
 {
     private const int CompressionThreshold = 64;
+
+    /// <summary>
+    /// The most objects in one object stream. More compress a little better and hold more in memory until the stream is written. Measured on the
+    /// tagged 1,000-row table: 195 KB at 100, 190 KB at 200, 186 KB at 400, 184 KB at 1,000; at 400 the open stream holds about 35 KB of structure
+    /// elements, under the large object heap's threshold.
+    /// </summary>
+    internal const int PackedObjectLimit = 400;
+
+    /// <summary>
+    /// The bytes of objects after which an object stream is written even when it holds fewer than <see cref="PackedObjectLimit"/> (long <c>/Alt</c>
+    /// texts, say), so that its buffers stay under the large object heap's threshold.
+    /// </summary>
+    private const int PackedByteLimit = 48 * 1024;
+
+    /// <summary>The level object streams are compressed at.</summary>
+    private const CompressionLevel PackedCompression = CompressionLevel.SmallestSize;
 
     private readonly HashingStream _output;
     private readonly PdfCompression _compression;
@@ -38,11 +64,37 @@ internal sealed class PdfFile : IDisposable
     // Set when writing an object failed halfway: its bytes are in the file and cannot be taken back, so nothing more is written.
     private bool _faulted;
 
-    internal PdfFile(Stream output, PdfCompression compression)
+    /// <summary>Whether <see cref="WritePacked(int, ReadOnlySpan{byte})"/> puts objects in object streams: they were asked for, and the file is compressed.</summary>
+    private readonly bool _objectStreams;
+
+    /// <summary>The number of the object stream being filled, or 0 when none is open.</summary>
+    private int _packedNumber;
+
+    /// <summary>The numbers of the objects of the open object stream, and their offsets in <see cref="_packed"/>; <see cref="_packedCount"/> of each are used.</summary>
+    private readonly int[] _packedNumbers;
+    private readonly int[] _packedOffsets;
+    private int _packedCount;
+
+    /// <summary>The bytes of the objects of the open object stream, one after another; kept from one stream to the next.</summary>
+    private readonly MemoryStream _packed = new();
+
+    /// <summary>The pairs of numbers that begin an object stream (each object's number and offset); kept from one stream to the next.</summary>
+    private readonly MemoryStream _packedHeader = new();
+
+    /// <param name="output">Where the file is written.</param>
+    /// <param name="compression">Whether streams are compressed.</param>
+    /// <param name="objectStreams">
+    /// Whether the objects written by <see cref="WritePacked(int, ReadOnlySpan{byte})"/> go into object streams. Only when <paramref name="compression"/> is
+    /// <see cref="PdfCompression.Flate"/>: an uncompressed file stays one that a text editor can read, object by object.
+    /// </param>
+    internal PdfFile(Stream output, PdfCompression compression, bool objectStreams = false)
     {
         ArgumentNullException.ThrowIfNull(output);
         _output = new HashingStream(output);
         _compression = compression;
+        _objectStreams = objectStreams && compression == PdfCompression.Flate;
+        _packedNumbers = _objectStreams ? new int[PackedObjectLimit] : [];
+        _packedOffsets = _objectStreams ? new int[PackedObjectLimit] : [];
 
         PdfSerializer.Ascii(_output, "%PDF-1.7\n");
 
@@ -113,6 +165,151 @@ internal sealed class PdfFile : IDisposable
         _offsets[number] = start;
     }
 
+    /// <summary>
+    /// Writes an object, given as the bytes of its value, as <see cref="WriteRaw"/> does; with object streams, into the object stream being filled
+    /// instead, which is written when it is full or when the file is finished. The value is not a stream: a stream cannot be in an object stream.
+    /// </summary>
+    internal void WritePacked(int number, ReadOnlySpan<byte> value)
+    {
+        if (!_objectStreams)
+        {
+            WriteRaw(number, value);
+            return;
+        }
+
+        CheckWritable(number, nameof(number));
+        try
+        {
+            int offset = StartPacked();
+            _packed.Write(value);
+            EndPacked(number, offset);
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+    }
+
+    /// <summary>Writes an object that is not a stream as <see cref="Write"/> does; with object streams, into the object stream being filled, as <see cref="WritePacked(int, ReadOnlySpan{byte})"/> does.</summary>
+    internal void WritePacked(PdfReference reference, PdfObject value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value is PdfStream)
+        {
+            throw new ArgumentException("A stream cannot be in an object stream.", nameof(value));
+        }
+
+        if (!_objectStreams)
+        {
+            Write(reference, value);
+            return;
+        }
+
+        CheckWritable(reference.Number, nameof(reference));
+        try
+        {
+            int offset = StartPacked();
+            PdfSerializer.Write(value, _packed);
+            EndPacked(reference.Number, offset);
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+    }
+
+    /// <summary>Opens an object stream if none is open, reserving its number, and returns the offset of the next object in it.</summary>
+    private int StartPacked()
+    {
+        if (_packedNumber == 0)
+        {
+            _packedNumber = AllocateNumber();
+        }
+        else
+        {
+            // A line between two objects, which a reader does not need between a dictionary and what follows, but which keeps them apart to the eye.
+            _packed.WriteByte((byte)'\n');
+        }
+
+        return (int)_packed.Length;
+    }
+
+    /// <summary>Records an object put in the open object stream, and writes the stream when it is full.</summary>
+    private void EndPacked(int number, int offset)
+    {
+        _packedNumbers[_packedCount] = number;
+        _packedOffsets[_packedCount] = offset;
+        _offsets[number] = InObjectStream(_packedNumber, _packedCount);
+        _packedCount++;
+        if (_packedCount == PackedObjectLimit || _packed.Length >= PackedByteLimit)
+        {
+            FlushPacked();
+        }
+    }
+
+    /// <summary>
+    /// Writes the open object stream, if there is one: <c>/Type /ObjStm</c>, <c>/N</c> objects, <c>/First</c> the offset of the first one, and a body
+    /// of <c>/N</c> pairs of an object number and its offset from <c>/First</c>, then the objects (ISO 32000-1, 7.5.7), compressed as any stream is.
+    /// </summary>
+    private void FlushPacked()
+    {
+        if (_packedNumber == 0)
+        {
+            return;
+        }
+
+        MemoryStream header = _packedHeader;
+        header.SetLength(0);
+        for (int i = 0; i < _packedCount; i++)
+        {
+            if (i > 0)
+            {
+                header.WriteByte((byte)' ');
+            }
+
+            PdfSerializer.Integer(header, _packedNumbers[i]);
+            header.WriteByte((byte)' ');
+            PdfSerializer.Integer(header, _packedOffsets[i]);
+        }
+
+        header.WriteByte((byte)'\n');
+        PdfReference stream = new(_packedNumber);
+        PdfDictionary dictionary = new PdfDictionary()
+            .Set("Type", "ObjStm")
+            .Set("N", _packedCount)
+            .Set("First", (int)header.Length);
+        _packedNumber = 0;
+        _packedCount = 0;
+
+        // Compressed here, the pairs of numbers and then the objects with no copy of them made, at the smallest size rather than the writer's
+        // default: it takes about 3 percent off the object streams of a tagged table, which are a small part of the time of a save.
+        ReadOnlySpan<byte> pairs = header.GetBuffer().AsSpan(0, (int)header.Length);
+        ReadOnlySpan<byte> objects = _packed.GetBuffer().AsSpan(0, (int)_packed.Length);
+        ReadOnlyMemory<byte> data = Deflate(pairs, objects, PackedCompression);
+        if (data.Length < pairs.Length + objects.Length)
+        {
+            dictionary.Set("Filter", "FlateDecode");
+        }
+        else
+        {
+            byte[] plain = new byte[pairs.Length + objects.Length];
+            pairs.CopyTo(plain);
+            objects.CopyTo(plain.AsSpan(pairs.Length));
+            data = plain;
+        }
+
+        _packed.SetLength(0);
+        Write(stream, new PdfStream(dictionary, data));
+    }
+
+    /// <summary>
+    /// The entry of the offset table of an object in an object stream, below -1 (-1 is an object not yet written, 0 and above the offset of one
+    /// written in the file itself): the stream's number and the object's index in it.
+    /// </summary>
+    private static long InObjectStream(int stream, int index) => -2 - (((long)stream << 16) | (uint)index);
+
     private void CheckWritable(int number, string parameter)
     {
         if (_finished)
@@ -130,7 +327,7 @@ internal sealed class PdfFile : IDisposable
             throw new ArgumentOutOfRangeException(parameter, number, $"No object {number} was allocated (1 to {_offsets.Count - 1}).");
         }
 
-        if (_offsets[number] >= 0)
+        if (_offsets[number] != -1)
         {
             throw new InvalidOperationException($"Object {number} was written twice.");
         }
@@ -160,9 +357,11 @@ internal sealed class PdfFile : IDisposable
             throw new InvalidOperationException("An earlier object failed halfway and is in the file as partial bytes: the file cannot be finished.");
         }
 
+        // The last object stream is written first: its objects are written, and its own number was allocated for it.
+        FlushPacked();
         for (int number = 1; number < _offsets.Count; number++)
         {
-            if (_offsets[number] < 0)
+            if (_offsets[number] == -1)
             {
                 throw new InvalidOperationException($"Object {number} was allocated and never written.");
             }
@@ -173,22 +372,37 @@ internal sealed class PdfFile : IDisposable
         long xrefOffset = _output.Position;
         _offsets[xref.Number] = xrefOffset;
 
-        // Fields: type (1 byte), offset or next free (4 bytes, or 8 when the file is 4 GiB or more), generation (2 bytes).
+        // Fields: type (1 byte); offset, next free or object stream (4 bytes, or 8 when the file is 4 GiB or more); generation or index in the
+        // object stream (2 bytes: an object stream holds at most PackedObjectLimit objects).
         int offsetBytes = _offsets.Max() > uint.MaxValue ? 8 : 4;
         int entrySize = 1 + offsetBytes + 2;
-        byte[] table = new byte[_offsets.Count * entrySize];
-        BinaryPrimitives.WriteUInt16BigEndian(table.AsSpan(1 + offsetBytes, 2), 65535);
+
+        // With object streams, each row of the table begins with the byte of its predictor (written below).
+        int lead = _objectStreams ? 1 : 0;
+        int rowSize = lead + entrySize;
+        byte[] table = new byte[_offsets.Count * rowSize];
+        BinaryPrimitives.WriteUInt16BigEndian(table.AsSpan(lead + 1 + offsetBytes, 2), 65535);
         for (int number = 1; number < _offsets.Count; number++)
         {
-            Span<byte> entry = table.AsSpan(number * entrySize, entrySize);
+            Span<byte> entry = table.AsSpan((number * rowSize) + lead, entrySize);
+            long field = _offsets[number];
             entry[0] = 1;
+            if (field < -1)
+            {
+                // Type 2, an object in an object stream: the stream's number, and the object's index in it in place of the generation.
+                long packed = -2 - field;
+                entry[0] = 2;
+                field = packed >> 16;
+                BinaryPrimitives.WriteUInt16BigEndian(entry[(1 + offsetBytes)..], (ushort)(packed & 0xFFFF));
+            }
+
             if (offsetBytes == 4)
             {
-                BinaryPrimitives.WriteUInt32BigEndian(entry[1..5], (uint)_offsets[number]);
+                BinaryPrimitives.WriteUInt32BigEndian(entry[1..5], (uint)field);
             }
             else
             {
-                BinaryPrimitives.WriteUInt64BigEndian(entry[1..9], (ulong)_offsets[number]);
+                BinaryPrimitives.WriteUInt64BigEndian(entry[1..9], (ulong)field);
             }
         }
 
@@ -204,9 +418,31 @@ internal sealed class PdfFile : IDisposable
             dictionary.Set("Info", info);
         }
 
+        ReadOnlyMemory<byte> data = table;
+        if (_objectStreams)
+        {
+            // A table with an entry for each structure element: each row is written as its difference from the row above (the PNG "Up" predictor,
+            // ISO 32000-1, 7.4.4.4), which leaves mostly zeros (the next index in the same object stream) and compresses to a tenth of the plain
+            // rows. In place, from the last row up, so that each row is taken from the row above while that one is still as it was.
+            for (int row = _offsets.Count - 1; row >= 0; row--)
+            {
+                int at = row * rowSize;
+                table[at] = 2;
+                for (int i = 1; row > 0 && i < rowSize; i++)
+                {
+                    table[at + i] -= table[at - rowSize + i];
+                }
+            }
+
+            data = Deflate(table, CompressionLevel.Optimal);
+            dictionary
+                .Set("Filter", "FlateDecode")
+                .Set("DecodeParms", new PdfDictionary().Set("Predictor", 12).Set("Columns", entrySize));
+        }
+
         _finished = true;
         PdfSerializer.Ascii(_output, xref.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) + " 0 obj\n");
-        WriteStreamBody(new PdfStream(dictionary, table));
+        WriteStreamBody(new PdfStream(dictionary, data));
         PdfSerializer.Ascii(_output, "\nendobj\n");
         PdfSerializer.Ascii(_output, "startxref\n" + xrefOffset.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\n%%EOF\n");
         _output.Flush();
@@ -227,7 +463,7 @@ internal sealed class PdfFile : IDisposable
         // leave the dictionary saying one filter for bytes that need two, and /DecodeParms belong to the filter they were written for.
         if (_compression == PdfCompression.Flate && !stream.NeverCompress && dictionary["Filter"] is null && data.Length >= CompressionThreshold)
         {
-            ReadOnlyMemory<byte> deflated = Deflate(data.Span);
+            ReadOnlyMemory<byte> deflated = Deflate(data.Span, CompressionLevel.Optimal);
             if (deflated.Length < data.Length)
             {
                 data = deflated;
@@ -246,13 +482,27 @@ internal sealed class PdfFile : IDisposable
     /// The data compressed, in a buffer the file keeps for the next stream: the bytes are valid until the next call, and a stream's bytes are
     /// written before the next stream is compressed. A new buffer for every stream would cost each stream about three times its compressed size.
     /// </summary>
-    private ReadOnlyMemory<byte> Deflate(ReadOnlySpan<byte> data)
+    private ReadOnlyMemory<byte> Deflate(ReadOnlySpan<byte> data, CompressionLevel level)
     {
         MemoryStream compressed = _deflated ??= new MemoryStream();
         compressed.SetLength(0);
-        using (ZLibStream zlib = new(compressed, CompressionLevel.Optimal, leaveOpen: true))
+        using (ZLibStream zlib = new(compressed, level, leaveOpen: true))
         {
             zlib.Write(data);
+        }
+
+        return compressed.GetBuffer().AsMemory(0, (int)compressed.Length);
+    }
+
+    /// <summary>Two pieces of data compressed as one, one after the other, into the buffer <see cref="Deflate(ReadOnlySpan{byte}, CompressionLevel)"/> uses.</summary>
+    private ReadOnlyMemory<byte> Deflate(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second, CompressionLevel level)
+    {
+        MemoryStream compressed = _deflated ??= new MemoryStream();
+        compressed.SetLength(0);
+        using (ZLibStream zlib = new(compressed, level, leaveOpen: true))
+        {
+            zlib.Write(first);
+            zlib.Write(second);
         }
 
         return compressed.GetBuffer().AsMemory(0, (int)compressed.Length);
@@ -261,7 +511,7 @@ internal sealed class PdfFile : IDisposable
     private MemoryStream? _deflated;
 
     /// <summary>
-    /// The offset of each object by number (-1 until it is written; entry 0 is the head of the free list), in blocks of 256 that are never copied: a
+    /// The offset of each object by number (-1 until it is written, below -1 for an object in an object stream; entry 0 is the head of the free list), in blocks of 256 that are never copied: a
     /// tagged document has an object for each structure element, thousands of them, and a list that grows by doubling copies them at each step.
     /// </summary>
     private sealed class OffsetTable

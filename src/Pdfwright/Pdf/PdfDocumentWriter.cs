@@ -61,7 +61,8 @@ internal sealed class PdfDocumentWriter : IDisposable
     internal PdfDocumentWriter(Stream output, PdfWriterOptions options)
     {
         _options = options;
-        _file = new PdfFile(output, options.Compression);
+        // A tagged document has an object for each structure element: compressed, they go into object streams (an untagged file stays as it was).
+        _file = new PdfFile(output, options.Compression, objectStreams: options.Tagged);
         _pagesRoot = _file.Allocate();
         if (options.Tagged)
         {
@@ -114,8 +115,14 @@ internal sealed class PdfDocumentWriter : IDisposable
     /// <summary>Reserves an object number, as <see cref="AllocateObject"/> does, without making a reference.</summary>
     internal int AllocateNumber() => _file.AllocateNumber();
 
-    /// <summary>Writes an object given as the bytes the serializer would write for its value, under a number <see cref="AllocateNumber"/> returned.</summary>
-    internal void WriteRawObject(int number, ReadOnlySpan<byte> value) => _file.WriteRaw(number, value);
+    /// <summary>
+    /// Writes an object that is not a stream, given as the bytes the serializer would write for its value, under a number <see cref="AllocateNumber"/>
+    /// returned; in a compressed tagged document, into an object stream (<see cref="PdfFile.WritePacked(int, ReadOnlySpan{byte})"/>).
+    /// </summary>
+    internal void WritePackedObject(int number, ReadOnlySpan<byte> value) => _file.WritePacked(number, value);
+
+    /// <summary>Writes an object that is not a stream, as <see cref="WriteObject"/> does; in a compressed tagged document, into an object stream.</summary>
+    internal void WritePackedObject(PdfReference reference, PdfObject value) => _file.WritePacked(reference, value);
 
     /// <summary>
     /// What the document keeps once for everything that uses it: the embedded form of a font, the XObject of an image. The first call
@@ -339,7 +346,7 @@ internal sealed class PdfDocumentWriter : IDisposable
 
         output.WriteByte((byte)']');
         int number = _file.AllocateNumber();
-        _file.WriteRaw(number, output.GetBuffer().AsSpan(0, (int)output.Length));
+        _file.WritePacked(number, output.GetBuffer().AsSpan(0, (int)output.Length));
         owners.Clear();
         _spareOwners = owners;
         Structure.AddEntry(key, new PdfReference(number));
