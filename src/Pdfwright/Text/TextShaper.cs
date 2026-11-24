@@ -943,20 +943,27 @@ internal static class TextShaper
 
         // Only a run that is the whole text is cached: it is shaped with no context, so its glyphs depend on nothing but the key.
         bool whole = FastPaths && utf16Start == 0 && utf16Length == text.Length;
-        ShapedGlyph[]? glyphs = whole ? font.GetCached(text, rightToLeft, scriptTag, language) : null;
+
+        // Words are shaped one by one only for left-to-right text of the simple path (printable ASCII, one script) in a font whose rules never involve the space glyph; every other run is shaped as a whole.
+        // A whole text that is a single word gains nothing from it (the cache of whole texts already holds it), so it is shaped as it is.
+        // A text shaped word by word is not kept in the cache of whole texts: its words are in the word cache, and joining them again costs little, while keeping every text of a long table (each cell different) filled
+        // the cache, emptied it every 2,048 texts and kept thousands of arrays alive from one collection to the next, for no hit.
+        ShapedGlyph[]? glyphs = null;
+        if (FastPaths && simple && !rightToLeft && (!whole || text.AsSpan().IndexOf(' ') >= 0) && font.CanShapeWordByWord)
+        {
+            glyphs = ShapeByWords(text, utf16Start, utf16Length, scriptTag, language, font);
+        }
+
         if (glyphs is null)
         {
-            // Words are shaped one by one only for left-to-right text of the simple path (printable ASCII, one script) in a font whose rules never involve the space glyph; every other run is shaped as a whole.
-            // A whole text that is a single word gains nothing from it (the cache of whole texts already holds it), so it is shaped as it is.
-            if (FastPaths && simple && !rightToLeft && (!whole || text.AsSpan().IndexOf(' ') >= 0) && font.CanShapeWordByWord)
+            glyphs = whole ? font.GetCached(text, rightToLeft, scriptTag, language) : null;
+            if (glyphs is null)
             {
-                glyphs = ShapeByWords(text, utf16Start, utf16Length, scriptTag, language, font);
-            }
-
-            glyphs ??= font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, rightToLeft, scriptTag, language);
-            if (whole)
-            {
-                font.Cache(text, rightToLeft, scriptTag, language, glyphs);
+                glyphs = font.Shaper.Shape(font.Handle, text, utf16Start, utf16Length, rightToLeft, scriptTag, language);
+                if (whole)
+                {
+                    font.Cache(text, rightToLeft, scriptTag, language, glyphs);
+                }
             }
         }
 
