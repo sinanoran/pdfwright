@@ -51,35 +51,19 @@ internal sealed class PdfFile : IDisposable
     }
 
     /// <summary>Reserves the number of an object to be written later, so that other objects can refer to it first.</summary>
-    internal PdfReference Allocate()
+    internal PdfReference Allocate() => new(AllocateNumber());
+
+    /// <summary>Reserves the number of an object to be written later, as <see cref="Allocate"/> does, without making a reference.</summary>
+    internal int AllocateNumber()
     {
         _offsets.Add(-1);
-        return new PdfReference(_offsets.Count - 1);
+        return _offsets.Count - 1;
     }
 
     /// <summary>Writes an object under a number that <see cref="Allocate"/> returned.</summary>
     internal void Write(PdfReference reference, PdfObject value)
     {
-        if (_finished)
-        {
-            throw new InvalidOperationException("The file is finished.");
-        }
-
-        if (_faulted)
-        {
-            throw new InvalidOperationException("An earlier object failed halfway and is in the file as partial bytes: the file cannot be continued.");
-        }
-
-        if (reference.Number < 1 || reference.Number >= _offsets.Count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(reference), reference.Number, $"No object {reference.Number} was allocated (1 to {_offsets.Count - 1}).");
-        }
-
-        if (_offsets[reference.Number] >= 0)
-        {
-            throw new InvalidOperationException($"Object {reference.Number} was written twice.");
-        }
-
+        CheckWritable(reference.Number, nameof(reference));
         long start = _output.Position;
         try
         {
@@ -103,6 +87,53 @@ internal sealed class PdfFile : IDisposable
         }
 
         _offsets[reference.Number] = start;
+    }
+
+    /// <summary>
+    /// Writes an object, given as the bytes of its value (what the serializer would write for it), under a number that <see cref="AllocateNumber"/>
+    /// returned: <c>n 0 obj</c>, the bytes and <c>endobj</c>, as <see cref="Write"/> frames an object.
+    /// </summary>
+    internal void WriteRaw(int number, ReadOnlySpan<byte> value)
+    {
+        CheckWritable(number, nameof(number));
+        long start = _output.Position;
+        try
+        {
+            PdfSerializer.Integer(_output, number);
+            _output.Write(" 0 obj\n"u8);
+            _output.Write(value);
+            _output.Write("\nendobj\n"u8);
+        }
+        catch
+        {
+            _faulted = true;
+            throw;
+        }
+
+        _offsets[number] = start;
+    }
+
+    private void CheckWritable(int number, string parameter)
+    {
+        if (_finished)
+        {
+            throw new InvalidOperationException("The file is finished.");
+        }
+
+        if (_faulted)
+        {
+            throw new InvalidOperationException("An earlier object failed halfway and is in the file as partial bytes: the file cannot be continued.");
+        }
+
+        if (number < 1 || number >= _offsets.Count)
+        {
+            throw new ArgumentOutOfRangeException(parameter, number, $"No object {number} was allocated (1 to {_offsets.Count - 1}).");
+        }
+
+        if (_offsets[number] >= 0)
+        {
+            throw new InvalidOperationException($"Object {number} was written twice.");
+        }
     }
 
     /// <summary>Allocates a number and writes the object under it.</summary>
